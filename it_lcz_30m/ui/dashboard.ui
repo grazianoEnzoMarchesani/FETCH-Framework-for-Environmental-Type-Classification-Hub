@@ -1,0 +1,456 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>LCZDashboard</class>
+ <widget class="QDialog" name="LCZDashboard">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>600</width>
+    <height>750</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>IT-LCZ 30m National Suite - Professional Suite</string>
+  </property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item>
+    <widget class="QLabel" name="headerLabel">
+     <property name="font">
+      <font>
+       <pointsize>18</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>IT-LCZ 30m Suite</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTabWidget" name="tabWidget">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="tabAOI">
+      <attribute name="title">
+       <string>1. Study Area</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_AOI">
+       <item>
+        <widget class="QGroupBox" name="groupAOI">
+         <property name="title">
+          <string>Define Area of Interest (AOI)</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_4">
+          <item>
+           <widget class="QRadioButton" name="radioAOILayer">
+            <property name="text">
+             <string>Use Layer Extent</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="layerLayout">
+            <item>
+             <widget class="QgsMapLayerComboBox" name="layerCombo"/>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioAOICanvas">
+            <property name="text">
+             <string>Draw Rectangle on Canvas</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="canvasLayout">
+            <item>
+             <widget class="QPushButton" name="btnSelectExtent">
+              <property name="text">
+               <string>Select Extent on Map</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="extentLabel">
+            <property name="font">
+             <font>
+              <italic>true</italic>
+             </font>
+            </property>
+            <property name="text">
+             <string>Current AOI: Not defined</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer_AOI">
+         <property name="orientation">
+          <set>Qt::Vertical</set>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabInputs">
+      <attribute name="title">
+       <string>2. Data Sources</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_Inputs">
+       <item>
+        <widget class="QGroupBox" name="groupTerrain">
+         <property name="title">
+          <string>Terrain &amp; Building Heights</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayout_Terrain">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_dtm">
+            <string>Tinitaly DTM (10m):</string>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="dtmPath"/>
+          </item>
+          <item row="0" column="2">
+           <widget class="QPushButton" name="browseDTM">
+            <string>...</string>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_tum">
+            <string>TUM Buildings (10m):</string>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="buildingPath"/>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPushButton" name="browseBuilding">
+            <string>...</string>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="label_eth">
+            <string>ETH Canopy (10m):</string>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLineEdit" name="canopyPath"/>
+          </item>
+          <item row="2" column="2">
+           <widget class="QPushButton" name="browseCanopy">
+            <string>...</string>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupClassification">
+         <property name="title">
+          <string>Landcover &amp; Socio-Thermal</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayout_Classification">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_esa">
+            <string>ESA WorldCover (10m):</string>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="landcoverPath"/>
+          </item>
+          <item row="0" column="2">
+           <widget class="QPushButton" name="browseLandcover">
+            <string>...</string>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_meta">
+            <string>Meta Population (30m):</string>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="populationPath"/>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPushButton" name="browsePopulation">
+            <string>...</string>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer_Inputs">
+         <property name="orientation">
+          <set>Qt::Vertical</set>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabAlbedo">
+      <attribute name="title">
+       <string>3. Albedo</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_Albedo">
+       <item>
+        <widget class="QGroupBox" name="groupAlbedoMethod">
+         <property name="title">
+          <string>Albedo Calculation Strategy</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_AlbedoSelection">
+          <item>
+           <widget class="QRadioButton" name="radioAlbedoDirect">
+            <property name="text">
+             <string>Option A: Direct Albedo (S2GM / Copernicus Tif)</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioAlbedoManual">
+            <property name="text">
+             <string>Option B: Manual NTB Formula (Narrow-to-Broadband)</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupS2Inputs">
+         <property name="title">
+          <string>Sentinel-2 Source</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayout_S2">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_s2">
+            <string>S2 Mosaic / Bands Folder:</string>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="s2Path"/>
+          </item>
+          <item row="0" column="2">
+           <widget class="QPushButton" name="browseS2">
+            <string>...</string>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer_Albedo">
+         <property name="orientation">
+          <set>Qt::Vertical</set>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabProcessing">
+      <attribute name="title">
+       <string>4. Settings</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_Proc">
+       <item>
+        <widget class="QGroupBox" name="groupGrid">
+         <property name="title">
+          <string>Grid Configuration</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayout_Grid">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_res">
+            <string>Target Resolution (m):</string>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QSpinBox" name="spinResolution">
+            <property name="suffix">
+             <string> m</string>
+            </property>
+            <property name="minimum">
+             <number>10</number>
+            </property>
+            <property name="maximum">
+             <number>500</number>
+            </property>
+            <property name="value">
+             <number>30</number>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_buffer">
+            <string>Edge Buffer (m):</string>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QSpinBox" name="spinBuffer">
+            <property name="suffix">
+             <string> m</string>
+            </property>
+            <property name="minimum">
+             <number>0</number>
+            </property>
+            <property name="maximum">
+             <number>2000</number>
+            </property>
+            <property name="value">
+             <number>500</number>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="label_tilesize">
+            <string>Quadrant Size (km):</string>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QSpinBox" name="spinTileSize">
+            <property name="suffix">
+             <string> km</string>
+            </property>
+            <property name="minimum">
+             <number>1</number>
+            </property>
+            <property name="maximum">
+             <number>200</number>
+            </property>
+            <property name="value">
+             <number>50</number>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupOutput">
+         <property name="title">
+          <string>Output</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayout_Output">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_out">
+            <string>Output Directory:</string>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="outputPath"/>
+          </item>
+          <item row="0" column="2">
+           <widget class="QPushButton" name="browseOutput">
+            <string>...</string>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer_Proc">
+         <property name="orientation">
+          <set>Qt::Vertical</set>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QProgressBar" name="progressBar">
+     <property name="value">
+      <number>0</number>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTextEdit" name="logConsole">
+     <property name="readOnly">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout">
+     <item>
+      <widget class="QPushButton" name="btnCancel">
+       <string>Cancel</string>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btnDownload">
+       <property name="text">
+        <string>Download AOI Data</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btnRun">
+       <property name="text">
+        <string>Start National Processing</string>
+       </property>
+       <property name="default">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>QgsMapLayerComboBox</class>
+   <extends>QComboBox</extends>
+   <header>qgis.gui</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

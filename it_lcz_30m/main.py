@@ -5,12 +5,21 @@ from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtGui import QIcon
 import os.path
 
+from .ui.interface_handler import InterfaceHandler
+
 class ITLCZ30m:
+    """
+    Main Plugin Entry Point for IT-LCZ 30m.
+    Following SoC, this class only handles the action registration and setup.
+    """
     def __init__(self, iface):
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
         self.actions = []
         self.menu = 'IT-LCZ 30m'
+        
+        # Initialize the UI handler
+        self.interface = InterfaceHandler(self.iface)
 
     def tr(self, message):
         return QCoreApplication.translate('ITLCZ30m', message)
@@ -46,6 +55,7 @@ class ITLCZ30m:
         return action
 
     def initGui(self):
+        """Initializes the plugin GUI elements."""
         icon_path = os.path.join(self.plugin_dir, 'icon.png')
         self.add_action(
             icon_path,
@@ -55,12 +65,11 @@ class ITLCZ30m:
         )
 
     def unload(self):
+        """Removes the plugin menu and toolbar icons."""
         for action in self.actions:
             self.iface.removePluginMenu(self.menu, action)
             self.iface.removeToolBarIcon(action)
 
     def run(self):
-        # This will eventually open the Dashboard UI
-        self.iface.messageBar().pushMessage(
-            "IT-LCZ 30m", "Dashboard in fase di sviluppo!", level=0, duration=5
-        )
+        """Entry point for the plugin execution."""
+        self.interface.open_dashboard()
