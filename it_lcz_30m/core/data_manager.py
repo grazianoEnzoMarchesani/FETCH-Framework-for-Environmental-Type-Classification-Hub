@@ -409,6 +409,293 @@ class DataManager:
         
         return success, message
 
+    def get_utm_zone_for_extent(self, extent, crs_auth_id):
+        """
+        Determina la zona UTM corretta basata sul centroide dell'extent.
+        Restituisce l'EPSG della zona UTM appropriata per l'Italia.
+        """
+        source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
+        wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+        transform = QgsCoordinateTransform(source_crs, wgs84, QgsProject.instance())
+        wgs84_extent = transform.transformBoundingBox(extent)
+        
+        # Calcola zona UTM dal centroide
+        center_lon = (wgs84_extent.xMinimum() + wgs84_extent.xMaximum()) / 2
+        zone = int((center_lon + 180) / 6) + 1
+        
+        # Per Italia, usa sempre emisfero nord (326XX)
+        return f"EPSG:326{zone:02d}"
+
+    def unify_and_clip_data(self, extent, crs_auth_id, log_callback=None):
+        """
+        Unifica tutti i dati scaricati in proiezione metrica (UTM) e ritaglia sull'AOI.
+        I file originali rimangono intatti, i nuovi vengono salvati in unified/.
+        
+        Returns:
+            tuple: (success, message, list of output paths)
+        """
+        def log(msg):
+            if log_callback:
+                log_callback(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+        
+        # Get base directories
+        base_dir = self.get_project_dir()
+        if not base_dir:
+            return False, "Progetto non salvato", []
+        
+        data_dir = os.path.join(base_dir, "it_lcz_data")
+        if not os.path.exists(data_dir):
+            return False, "Nessun dato scaricato trovato (cartella it_lcz_data non esiste)", []
+        
+        # Create unified output directory
+        unified_dir = os.path.join(data_dir, "unified")
+        if not os.path.exists(unified_dir):
+            os.makedirs(unified_dir)
+        
+        # Determine target CRS (UTM zone based on AOI)
+        target_crs_auth = self.get_utm_zone_for_extent(extent, crs_auth_id)
+        target_crs = QgsCoordinateReferenceSystem(target_crs_auth)
+        log(f"Proiezione target: {target_crs_auth} ({target_crs.description()})")
+        
+        # Transform extent to target CRS for clipping
+        source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
+        transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
+        target_extent = transform.transformBoundingBox(extent)
+        
+        output_paths = []
+        
+        # Mapping of source folders to output names
+        dataset_mapping = {
+            "tinitaly_tiles": {"pattern": "*_s10.tif", "output_name": "dtm_10m.tif", "merge": True},
+            "tum_lod1": {"pattern": "*.json", "output_name": "buildings_lod1.gpkg", "type": "vector"},
+            "eth_canopy": {"pattern": "*.tif", "output_name": "canopy_height_10m.tif", "merge": True},
+            "esa_worldcover": {"pattern": "*.tif", "output_name": "landuse_10m.tif", "merge": True},
+            "meta_hrsl": {"pattern": "meta_hrsl_aoi.tif", "output_name": "population_30m.tif", "merge": False},
+            "sentinel2_albedo": {"pattern": "*_albedo_10m.tif", "output_name": "albedo_10m.tif", "merge": False},
+        }
+        
+        for folder_name, config in dataset_mapping.items():
+            folder_path = os.path.join(data_dir, folder_name)
+            if not os.path.exists(folder_path):
+                log(f"Cartella {folder_name} non trovata, salto...")
+                continue
+            
+            output_path = os.path.join(unified_dir, config["output_name"])
+            
+            # Skip if already processed
+            if os.path.exists(output_path):
+                log(f"{config['output_name']} già presente, salto...")
+                output_paths.append(output_path)
+                continue
+            
+            try:
+                if config.get("type") == "vector":
+                    # Process vector data (TUM buildings)
+                    result = self._process_vector_data(folder_path, config, output_path, target_crs_auth, target_extent, log)
+                else:
+                    # Process raster data
+                    result = self._process_raster_data(folder_path, config, output_path, target_crs_auth, target_extent, log)
+                
+                if result and os.path.exists(output_path):
+                    output_paths.append(output_path)
+                    log(f"✓ {config['output_name']} creato con successo")
+                    
+            except Exception as e:
+                log(f"✗ Errore processando {folder_name}: {str(e)}")
+        
+        if output_paths:
+            return True, f"Processati {len(output_paths)} dataset", output_paths
+        else:
+            return False, "Nessun dataset processato", []
+
+    def _process_raster_data(self, folder_path, config, output_path, target_crs, target_extent, log):
+        """Process and merge raster files, then reproject and clip."""
+        import glob
+        
+        # Find all matching files
+        pattern = os.path.join(folder_path, config["pattern"])
+        input_files = glob.glob(pattern)
+        
+        # Exclude cache folders
+        input_files = [f for f in input_files if "cache" not in f]
+        
+        if not input_files:
+            log(f"Nessun file trovato per pattern {config['pattern']} in {folder_path}")
+            return False
+        
+        log(f"Trovati {len(input_files)} file raster da processare...")
+        
+        # If multiple files and merge is True, merge first
+        if len(input_files) > 1 and config.get("merge", False):
+            # Merge rasters
+            temp_merged = output_path.replace(".tif", "_merged_temp.tif")
+            merge_params = {
+                'INPUT': input_files,
+                'PCT': False,
+                'SEPARATE': False,
+                'NODATA_INPUT': None,
+                'NODATA_OUTPUT': None,
+                'OPTIONS': '',
+                'EXTRA': '',
+                'DATA_TYPE': 5,  # Float32
+                'OUTPUT': temp_merged
+            }
+            processing.run("gdal:merge", merge_params)
+            input_for_warp = temp_merged
+        else:
+            input_for_warp = input_files[0]
+        
+        # Warp (reproject) and clip in one step
+        warp_params = {
+            'INPUT': input_for_warp,
+            'SOURCE_CRS': None,  # Auto-detect
+            'TARGET_CRS': target_crs,
+            'RESAMPLING': 0,  # Nearest neighbor (good for categorical data like land use)
+            'NODATA': None,
+            'TARGET_RESOLUTION': None,
+            'OPTIONS': 'COMPRESS=DEFLATE|PREDICTOR=2|ZLEVEL=6',
+            'DATA_TYPE': 0,  # Use input type
+            'TARGET_EXTENT': f"{target_extent.xMinimum()},{target_extent.xMaximum()},{target_extent.yMinimum()},{target_extent.yMaximum()}",
+            'TARGET_EXTENT_CRS': target_crs,
+            'MULTITHREADING': True,
+            'EXTRA': '',
+            'OUTPUT': output_path
+        }
+        processing.run("gdal:warpreproject", warp_params)
+        
+        # Cleanup temp merged file
+        if len(input_files) > 1 and config.get("merge", False):
+            temp_merged = output_path.replace(".tif", "_merged_temp.tif")
+            if os.path.exists(temp_merged):
+                try:
+                    os.remove(temp_merged)
+                except:
+                    pass
+        
+        return os.path.exists(output_path)
+
+    def _process_vector_data(self, folder_path, config, output_path, target_crs, target_extent, log):
+        """Process vector data: reproject and clip to AOI."""
+        import glob
+        from qgis.core import QgsVectorLayer, QgsGeometry
+        
+        # Find input file
+        pattern = os.path.join(folder_path, config["pattern"])
+        input_files = glob.glob(pattern)
+        
+        if not input_files:
+            log(f"Nessun file vettoriale trovato per pattern {config['pattern']}")
+            return False
+        
+        input_file = input_files[0]
+        log(f"Processamento vettoriale: {os.path.basename(input_file)}")
+        
+        # Create clip geometry from extent
+        clip_geom = QgsGeometry.fromRect(target_extent)
+        
+        # Use a temporary file for reprojection
+        temp_reprojected = output_path.replace(".gpkg", "_temp.gpkg")
+        
+        # Reproject
+        reproject_params = {
+            'INPUT': input_file,
+            'TARGET_CRS': target_crs,
+            'OPERATION': '',
+            'OUTPUT': temp_reprojected
+        }
+        processing.run("native:reprojectlayer", reproject_params)
+        
+        # Clip - create a temporary layer from extent
+        clip_params = {
+            'INPUT': temp_reprojected,
+            'OVERLAY': None,  # Use extent instead
+            'OUTPUT': output_path
+        }
+        
+        # Use clip by extent for vector
+        clip_extent_params = {
+            'INPUT': temp_reprojected,
+            'EXTENT': f"{target_extent.xMinimum()},{target_extent.xMaximum()},{target_extent.yMinimum()},{target_extent.yMaximum()}",
+            'CLIP': True,
+            'OUTPUT': output_path
+        }
+        processing.run("native:extractbyextent", clip_extent_params)
+        
+        # Cleanup temp file
+        if os.path.exists(temp_reprojected):
+            try:
+                os.remove(temp_reprojected)
+            except:
+                pass
+        
+        return os.path.exists(output_path)
+
+    def load_unified_layers(self, log_callback=None):
+        """
+        Carica tutti i layer dalla cartella unified nel progetto QGIS.
+        
+        Returns:
+            list: Lista dei layer caricati
+        """
+        def log(msg):
+            if log_callback:
+                log_callback(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+        
+        base_dir = self.get_project_dir()
+        if not base_dir:
+            return []
+        
+        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        if not os.path.exists(unified_dir):
+            log("Cartella unified non trovata")
+            return []
+        
+        from qgis.core import QgsRasterLayer, QgsVectorLayer
+        
+        loaded_layers = []
+        
+        # Layer names mapping for friendly display
+        layer_names = {
+            "dtm_10m.tif": "DTM Tinitaly (10m)",
+            "buildings_lod1.gpkg": "Edifici TUM LoD1",
+            "canopy_height_10m.tif": "Altezza Alberi ETH (10m)",
+            "landuse_10m.tif": "Land Use ESA (10m)",
+            "population_30m.tif": "Popolazione Meta HRSL",
+            "albedo_10m.tif": "Albedo Sentinel-2 (10m)",
+        }
+        
+        for filename, display_name in layer_names.items():
+            filepath = os.path.join(unified_dir, filename)
+            if not os.path.exists(filepath):
+                continue
+            
+            # Check if already loaded
+            existing = QgsProject.instance().mapLayersByName(display_name)
+            if existing:
+                log(f"Layer '{display_name}' già caricato")
+                continue
+            
+            try:
+                if filename.endswith('.tif'):
+                    layer = QgsRasterLayer(filepath, display_name)
+                elif filename.endswith('.gpkg'):
+                    layer = QgsVectorLayer(filepath, display_name, "ogr")
+                else:
+                    continue
+                
+                if layer.isValid():
+                    QgsProject.instance().addMapLayer(layer)
+                    loaded_layers.append(layer)
+                    log(f"✓ Caricato: {display_name}")
+                else:
+                    log(f"✗ Layer non valido: {display_name}")
+                    
+            except Exception as e:
+                log(f"✗ Errore caricamento {display_name}: {str(e)}")
+        
+        return loaded_layers
 
     def _get_links_from_page(self, url):
         try:

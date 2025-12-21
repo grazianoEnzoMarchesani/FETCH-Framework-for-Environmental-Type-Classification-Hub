@@ -142,6 +142,13 @@ class ITLCZDashboard(QDockWidget):
         self.proc_group = QGroupBox("3. Processing & Classification")
         self.proc_layout = QVBoxLayout(self.proc_group)
         
+        # Unifica e Ritaglia - NEW
+        self.btn_unify = QPushButton("Unifica e Ritaglia Dati")
+        self.btn_unify.setToolTip("Riproietta tutti i dati in UTM e ritaglia sull'AOI")
+        self.btn_unify.setStyleSheet("background-color: #3498db; color: white; font-weight: bold; padding: 5px;")
+        self.btn_unify.clicked.connect(self.run_unification)
+        self.proc_layout.addWidget(self.btn_unify)
+        
         self.btn_dsm = QPushButton("Genera DSM Sintetico")
         self.btn_params = QPushButton("Calcola Parametri LCZ")
         self.btn_classify = QPushButton("Esegui Classificazione Finale")
@@ -341,6 +348,64 @@ class ITLCZDashboard(QDockWidget):
                     QgsMessageLog.logMessage(f"Sentinel-2 Albedo Fallimento: {msg}", "IT-LCZ", Qgis.Critical)
 
         self.status_label.setText("Processo completato.")
+
+    def run_unification(self):
+        """Unifica tutti i dati scaricati in proiezione UTM e ritaglia sull'AOI."""
+        project_path = QgsProject.instance().fileName()
+        if not project_path:
+            self.iface.messageBar().pushMessage(
+                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
+            )
+            return
+        
+        # Get AOI extent and CRS
+        if self.aoi_layer_radio.isChecked():
+            layer = self.aoi_combo.currentLayer()
+            if not layer:
+                self.iface.messageBar().pushMessage("Errore", "Nessun layer AOI selezionato.", level=2)
+                return
+            extent = layer.extent()
+            crs = layer.crs().authid()
+        else:
+            if not self.extent_val:
+                self.iface.messageBar().pushMessage("Errore", "Cattura l'estensione della mappa prima di procedere.", level=2)
+                return
+            extent = self.extent_val
+            crs = self.extent_crs
+        
+        self.status_label.setText("Unificazione e ritaglio dati in corso...")
+        self.progress.setMaximum(0)  # Indeterminate progress
+        from qgis.PyQt.QtWidgets import QApplication
+        QApplication.processEvents()
+        
+        def log_callback(msg):
+            self.status_label.setText(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+            QApplication.processEvents()
+        
+        # Run unification
+        success, message, output_paths = self.data_manager.unify_and_clip_data(
+            extent, crs, log_callback=log_callback
+        )
+        
+        if success:
+            self.status_label.setText("Caricamento layer nel progetto...")
+            QApplication.processEvents()
+            
+            # Load layers into project
+            loaded = self.data_manager.load_unified_layers(log_callback=log_callback)
+            
+            self.progress.setMaximum(100)
+            self.progress.setValue(100)
+            self.status_label.setText(f"Completato: {len(output_paths)} dataset unificati, {len(loaded)} layer caricati.")
+            self.iface.messageBar().pushMessage(
+                "IT-LCZ", f"Dati unificati con successo! {len(loaded)} layer caricati nel progetto.", level=3
+            )
+        else:
+            self.progress.setMaximum(100)
+            self.progress.setValue(0)
+            self.status_label.setText(f"Errore: {message}")
+            self.iface.messageBar().pushMessage("IT-LCZ", f"Errore: {message}", level=2)
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
