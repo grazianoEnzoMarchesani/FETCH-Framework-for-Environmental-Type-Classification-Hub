@@ -136,24 +136,47 @@ class DataManager:
         if not download_dir: return []
 
         if category == "LoD1" and aoi_geometry:
-            # Use WFS for LoD1 - it's much faster
             return self._download_tum_lod1_wfs(download_dir, aoi_geometry)
 
-        # Fallback to FTP for Height or if no AOI provided
+        # Initial check: skip everything if tiles are already present (processed or clipped)
+        tiles_to_download = []
         results = []
+        for tile in target_tiles:
+            # Check for existing clipped file or original extracted file
+            clipped_exists = any("_clipped" in f and tile in f for f in os.listdir(download_dir))
+            extracted_exists = any(f.lower().endswith(".tif") and tile in f and "_clipped" not in f for f in os.listdir(download_dir))
+            
+            if clipped_exists or extracted_exists:
+                QgsMessageLog.logMessage(f"Tile TUM {tile} ({category}) già presente e processata. Salto.", "IT-LCZ", Qgis.Info)
+                results.append((tile, True, "Gia' presente"))
+            else:
+                tiles_to_download.append(tile)
+
+        if not tiles_to_download:
+            return results
+
+        # Targeted FTP for Height
         ftp = None
         try:
             ftp = ftplib.FTP(self.tum_host)
             ftp.login(self.tum_user, self.tum_pass)
             ftp.cwd(category)
-            regions = ftp.nlst()
+            
+            # Target regions based on tiles (e.g. 'europe' for Italy)
+            candidate_regions = set()
+            for tile in tiles_to_download:
+                reg = self._get_tum_region_for_tile(tile)
+                if reg: candidate_regions.add(reg)
+            
+            # If no specific region found, scan all
+            regions = list(candidate_regions) if candidate_regions else ftp.nlst()
             
             for region in regions:
                 try:
                     ftp.cwd(region)
                     files = ftp.nlst()
                     for file_name in files:
-                        match = next((t for t in target_tiles if t in file_name), None)
+                        match = next((t for t in tiles_to_download if t in file_name), None)
                         if match:
                             save_path = os.path.join(download_dir, file_name)
                             
@@ -170,21 +193,37 @@ class DataManager:
                     ftp.cwd("..")
                 except Exception as e:
                     QgsMessageLog.logMessage(f"Errore nella regione {region}: {e}", "IT-LCZ", Qgis.Warning)
-                    try:
-                        ftp.cwd("..")
-                    except:
-                        pass
-                    continue
+                    try: ftp.cwd("..")
+                    except: pass
         except Exception as e:
             QgsMessageLog.logMessage(f"Errore FTP TUM: {e}", "IT-LCZ", Qgis.Critical)
         finally:
             if ftp:
-                try:
-                    ftp.quit()
-                except:
-                    pass
+                try: ftp.quit()
+                except: pass
 
         return results
+
+    def _get_tum_region_for_tile(self, tile_id):
+        """
+        Guess FTP region from tile ID (e.g. e010_n45_e015_n40 -> europe)
+        """
+        # Basic mapping for LCZ (mainly Italy/Europe)
+        # Example tile_id: e005_n45_e010_n40
+        parts = tile_id.split('_')
+        if len(parts) == 4:
+            lon_min_str = parts[0]
+            lat_max_str = parts[1]
+            
+            if lat_max_str.startswith('n'): # Northern hemisphere
+                try:
+                    lon_val = int(lon_min_str[1:])
+                    # Assuming 'e' for East, 'w' for West
+                    if lon_min_str.startswith('e') and 0 <= lon_val < 60: # Roughly Europe/Western Asia
+                        return "europe" 
+                except ValueError:
+                    pass
+        return None # Fallback to all regions
 
     def _download_tum_lod1_wfs(self, download_dir, aoi_geometry):
         """
