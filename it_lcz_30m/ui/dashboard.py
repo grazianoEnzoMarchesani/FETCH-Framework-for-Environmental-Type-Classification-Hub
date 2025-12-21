@@ -8,7 +8,11 @@ from qgis.PyQt.QtWidgets import (
     QGroupBox, QScrollArea, QFileDialog, QComboBox,
     QRadioButton
 )
-from qgis.core import QgsProject, QgsMapLayer, QgsWkbTypes, QgsMapLayerProxyModel, QgsRectangle, QgsMessageLog, Qgis
+from qgis.core import (
+    QgsProject, QgsMapLayer, QgsWkbTypes, QgsMapLayerProxyModel, 
+    QgsRectangle, QgsMessageLog, Qgis, QgsCoordinateReferenceSystem, 
+    QgsCoordinateTransform, QgsGeometry
+)
 from qgis.gui import QgsMapLayerComboBox, QgsFileWidget
 from ..core.utils import is_within_italy
 from ..core.data_manager import DataManager

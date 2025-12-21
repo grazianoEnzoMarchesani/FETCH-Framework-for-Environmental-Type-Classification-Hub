@@ -164,14 +164,19 @@ class DataManager:
                     ftp.cwd("..")
                 except Exception as e:
                     QgsMessageLog.logMessage(f"Errore nella regione {region}: {e}", "IT-LCZ", Qgis.Warning)
-                    try: ftp.cwd("..");
-                    except: pass
+                    try:
+                        ftp.cwd("..")
+                    except:
+                        pass
+                    continue
         except Exception as e:
             QgsMessageLog.logMessage(f"Errore FTP TUM: {e}", "IT-LCZ", Qgis.Critical)
         finally:
             if ftp:
-                try: ftp.quit()
-                except: pass
+                try:
+                    ftp.quit()
+                except:
+                    pass
 
         return results
 
@@ -210,36 +215,53 @@ class DataManager:
                         opts = QgsVectorFileWriter.SaveVectorOptions()
                         opts.driverName = "GPKG"
                         QgsVectorFileWriter.writeAsVectorFormatV3(vlayer, gpkg_path, QgsCoordinateTransformContext(), opts)
-                        os.remove(file_path)
+                        # os.remove(file_path) # Keep original for safety
                         processed_file = gpkg_path
                 except Exception as e:
                     QgsMessageLog.logMessage(f"Errore conversione: {e}", "IT-LCZ", Qgis.Warning)
 
-        # Optional: Clip to AOI to make it super fast
+        # Optional: Clip to AOI
         if aoi_geometry and os.path.exists(processed_file):
             try:
                 from qgis import processing
-                clipped_path = processed_file.replace(".", "_clipped.")
-                if os.path.exists(clipped_path): return True, "Gia' ritagliato"
+                from qgis.core import QgsVectorLayer, QgsFeature, QgsField
+                from qgis.PyQt.QtCore import QVariant
+                
+                base, ext = os.path.splitext(processed_file)
+                clipped_path = base + "_clipped" + ext
+                if os.path.exists(clipped_path): 
+                    return True, "Gia' ritagliato"
                 
                 QgsMessageLog.logMessage(f"Ritaglio {os.path.basename(processed_file)} su AOI...", "IT-LCZ", Qgis.Info)
                 
                 if category == "Height":
-                    # Clip raster
-                    extent = aoi_geometry.boundingBox()
+                    # Clip raster (GDAL: clip by extent)
+                    ext_rect = aoi_geometry.boundingBox()
+                    # Format: xmin, xmax, ymin, ymax
+                    projwin = f"{ext_rect.xMinimum()},{ext_rect.xMaximum()},{ext_rect.yMinimum()},{ext_rect.yMaximum()}"
+                    
                     processing.run("gdal:cliprasterbyextent", {
                         'INPUT': processed_file,
-                        'PROJWIN': f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()} [EPSG:4326]",
+                        'PROJWIN': projwin,
                         'NODATA': None, 'OPTIONS': '', 'DATA_TYPE': 0, 'OUTPUT': clipped_path
                     })
                 else:
-                    # Clip vector
+                    # Clip vector (Native: clip expects a layer for OVERLAY)
+                    # Create a temporary mem layer for the AOI
+                    aoi_layer = QgsVectorLayer(f"Polygon?crs=EPSG:4326", "aoi_temp", "memory")
+                    aoi_layer.startEditing()
+                    f = QgsFeature()
+                    f.setGeometry(aoi_geometry)
+                    aoi_layer.addFeature(f)
+                    aoi_layer.commitChanges()
+                    
                     processing.run("native:clip", {
                         'INPUT': processed_file,
-                        'OVERLAY': aoi_geometry,
+                        'OVERLAY': aoi_layer,
                         'OUTPUT': clipped_path
                     })
-                return True, "Scaricato, convertito e ritagliato"
+                
+                return True, "Scaricato e ritagliato"
             except Exception as e:
                 QgsMessageLog.logMessage(f"Errore ritaglio: {e}", "IT-LCZ", Qgis.Warning)
 
