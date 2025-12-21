@@ -111,11 +111,17 @@ class DataManager:
         filename = f"{tile_name}_s10.zip"
         url = f"{self.base_url_tinitaly}{tile_name}_s10/{filename}"
         save_path = os.path.join(download_dir, filename)
+        extracted_tif = os.path.join(download_dir, f"{tile_name}_s10.tif")
+
+        if os.path.exists(extracted_tif):
+            return True, f"Tile {tile_name} già presente (TIF)"
 
         if os.path.exists(save_path):
-            return True, f"Tile {tile_name} già presente"
-
-        success, msg = self._download_file_generic(url, save_path)
+            QgsMessageLog.logMessage(f"ZIP {filename} già presente, avvio estrazione...", "IT-LCZ", Qgis.Info)
+            # Skip download, proceed to extraction logic below
+            success, msg = True, "Gia' presente"
+        else:
+            success, msg = self._download_file_generic(url, save_path)
         if success:
             try:
                 with zipfile.ZipFile(save_path, 'r') as zip_ref:
@@ -138,19 +144,36 @@ class DataManager:
         if category == "LoD1" and aoi_geometry:
             return self._download_tum_lod1_wfs(download_dir, aoi_geometry)
 
-        # Initial check: skip everything if tiles are already present (processed or clipped)
+        # Initial check: skip everything if tiles are already present in ANY form
         tiles_to_download = []
         results = []
+        
+        # Load file list once for efficiency
+        files_on_disk = os.listdir(download_dir)
+        files_on_disk_lower = [f.lower() for f in files_on_disk]
+
         for tile in target_tiles:
-            # Check for existing clipped file or original extracted file
-            clipped_exists = any("_clipped" in f and tile in f for f in os.listdir(download_dir))
-            extracted_exists = any(f.lower().endswith(".tif") and tile in f and "_clipped" not in f for f in os.listdir(download_dir))
+            t_low = tile.lower()
             
-            if clipped_exists or extracted_exists:
-                QgsMessageLog.logMessage(f"Tile TUM {tile} ({category}) già presente e processata. Salto.", "IT-LCZ", Qgis.Info)
+            # 1. Check for processed files (TIF, GPKG, or Clipped)
+            clipped_exists = any("_clipped" in f and t_low in f for f in files_on_disk_lower)
+            extracted_exists = any(f.endswith(".tif") and t_low in f and "_clipped" not in f for f in files_on_disk_lower)
+            gpkg_exists = any(f.endswith(".gpkg") and t_low in f for f in files_on_disk_lower)
+            
+            if clipped_exists or extracted_exists or gpkg_exists:
+                QgsMessageLog.logMessage(f"TUM {tile} ({category}) già presente. Salto.", "IT-LCZ", Qgis.Info)
                 results.append((tile, True, "Gia' presente"))
-            else:
-                tiles_to_download.append(tile)
+                continue
+
+            # 2. Check if ZIP is already there but not processed
+            zip_file = next((f for f in files_on_disk if f.lower().endswith(".zip") and t_low in f.lower()), None)
+            if zip_file:
+                QgsMessageLog.logMessage(f"ZIP {zip_file} trovato sul disco, avvio elaborazione...", "IT-LCZ", Qgis.Info)
+                success, msg = self._process_tum_file(os.path.join(download_dir, zip_file), category, aoi_geometry)
+                results.append((tile, success, msg))
+                continue
+            
+            tiles_to_download.append(tile)
 
         if not tiles_to_download:
             return results
@@ -241,6 +264,12 @@ class DataManager:
         )
         
         save_path = os.path.join(download_dir, "tum_lod1_aoi.json")
+        gpkg_path = os.path.join(download_dir, "tum_lod1_aoi.gpkg")
+
+        if os.path.exists(gpkg_path):
+            QgsMessageLog.logMessage(f"LoD1 AOI già presente (GPKG). Salto.", "IT-LCZ", Qgis.Info)
+            return [("tum_lod1_aoi.gpkg", True, "Gia' presente")]
+
         QgsMessageLog.logMessage(f"Download WFS TUM LoD1 per AOI...", "IT-LCZ", Qgis.Info)
         
         success, msg = self._download_file_generic(wfs_url, save_path)
@@ -287,7 +316,11 @@ class DataManager:
                         opts = QgsVectorFileWriter.SaveVectorOptions()
                         opts.driverName = "GPKG"
                         QgsVectorFileWriter.writeAsVectorFormatV3(vlayer, gpkg_path, QgsCoordinateTransformContext(), opts)
-                        # os.remove(file_path) # Keep original for safety
+                        
+                        # Now it's safe to remove the GeoJSON if we have a GPKG
+                        if os.path.exists(gpkg_path):
+                            os.remove(file_path)
+                            
                         processed_file = gpkg_path
                 except Exception as e:
                     QgsMessageLog.logMessage(f"Errore conversione: {e}", "IT-LCZ", Qgis.Warning)
