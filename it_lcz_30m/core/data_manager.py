@@ -308,22 +308,18 @@ class DataManager:
             transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
             wgs84_extent = transform.transformBoundingBox(extent)
             
-            # GDAL ProjWin format: [ulx, uly, lrx, lry] - wait, GDAL ProjWin is xmin, xmax, ymin, ymax or [ulx, uly, lrx, lry]?
-            # gdal:cliprasterbyextent uses PROJWIN which is [ulx, uly, lrx, lry]
-            
-            ulx = wgs84_extent.xMinimum()
-            uly = wgs84_extent.yMaximum()
-            lrx = wgs84_extent.xMaximum()
-            lry = wgs84_extent.yMinimum()
-            
-            projwin = f"{ulx},{uly},{lrx},{lry}"
-            
+            # Logic to handle existing oversized file
+            if os.path.exists(output_aoi):
+                if os.path.getsize(output_aoi) > 1024 * 1024 * 1024: # > 1GB
+                    QgsMessageLog.logMessage("Rilevato file AOI sovradimensionato, procedo alla rimozione e ricalcolo...", "IT-LCZ", Qgis.Warning)
+                    os.remove(output_aoi)
+
             params = {
                 'INPUT': tif_found,
-                'PROJWIN': projwin,
+                'PROJWIN': wgs84_extent, # Pass the QgsRectangle object directly
                 'OVERWM': 0,
                 'RTYPE': 5, # Float32
-                'OPTIONS': '',
+                'OPTIONS': '-co COMPRESS=DEFLATE -co PREDICTOR=2 -co ZLEVEL=9',
                 'DATA_TYPE': 5,
                 'EXTRA': '',
                 'OUTPUT': output_aoi
@@ -332,7 +328,14 @@ class DataManager:
             processing.run("gdal:cliprasterbyextent", params)
             
             if os.path.exists(output_aoi):
-                return True, "Ritaglio popolazione completato"
+                # CLEANUP: Remove the large extracted national TIF to save space
+                try:
+                    QgsMessageLog.logMessage("Pulizia cache: rimozione dataset nazionale esteso per risparmiare spazio.", "IT-LCZ", Qgis.Info)
+                    os.remove(tif_found)
+                except Exception as e:
+                    QgsMessageLog.logMessage(f"Impossibile rimuovere file cache: {e}", "IT-LCZ", Qgis.Warning)
+                
+                return True, "Ritaglio popolazione completato con compressione"
             else:
                 return False, "Errore durante il clipping GDAL: output non generato"
                 
