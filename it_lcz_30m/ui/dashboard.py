@@ -242,7 +242,7 @@ class ITLCZDashboard(QDockWidget):
         if self.checks["TUM (Edifici H 10m)"].isChecked():
             self.status_label.setText("Calcolo tile TUM (5x5 gradi)...")
             tum_tiles = self.data_manager.calculate_tum_tiles(extent, crs)
-            
+            if tum_tiles:
                 # Get AOI Geometry for clipping (WGS84)
                 source_crs = QgsCoordinateReferenceSystem(crs)
                 wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")

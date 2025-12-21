@@ -212,7 +212,7 @@ class DataManager:
                         QgsVectorFileWriter.writeAsVectorFormatV3(vlayer, gpkg_path, QgsCoordinateTransformContext(), opts)
                         os.remove(file_path)
                         processed_file = gpkg_path
-                exceptException as e:
+                except Exception as e:
                     QgsMessageLog.logMessage(f"Errore conversione: {e}", "IT-LCZ", Qgis.Warning)
 
         # Optional: Clip to AOI to make it super fast
