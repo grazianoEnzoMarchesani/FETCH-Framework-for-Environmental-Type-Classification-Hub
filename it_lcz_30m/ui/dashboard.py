@@ -261,6 +261,18 @@ class ITLCZDashboard(QDockWidget):
                 else:
                     QgsMessageLog.logMessage(f"Nessun file trovato per categoria TUM: {category}", "IT-LCZ", Qgis.Warning)
 
+        # --- ETH Global Canopy Height ---
+        if self.checks["ETH (Alberi H 10m)"].isChecked():
+            self.status_label.setText("Acquisizione ETH Global Canopy Height...")
+            # fetch_eth_canopy calculates tiles internally
+            results = self.data_manager.fetch_eth_canopy(extent, crs)
+            
+            downloaded = [r[0] for r in results if r[1]]
+            if downloaded:
+                self.iface.messageBar().pushMessage("ETH Canopy", f"Scaricati {len(downloaded)} file ETH Canopy.", level=0)
+            else:
+                QgsMessageLog.logMessage("Nessun file ETH Canopy scaricato o trovato.", "IT-LCZ", Qgis.Warning)
+
         self.status_label.setText("Processo completato.")
 
     def closeEvent(self, event):
