@@ -127,13 +127,19 @@ class DataManager:
 
     def download_tum_data(self, target_tiles, category="Height", aoi_geometry=None):
         """
-        Crawls TUM FTP server, downloads and processes matching tiles.
-        Processes: Unzips Height data, converts LoD1 GeoJSON to GPKG for speed.
+        Downloads TUM data. 
+        - Height: via FTP (Crawler + Zip)
+        - LoD1: via WFS (AOI-specific GeoJSON/GPKG, much faster)
         """
-        QgsMessageLog.logMessage(f"Avvio ricerca FTP TUM {category} per {target_tiles}", "IT-LCZ", Qgis.Info)
+        QgsMessageLog.logMessage(f"Avvio acquisizione TUM {category}. AOI: {'Disponibile' if aoi_geometry else 'Mancante'}", "IT-LCZ", Qgis.Info)
         download_dir = self.get_download_dir(f"tum_{category.lower()}")
         if not download_dir: return []
 
+        if category == "LoD1" and aoi_geometry:
+            # Use WFS for LoD1 - it's much faster
+            return self._download_tum_lod1_wfs(download_dir, aoi_geometry)
+
+        # Fallback to FTP for Height or if no AOI provided
         results = []
         ftp = None
         try:
@@ -179,6 +185,33 @@ class DataManager:
                     pass
 
         return results
+
+    def _download_tum_lod1_wfs(self, download_dir, aoi_geometry):
+        """
+        Downloads LoD1 building footprints via WFS for the specific AOI.
+        """
+        extent = aoi_geometry.boundingBox()
+        # BBOX format: minx, miny, maxx, maxy
+        bbox_str = f"{extent.xMinimum()},{extent.yMinimum()},{extent.xMaximum()},{extent.yMaximum()}"
+        
+        wfs_url = (
+            "https://tubvsig-so2sat-vm1.srv.mwn.de/geoserver/ows?"
+            "service=WFS&version=1.1.0&request=GetFeature&"
+            "typeName=global3D:lod1_global&outputFormat=application/json&"
+            f"srsName=EPSG:4326&bbox={bbox_str},EPSG:4326"
+        )
+        
+        save_path = os.path.join(download_dir, "tum_lod1_aoi.json")
+        QgsMessageLog.logMessage(f"Download WFS TUM LoD1 per AOI...", "IT-LCZ", Qgis.Info)
+        
+        success, msg = self._download_file_generic(wfs_url, save_path)
+        if success:
+            # Convert and process
+            success, msg = self._process_tum_file(save_path, "LoD1", aoi_geometry)
+            return [("tum_lod1_aoi.json", success, msg)]
+        else:
+            QgsMessageLog.logMessage(f"Download WFS fallito: {msg}", "IT-LCZ", Qgis.Critical)
+            return [("tum_lod1_aoi.json", False, msg)]
 
     def _process_tum_file(self, file_path, category, aoi_geometry=None):
         """
