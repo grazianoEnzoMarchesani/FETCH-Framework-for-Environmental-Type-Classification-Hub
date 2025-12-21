@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 
-from qgis.PyQt.QtCore import QCoreApplication
+from qgis.PyQt.QtCore import QCoreApplication, Qt
 from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtGui import QIcon
 import os.path
+
+# Initialize Qt resources from file resources.py
+# import resources
+
+from .ui.dashboard import ITLCZDashboard
 
 class ITLCZ30m:
     def __init__(self, iface):
@@ -11,6 +16,7 @@ class ITLCZ30m:
         self.plugin_dir = os.path.dirname(__file__)
         self.actions = []
         self.menu = 'IT-LCZ 30m'
+        self.dock_widget = None
 
     def tr(self, message):
         return QCoreApplication.translate('ITLCZ30m', message)
@@ -58,9 +64,14 @@ class ITLCZ30m:
         for action in self.actions:
             self.iface.removePluginMenu(self.menu, action)
             self.iface.removeToolBarIcon(action)
+        
+        if self.dock_widget:
+            self.iface.removeDockWidget(self.dock_widget)
 
     def run(self):
-        # This will eventually open the Dashboard UI
-        self.iface.messageBar().pushMessage(
-            "IT-LCZ 30m", "Dashboard in fase di sviluppo!", level=0, duration=5
-        )
+        if not self.dock_widget:
+            self.dock_widget = ITLCZDashboard(self.iface)
+            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
+        
+        self.dock_widget.show()
+        self.dock_widget.raise_()
