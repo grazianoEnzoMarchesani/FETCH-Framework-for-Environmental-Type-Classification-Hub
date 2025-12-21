@@ -125,62 +125,99 @@ class DataManager:
                 return False, f"Errore estrazione: {e}"
         return False, msg
 
-    def download_tum_data(self, target_tiles, category="Height"):
+    def download_tum_data(self, target_tiles, category="Height", aoi_geometry=None):
         """
-        Crawls TUM FTP server and downloads matching tiles for a specific category.
+        Crawls TUM FTP server, downloads and processes matching tiles.
+        Processes: Unzips Height data, converts LoD1 GeoJSON to GPKG for speed.
         """
         QgsMessageLog.logMessage(f"Avvio ricerca FTP TUM {category} per {target_tiles}", "IT-LCZ", Qgis.Info)
         download_dir = self.get_download_dir(f"tum_{category.lower()}")
-        if not download_dir: return False, "Project not saved"
+        if not download_dir: return []
 
         results = []
+        ftp = None
         try:
             ftp = ftplib.FTP(self.tum_host)
             ftp.login(self.tum_user, self.tum_pass)
-            
-            # Navigate to the category folder (relative to root)
             ftp.cwd(category)
-            
-            # List regional subfolders
             regions = ftp.nlst()
             
             for region in regions:
                 try:
-                    # Move into the region folder
                     ftp.cwd(region)
-                    QgsMessageLog.logMessage(f"Scansione regione FTP TUM: {region}", "IT-LCZ", Qgis.Info)
-                    
                     files = ftp.nlst()
                     for file_name in files:
                         match = next((t for t in target_tiles if t in file_name), None)
                         if match:
                             save_path = os.path.join(download_dir, file_name)
-                            if os.path.exists(save_path):
-                                results.append((file_name, True, "Già presente"))
-                                continue
-                                
-                            QgsMessageLog.logMessage(f"Download FTP in corso: {file_name}", "IT-LCZ", Qgis.Info)
-                            with open(save_path, 'wb') as f:
-                                ftp.retrbinary(f"RETR {file_name}", f.write)
-                            results.append((file_name, True, "Scaricato"))
-                    
-                    # Back to category level
+                            
+                            # Download if not exists
+                            if not os.path.exists(save_path):
+                                QgsMessageLog.logMessage(f"Download FTP: {file_name}", "IT-LCZ", Qgis.Info)
+                                with open(save_path, 'wb') as f:
+                                    ftp.retrbinary(f"RETR {file_name}", f.write)
+                            
+                            # Post-processing
+                            success, msg = self._process_tum_file(save_path, category, aoi_geometry)
+                            results.append((file_name, success, msg))
+                            
                     ftp.cwd("..")
                 except Exception as e:
                     QgsMessageLog.logMessage(f"Errore nella regione {region}: {e}", "IT-LCZ", Qgis.Warning)
-                    # Attempt to return to category level if we failed inside region
-                    try: ftp.cwd("..")
+                    try: ftp.cwd("..");
                     except: pass
-                    continue
         except Exception as e:
             QgsMessageLog.logMessage(f"Errore FTP TUM: {e}", "IT-LCZ", Qgis.Critical)
         finally:
-            try:
-                ftp.quit()
-            except:
-                pass
+            if ftp:
+                try: ftp.quit()
+                except: pass
 
         return results
+
+    def _process_tum_file(self, file_path, category, aoi_geometry=None):
+        """
+        Handles unzipping for Height and conversion to GPKG for LoD1.
+        """
+        if category == "Height" and file_path.lower().endswith(".zip"):
+            try:
+                QgsMessageLog.logMessage(f"Estrazione {os.path.basename(file_path)}...", "IT-LCZ", Qgis.Info)
+                with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                    zip_ref.extractall(os.path.dirname(file_path))
+                os.remove(file_path) # Remove zip after extraction
+                return True, "Estratto"
+            except Exception as e:
+                return False, f"Errore estrazione: {e}. Il file potrebbe essere corrotto."
+
+        elif category == "LoD1" and file_path.lower().endswith(".geojson"):
+            # GeoJSON is slow, convert to GeoPackage (GPKG)
+            gpkg_path = file_path.replace(".geojson", ".gpkg")
+            if os.path.exists(gpkg_path):
+                return True, "GPKG già presente"
+                
+            try:
+                QgsMessageLog.logMessage(f"Conversione {os.path.basename(file_path)} in GPKG per performance...", "IT-LCZ", Qgis.Info)
+                from qgis.core import QgsVectorLayer, QgsVectorFileWriter, QgsCoordinateTransformContext
+                
+                vlayer = QgsVectorLayer(file_path, "temp_layer", "ogr")
+                if not vlayer.isValid():
+                    return False, "GeoJSON corrotto o non valido"
+                
+                options = QgsVectorFileWriter.SaveVectorOptions()
+                options.driverName = "GPKG"
+                options.layerName = os.path.basename(gpkg_path).replace(".gpkg", "")
+                
+                # Copy to GPKG
+                error = QgsVectorFileWriter.writeAsVectorFormatV3(vlayer, gpkg_path, QgsCoordinateTransformContext(), options)
+                if error[0] == QgsVectorFileWriter.NoError:
+                    os.remove(file_path) # Clean up large GeoJSON
+                    return True, "Convertito in GPKG"
+                else:
+                    return False, f"Errore conversione GPKG: {error[1]}"
+            except Exception as e:
+                return False, f"Eccezione conversione: {e}"
+
+        return True, "Processato"
 
     def _get_links_from_page(self, url):
         try:
