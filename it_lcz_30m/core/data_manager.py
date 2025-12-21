@@ -17,9 +17,9 @@ class DataManager:
         self.iface = iface
         self.base_url_tinitaly = "https://tinitaly.pi.ingv.it/data_1.1/"
         
-        # TUM GBA Dataset Config
-        self.base_url_tum = "https://dataserv.ub.tum.de/m1782307/"
-        self.tum_auth = ('m1782307', 'm1782307')
+        # TUM GBA Dataset Config (Public WebDAV Share)
+        self.base_url_tum = "https://dataserv.ub.tum.de/public.php/dav/files/m1782307/"
+        self.tum_auth = ('m1782307', '') # Token as username, empty password for public share
         self.tum_categories = ["Height", "LoD1"]
         
     def get_project_dir(self):
@@ -133,18 +133,46 @@ class DataManager:
 
     def _get_links_from_page(self, url):
         try:
-            response = requests.get(url, auth=self.tum_auth, timeout=30, verify=False)
-            response.raise_for_status()
-            links = re.findall(r'href=[\'"]?([^\'" >]+)', response.text, re.IGNORECASE)
-            valid_items = []
-            for link in links:
-                if link in ['../', './', '/'] or link.startswith('?'): continue
-                full_url = urljoin(url, link)
-                name = link.rstrip('/')
-                valid_items.append((name, full_url))
-            return valid_items
+            # If it's the TUM server, we use WebDAV PROPFIND
+            if "dataserv.ub.tum.de" in url:
+                headers = {'Depth': '1'}
+                response = requests.request('PROPFIND', url, auth=self.tum_auth, timeout=30, verify=False, headers=headers)
+                response.raise_for_status()
+                
+                # Parse Nextcloud WebDAV XML response
+                # Format: <d:href>/public.php/dav/files/m1782307/Height/europe/</d:href>
+                hrefs = re.findall(r'<d:href>([^<]+)</d:href>', response.text, re.IGNORECASE)
+                valid_items = []
+                
+                # Get the current folder name to avoid self-reference
+                current_path = urljoin("/", url.split(".de")[1])
+                
+                for href in hrefs:
+                    # Skip the current folder itself
+                    if href.rstrip('/') == current_path.rstrip('/'):
+                        continue
+                        
+                    name = os.path.basename(href.rstrip('/'))
+                    if not name: continue
+                    
+                    # For WebDAV, if the href ends with /, it's a directory
+                    full_url = urljoin("https://dataserv.ub.tum.de", href)
+                    valid_items.append((name, full_url))
+                return valid_items
+            else:
+                # Standard HTML parsing for other sources
+                response = requests.get(url, timeout=30, verify=False)
+                response.raise_for_status()
+                links = re.findall(r'href=[\'"]?([^\'" >]+)', response.text, re.IGNORECASE)
+                valid_items = []
+                for link in links:
+                    if link in ['../', './', '/'] or link.startswith('?'): continue
+                    full_url = urljoin(url, link)
+                    name = link.rstrip('/')
+                    valid_items.append((name, full_url))
+                return valid_items
         except Exception as e:
-            QgsMessageLog.logMessage(f"Errore scansione directory TUM {url}: {e}", "IT-LCZ", Qgis.Critical)
+            QgsMessageLog.logMessage(f"Errore scansione directory {url}: {e}", "IT-LCZ", Qgis.Critical)
             return []
 
     def _download_file_generic(self, url, local_path, auth=None):
