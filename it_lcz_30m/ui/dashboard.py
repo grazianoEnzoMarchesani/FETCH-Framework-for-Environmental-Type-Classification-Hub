@@ -244,29 +244,22 @@ class ITLCZDashboard(QDockWidget):
         
         # --- TUM Global Building Heights ---
         if self.checks["TUM (Edifici H 10m)"].isChecked():
-            self.status_label.setText("Calcolo tile TUM (5x5 gradi)...")
-            tum_tiles = self.data_manager.calculate_tum_tiles(extent, crs)
-            if tum_tiles:
-                # Get AOI Geometry for clipping (WGS84)
-                source_crs = QgsCoordinateReferenceSystem(crs)
-                wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
-                transform = QgsCoordinateTransform(source_crs, wgs84_crs, QgsProject.instance())
-                aoi_geom = QgsGeometry.fromRect(extent)
-                aoi_geom.transform(transform)
+            # Get AOI Geometry for clipping (WGS84)
+            source_crs = QgsCoordinateReferenceSystem(crs)
+            wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+            transform = QgsCoordinateTransform(source_crs, wgs84_crs, QgsProject.instance())
+            aoi_geom = QgsGeometry.fromRect(extent)
+            aoi_geom.transform(transform)
 
-                for category in self.data_manager.tum_categories:
-                    self.status_label.setText(f"Ricerca TUM {category} ({len(tum_tiles)} tile)...")
-                    QgsMessageLog.logMessage(f"Tile TUM target ({category}): {tum_tiles}", "IT-LCZ", Qgis.Info)
-                    
-                    results = self.data_manager.download_tum_data(tum_tiles, category=category, aoi_geometry=aoi_geom)
-                    
-                    downloaded = [r[0] for r in results if r[1]]
-                    if downloaded:
-                        self.iface.messageBar().pushMessage("TUM GBA", f"Scaricati {len(downloaded)} file {category}: {', '.join(downloaded)}", level=0)
-                    else:
-                        QgsMessageLog.logMessage(f"Nessun file trovato per categoria TUM: {category}", "IT-LCZ", Qgis.Warning)
-            else:
-                QgsMessageLog.logMessage("Nessuna tile TUM calcolata per l'estensione AOI.", "IT-LCZ", Qgis.Warning)
+            for category in self.data_manager.tum_categories:
+                self.status_label.setText(f"Acquisizione TUM {category} via WFS...")
+                results = self.data_manager.download_tum_data(category=category, aoi_geometry=aoi_geom)
+                
+                downloaded = [r[0] for r in results if r[1]]
+                if downloaded:
+                    self.iface.messageBar().pushMessage("TUM GBA", f"Scaricato file {category}: {', '.join(downloaded)}", level=0)
+                else:
+                    QgsMessageLog.logMessage(f"Nessun file trovato per categoria TUM: {category}", "IT-LCZ", Qgis.Warning)
 
         self.status_label.setText("Processo completato.")
 
