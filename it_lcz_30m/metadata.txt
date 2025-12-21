@@ -1,3 +1,4 @@
+[general]
 name=IT-LCZ 30m
 description=National-Scale Local Climate Zone Mapping Suite for Italy at 30m resolution.
 version=2.0.0
