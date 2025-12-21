@@ -138,16 +138,16 @@ class DataManager:
             ftp = ftplib.FTP(self.tum_host)
             ftp.login(self.tum_user, self.tum_pass)
             
-            # Navigate to the category folder
-            # Correct path is relative to login root: Height/ or LoD1/
-            ftp.cwd(f"{category}/")
+            # Navigate to the category folder (relative to root)
+            ftp.cwd(category)
             
             # List regional subfolders
             regions = ftp.nlst()
             
             for region in regions:
                 try:
-                    ftp.cwd(f"{category}/{region}")
+                    # Move into the region folder
+                    ftp.cwd(region)
                     QgsMessageLog.logMessage(f"Scansione regione FTP TUM: {region}", "IT-LCZ", Qgis.Info)
                     
                     files = ftp.nlst()
@@ -163,8 +163,14 @@ class DataManager:
                             with open(save_path, 'wb') as f:
                                 ftp.retrbinary(f"RETR {file_name}", f.write)
                             results.append((file_name, True, "Scaricato"))
+                    
+                    # Back to category level
+                    ftp.cwd("..")
                 except Exception as e:
                     QgsMessageLog.logMessage(f"Errore nella regione {region}: {e}", "IT-LCZ", Qgis.Warning)
+                    # Attempt to return to category level if we failed inside region
+                    try: ftp.cwd("..")
+                    except: pass
                     continue
         except Exception as e:
             QgsMessageLog.logMessage(f"Errore FTP TUM: {e}", "IT-LCZ", Qgis.Critical)
