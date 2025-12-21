@@ -273,6 +273,17 @@ class ITLCZDashboard(QDockWidget):
             else:
                 QgsMessageLog.logMessage("Nessun file ETH Canopy scaricato o trovato.", "IT-LCZ", Qgis.Warning)
 
+        # --- ESA WorldCover ---
+        if self.checks["ESA WorldCover (Land Use)"].isChecked():
+            self.status_label.setText("Acquisizione ESA WorldCover (Land Use)...")
+            results = self.data_manager.fetch_esa_worldcover(extent, crs)
+            
+            downloaded = [r[0] for r in results if r[1]]
+            if downloaded:
+                self.iface.messageBar().pushMessage("ESA WorldCover", f"Scaricati {len(downloaded)} file ESA WorldCover.", level=0)
+            else:
+                QgsMessageLog.logMessage("Nessun file ESA WorldCover scaricato o trovato.", "IT-LCZ", Qgis.Warning)
+
         self.status_label.setText("Processo completato.")
 
     def closeEvent(self, event):

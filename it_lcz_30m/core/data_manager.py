@@ -16,6 +16,7 @@ class DataManager:
         self.iface = iface
         self.base_url_tinitaly = "https://tinitaly.pi.ingv.it/data_1.1/"
         self.base_url_eth = "https://libdrive.ethz.ch/index.php/s/cO8or7iOe5dT2Rt/download?path=%2F3deg_cogs&files="
+        self.base_url_esa_worldcover = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/"
         
         self.tum_categories = ["LoD1"]
         
@@ -190,6 +191,65 @@ class DataManager:
                 QgsMessageLog.logMessage(f"ETH tile {tile_name} scaricata.", "IT-LCZ", Qgis.Info)
             else:
                 QgsMessageLog.logMessage(f"Errore download ETH tile {tile_name}: {msg}", "IT-LCZ", Qgis.Warning)
+
+        return results
+
+    def calculate_esa_worldcover_tiles(self, extent, crs_auth_id):
+        """
+        Calculates the required 3x3 degree tiles for ESA WorldCover 2021.
+        Tiles are named like: ESA_WorldCover_10m_2021_v200_N45E009_Map.tif
+        """
+        source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
+        target_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+        transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
+        
+        try:
+            wgs84_extent = transform.transformBoundingBox(extent)
+        except Exception as e:
+            QgsMessageLog.logMessage(f"Error transforming extent to WGS84 for ESA: {e}", "IT-LCZ", Qgis.Critical)
+            return []
+
+        tiles = []
+        # ESA tiles are 3x3 degrees, anchored at multiples of 3
+        lat_min = math.floor(wgs84_extent.yMinimum() / 3) * 3
+        lat_max = math.ceil(wgs84_extent.yMaximum() / 3) * 3
+        lon_min = math.floor(wgs84_extent.xMinimum() / 3) * 3
+        lon_max = math.ceil(wgs84_extent.xMaximum() / 3) * 3
+
+        for lat in range(int(lat_min), int(lat_max), 3):
+            for lon in range(int(lon_min), int(lon_max), 3):
+                lat_str = f"N{str(abs(lat)).zfill(2)}" if lat >= 0 else f"S{str(abs(lat)).zfill(2)}"
+                lon_str = f"E{str(abs(lon)).zfill(3)}" if lon >= 0 else f"W{str(abs(lon)).zfill(3)}"
+                tile_name = f"ESA_WorldCover_10m_2021_v200_{lat_str}{lon_str}_Map.tif"
+                tiles.append(tile_name)
+        
+        return tiles
+
+    def fetch_esa_worldcover(self, extent, crs_auth_id):
+        """
+        Orchestrates the calculation and download of ESA WorldCover tiles.
+        """
+        QgsMessageLog.logMessage("Avvio acquisizione ESA WorldCover (Land Use)...", "IT-LCZ", Qgis.Info)
+        download_dir = self.get_download_dir("esa_worldcover")
+        if not download_dir: return []
+
+        tile_names = self.calculate_esa_worldcover_tiles(extent, crs_auth_id)
+        results = []
+
+        for tile_name in tile_names:
+            save_path = os.path.join(download_dir, tile_name)
+            if os.path.exists(save_path):
+                results.append((tile_name, True, "Gia' presente"))
+                continue
+
+            url = f"{self.base_url_esa_worldcover}{tile_name}"
+            success, msg = self._download_file_generic(url, save_path)
+            results.append((tile_name, success, msg))
+            
+            if success:
+                QgsMessageLog.logMessage(f"ESA WorldCover tile {tile_name} scaricata.", "IT-LCZ", Qgis.Info)
+            else:
+                QgsMessageLog.logMessage(f"Errore download ESA tile {tile_name}: {msg}", "IT-LCZ", Qgis.Warning)
 
         return results
 
