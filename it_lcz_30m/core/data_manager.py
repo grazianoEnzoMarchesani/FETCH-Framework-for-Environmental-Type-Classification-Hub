@@ -467,7 +467,7 @@ class DataManager:
         
         # Mapping of source folders to output names
         dataset_mapping = {
-            "tinitaly_tiles": {"pattern": "*_s10.tif", "output_name": "dtm_10m.tif", "merge": True},
+            "tinitaly_tiles": {"pattern": "**/*_s10.tif", "output_name": "dtm_10m.tif", "merge": True, "recursive": True},
             "tum_lod1": {"pattern": "*.json", "output_name": "buildings_lod1.gpkg", "type": "vector"},
             "eth_canopy": {"pattern": "*.tif", "output_name": "canopy_height_10m.tif", "merge": True},
             "esa_worldcover": {"pattern": "*.tif", "output_name": "landuse_10m.tif", "merge": True},
@@ -513,9 +513,10 @@ class DataManager:
         """Process and merge raster files, then reproject and clip."""
         import glob
         
-        # Find all matching files
+        # Find all matching files (recursive if needed for nested structures)
         pattern = os.path.join(folder_path, config["pattern"])
-        input_files = glob.glob(pattern)
+        recursive = config.get("recursive", False)
+        input_files = glob.glob(pattern, recursive=recursive)
         
         # Exclude cache folders
         input_files = [f for f in input_files if "cache" not in f]
