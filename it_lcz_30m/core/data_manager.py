@@ -342,6 +342,73 @@ class DataManager:
         except Exception as e:
             return False, f"Errore durante il clipping: {e}"
 
+    def fetch_sentinel2_albedo(self, extent, crs_auth_id, username=None, password=None):
+        """
+        Downloads and processes Sentinel-2 imagery to calculate broadband albedo.
+        Uses EODAG with Copernicus Data Space Ecosystem (CDSE).
+        
+        Args:
+            extent: QgsRectangle of the AOI
+            crs_auth_id: CRS authority ID (e.g., 'EPSG:4326')
+            username: CDSE username (optional, falls back to env var)
+            password: CDSE password (optional, falls back to env var)
+        """
+        QgsMessageLog.logMessage("Avvio acquisizione Sentinel-2 Albedo...", "IT-LCZ", Qgis.Info)
+        
+        # Get output directory
+        output_dir = self.get_download_dir("sentinel2_albedo")
+        if not output_dir:
+            return False, "Project not saved"
+        
+        # Check if output already exists
+        existing_files = [f for f in os.listdir(output_dir) if f.endswith('_albedo_10m.tif')]
+        if existing_files:
+            QgsMessageLog.logMessage(f"Albedo già presente: {existing_files[0]}", "IT-LCZ", Qgis.Info)
+            return True, f"Albedo già presente: {existing_files[0]}"
+        
+        # Transform extent to WGS84 for Sentinel-2 search
+        try:
+            source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
+            target_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+            transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
+            wgs84_extent = transform.transformBoundingBox(extent)
+            
+            bbox = (
+                wgs84_extent.xMinimum(),
+                wgs84_extent.yMinimum(),
+                wgs84_extent.xMaximum(),
+                wgs84_extent.yMaximum()
+            )
+        except Exception as e:
+            return False, f"Errore trasformazione coordinate: {e}"
+        
+        # Import the sentinel2_albedo module
+        try:
+            from .sentinel2_albedo import fetch_albedo_for_aoi
+        except ImportError as e:
+            QgsMessageLog.logMessage(f"Errore import modulo sentinel2_albedo: {e}", "IT-LCZ", Qgis.Critical)
+            return False, f"Modulo sentinel2_albedo non disponibile: {e}"
+        
+        # Define logging callback
+        def log_callback(msg):
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+        
+        # Call the fetch function with credentials from UI
+        success, message, output_path = fetch_albedo_for_aoi(
+            bbox=bbox,
+            output_dir=output_dir,
+            username=username,
+            password=password,
+            log_callback=log_callback
+        )
+        
+        if success:
+            QgsMessageLog.logMessage(f"Sentinel-2 Albedo completato: {output_path}", "IT-LCZ", Qgis.Info)
+        else:
+            QgsMessageLog.logMessage(f"Sentinel-2 Albedo fallito: {message}", "IT-LCZ", Qgis.Warning)
+        
+        return success, message
+
 
     def _get_links_from_page(self, url):
         try:

@@ -6,7 +6,7 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QCheckBox, QProgressBar, 
     QGroupBox, QScrollArea, QFileDialog, QComboBox,
-    QRadioButton
+    QRadioButton, QLineEdit
 )
 from qgis.core import (
     QgsProject, QgsMapLayer, QgsWkbTypes, QgsMapLayerProxyModel, 
@@ -107,6 +107,29 @@ class ITLCZDashboard(QDockWidget):
             cb.setChecked(True)
             self.data_layout.addWidget(cb)
             self.checks[src] = cb
+        
+        # CDSE Credentials for Sentinel-2
+        self.data_layout.addSpacing(10)
+        self.cdse_label = QLabel("Credenziali Copernicus (CDSE):")
+        self.cdse_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
+        self.data_layout.addWidget(self.cdse_label)
+        
+        self.cdse_user_layout = QHBoxLayout()
+        self.cdse_user_layout.addWidget(QLabel("Email:"))
+        self.cdse_username = QLineEdit()
+        self.cdse_username.setPlaceholderText("email@copernicus.eu")
+        self.cdse_user_layout.addWidget(self.cdse_username)
+        self.data_layout.addLayout(self.cdse_user_layout)
+        
+        self.cdse_pass_layout = QHBoxLayout()
+        self.cdse_pass_layout.addWidget(QLabel("Password:"))
+        self.cdse_password = QLineEdit()
+        self.cdse_password.setEchoMode(QLineEdit.Password)
+        self.cdse_password.setPlaceholderText("password")
+        self.cdse_pass_layout.addWidget(self.cdse_password)
+        self.data_layout.addLayout(self.cdse_pass_layout)
+        
+        self.data_layout.addSpacing(10)
             
         self.btn_download = QPushButton("Esegui Download Selezione")
         self.btn_download.setStyleSheet("background-color: #2c3e50; color: white; font-weight: bold; padding: 5px;")
@@ -294,6 +317,28 @@ class ITLCZDashboard(QDockWidget):
             else:
                 self.iface.messageBar().pushMessage("Meta HRSL", f"Errore: {msg}", level=2)
                 QgsMessageLog.logMessage(f"Meta HRSL Fallimento: {msg}", "IT-LCZ", Qgis.Critical)
+
+        # --- Sentinel-2 Albedo ---
+        if self.checks["S2GM (Albedo Sentinel-2)"].isChecked():
+            self.status_label.setText("Acquisizione Sentinel-2 Albedo (potrebbe richiedere alcuni minuti)...")
+            from qgis.PyQt.QtWidgets import QApplication
+            QApplication.processEvents()  # Update UI before long operation
+            
+            # Get credentials from UI fields
+            cdse_user = self.cdse_username.text().strip()
+            cdse_pass = self.cdse_password.text()
+            
+            if not cdse_user or not cdse_pass:
+                self.iface.messageBar().pushMessage("Sentinel-2 Albedo", "Inserisci le credenziali CDSE.", level=2)
+                QgsMessageLog.logMessage("Credenziali CDSE mancanti.", "IT-LCZ", Qgis.Warning)
+            else:
+                success, msg = self.data_manager.fetch_sentinel2_albedo(extent, crs, cdse_user, cdse_pass)
+                
+                if success:
+                    self.iface.messageBar().pushMessage("Sentinel-2 Albedo", "Albedo calcolato con successo.", level=3)
+                else:
+                    self.iface.messageBar().pushMessage("Sentinel-2 Albedo", f"Errore: {msg}", level=2)
+                    QgsMessageLog.logMessage(f"Sentinel-2 Albedo Fallimento: {msg}", "IT-LCZ", Qgis.Critical)
 
         self.status_label.setText("Processo completato.")
 
