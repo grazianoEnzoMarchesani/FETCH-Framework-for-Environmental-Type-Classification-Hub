@@ -4,22 +4,24 @@ import os
 import requests
 import zipfile
 import math
+import ftplib
+import io
+import re
+from urllib.parse import urljoin
 from qgis.core import (
     QgsProject, QgsRectangle, QgsCoordinateReferenceSystem, 
     QgsCoordinateTransform, QgsMessageLog, Qgis
 )
-
-from urllib.parse import urljoin
-import re
 
 class DataManager:
     def __init__(self, iface):
         self.iface = iface
         self.base_url_tinitaly = "https://tinitaly.pi.ingv.it/data_1.1/"
         
-        # TUM GBA Dataset Config (Public WebDAV Share)
-        self.base_url_tum = "https://dataserv.ub.tum.de/public.php/dav/files/m1782307/"
-        self.tum_auth = ('m1782307', '') # Token as username, empty password for public share
+        # TUM GBA Dataset Config (FTP Access)
+        self.tum_host = "dataserv.ub.tum.de"
+        self.tum_user = "m1782307"
+        self.tum_pass = "m1782307"
         self.tum_categories = ["Height", "LoD1"]
         
     def get_project_dir(self):
@@ -39,7 +41,6 @@ class DataManager:
         return target_dir
 
     def calculate_tinitaly_tiles(self, extent, crs_auth_id):
-        # ... (keep existing implementation)
         source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
         target_crs = QgsCoordinateReferenceSystem("EPSG:32632")
         transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
@@ -87,8 +88,6 @@ class DataManager:
         tiles = []
         for lon in range(lon_min_full, lon_max_full, 5):
             for lat in range(lat_min_full, lat_max_full, 5):
-                # {lon_min}_{lat_max}_{lon_max}_{lat_min}
-                # Lat max is higher than lat min
                 l_min = self._fmt_coord(lon, is_lat=False)
                 l_max = self._fmt_coord(lon + 5, is_lat=False)
                 t_max = self._fmt_coord(lat + 5, is_lat=True)
@@ -104,93 +103,7 @@ class DataManager:
         digits = 2 if is_lat else 3
         return f"{prefix}{str(abs_val).zfill(digits)}"
 
-    def download_tum_data(self, target_tiles, category="Height"):
-        """
-        Crawls TUM server and downloads matching tiles for a specific category.
-        """
-        QgsMessageLog.logMessage(f"Avvio ricerca TUM {category} per {target_tiles}", "IT-LCZ", Qgis.Info)
-        download_dir = self.get_download_dir(f"tum_{category.lower()}")
-        if not download_dir: return False, "Project not saved"
-
-        cat_url = urljoin(self.base_url_tum, category + "/")
-        regions = self._get_links_from_page(cat_url)
-        
-        results = []
-        for region_name, region_url in regions:
-            if not region_url.endswith('/'): continue
-            
-            QgsMessageLog.logMessage(f"Scansione regione TUM: {region_name}", "IT-LCZ", Qgis.Info)
-            files = self._get_links_from_page(region_url)
-            
-            for file_name, file_url in files:
-                match = next((t for t in target_tiles if t in file_name), None)
-                if match:
-                    save_path = os.path.join(download_dir, file_name)
-                    success, msg = self._download_file_generic(file_url, save_path, self.tum_auth)
-                    results.append((file_name, success, msg))
-
-        return results
-
-    def _get_links_from_page(self, url):
-        try:
-            # If it's the TUM server, we use WebDAV PROPFIND
-            if "dataserv.ub.tum.de" in url:
-                headers = {'Depth': '1'}
-                response = requests.request('PROPFIND', url, auth=self.tum_auth, timeout=30, verify=False, headers=headers)
-                response.raise_for_status()
-                
-                # Parse Nextcloud WebDAV XML response
-                # Format: <d:href>/public.php/dav/files/m1782307/Height/europe/</d:href>
-                hrefs = re.findall(r'<d:href>([^<]+)</d:href>', response.text, re.IGNORECASE)
-                valid_items = []
-                
-                # Get the current folder name to avoid self-reference
-                current_path = urljoin("/", url.split(".de")[1])
-                
-                for href in hrefs:
-                    # Skip the current folder itself
-                    if href.rstrip('/') == current_path.rstrip('/'):
-                        continue
-                        
-                    name = os.path.basename(href.rstrip('/'))
-                    if not name: continue
-                    
-                    # For WebDAV, if the href ends with /, it's a directory
-                    full_url = urljoin("https://dataserv.ub.tum.de", href)
-                    valid_items.append((name, full_url))
-                return valid_items
-            else:
-                # Standard HTML parsing for other sources
-                response = requests.get(url, timeout=30, verify=False)
-                response.raise_for_status()
-                links = re.findall(r'href=[\'"]?([^\'" >]+)', response.text, re.IGNORECASE)
-                valid_items = []
-                for link in links:
-                    if link in ['../', './', '/'] or link.startswith('?'): continue
-                    full_url = urljoin(url, link)
-                    name = link.rstrip('/')
-                    valid_items.append((name, full_url))
-                return valid_items
-        except Exception as e:
-            QgsMessageLog.logMessage(f"Errore scansione directory {url}: {e}", "IT-LCZ", Qgis.Critical)
-            return []
-
-    def _download_file_generic(self, url, local_path, auth=None):
-        if os.path.exists(local_path):
-            return True, "File già presente"
-        try:
-            with requests.get(url, stream=True, auth=auth, timeout=120, verify=False) as r:
-                r.raise_for_status()
-                with open(local_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-            return True, "Download completato"
-        except Exception as e:
-            if os.path.exists(local_path): os.remove(local_path)
-            return False, str(e)
-
     def download_tinitaly_tile(self, tile_name):
-        # ... (keep existing implementation but refactor to use generic downloader if possible)
         QgsMessageLog.logMessage(f"Avvio elaborazione quadrante Tinitaly: {tile_name}", "IT-LCZ", Qgis.Info)
         download_dir = self.get_download_dir("tinitaly_tiles")
         if not download_dir: return False, "Project not saved"
@@ -211,3 +124,83 @@ class DataManager:
             except Exception as e:
                 return False, f"Errore estrazione: {e}"
         return False, msg
+
+    def download_tum_data(self, target_tiles, category="Height"):
+        """
+        Crawls TUM FTP server and downloads matching tiles for a specific category.
+        """
+        QgsMessageLog.logMessage(f"Avvio ricerca FTP TUM {category} per {target_tiles}", "IT-LCZ", Qgis.Info)
+        download_dir = self.get_download_dir(f"tum_{category.lower()}")
+        if not download_dir: return False, "Project not saved"
+
+        results = []
+        try:
+            ftp = ftplib.FTP(self.tum_host)
+            ftp.login(self.tum_user, self.tum_pass)
+            
+            # Navigate to the category folder
+            # Structure: /m1782307/Height/
+            ftp.cwd(f"/m1782307/{category}/")
+            
+            # List regional subfolders
+            regions = ftp.nlst()
+            
+            for region in regions:
+                try:
+                    target_cwd = f"/m1782307/{category}/{region}"
+                    ftp.cwd(target_cwd)
+                    QgsMessageLog.logMessage(f"Scansione regione FTP TUM: {region}", "IT-LCZ", Qgis.Info)
+                    
+                    files = ftp.nlst()
+                    for file_name in files:
+                        match = next((t for t in target_tiles if t in file_name), None)
+                        if match:
+                            save_path = os.path.join(download_dir, file_name)
+                            if os.path.exists(save_path):
+                                results.append((file_name, True, "Già presente"))
+                                continue
+                                
+                            QgsMessageLog.logMessage(f"Download FTP in corso: {file_name}", "IT-LCZ", Qgis.Info)
+                            with open(save_path, 'wb') as f:
+                                ftp.retrbinary(f"RETR {file_name}", f.write)
+                            results.append((file_name, True, "Scaricato"))
+                except Exception as e:
+                    QgsMessageLog.logMessage(f"Errore nella regione {region}: {e}", "IT-LCZ", Qgis.Warning)
+                    continue
+            
+            ftp.quit()
+        except Exception as e:
+            QgsMessageLog.logMessage(f"Errore FTP TUM: {e}", "IT-LCZ", Qgis.Critical)
+            return results
+
+        return results
+
+    def _get_links_from_page(self, url):
+        try:
+            response = requests.get(url, timeout=30, verify=False)
+            response.raise_for_status()
+            links = re.findall(r'href=[\'"]?([^\'" >]+)', response.text, re.IGNORECASE)
+            valid_items = []
+            for link in links:
+                if link in ['../', './', '/'] or link.startswith('?'): continue
+                full_url = urljoin(url, link)
+                name = link.rstrip('/')
+                valid_items.append((name, full_url))
+            return valid_items
+        except Exception as e:
+            QgsMessageLog.logMessage(f"Errore scansione directory {url}: {e}", "IT-LCZ", Qgis.Critical)
+            return []
+
+    def _download_file_generic(self, url, local_path, auth=None):
+        if os.path.exists(local_path):
+            return True, "File già presente"
+        try:
+            with requests.get(url, stream=True, auth=auth, timeout=120, verify=False) as r:
+                r.raise_for_status()
+                with open(local_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            return True, "Download completato"
+        except Exception as e:
+            if os.path.exists(local_path): os.remove(local_path)
+            return False, str(e)
