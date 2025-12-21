@@ -9,10 +9,18 @@ from qgis.core import (
     QgsCoordinateTransform, QgsMessageLog, Qgis
 )
 
+from urllib.parse import urljoin
+import re
+
 class DataManager:
     def __init__(self, iface):
         self.iface = iface
         self.base_url_tinitaly = "https://tinitaly.pi.ingv.it/data_1.1/"
+        
+        # TUM GBA Dataset Config
+        self.base_url_tum = "https://dataserv.ub.tum.de/m1782307/"
+        self.tum_auth = ('m1782307', 'm1782307')
+        self.tum_categories = ["Height", "LoD1"]
         
     def get_project_dir(self):
         project_path = QgsProject.instance().fileName()
@@ -31,11 +39,7 @@ class DataManager:
         return target_dir
 
     def calculate_tinitaly_tiles(self, extent, crs_auth_id):
-        """
-        Calculates the list of Tinitaly tiles (50x50km) overlapping the extent.
-        Uses UTM Zone 32N (EPSG:32632) as the reference grid.
-        """
-        # 1. Transform extent to UTM 32N
+        # ... (keep existing implementation)
         source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
         target_crs = QgsCoordinateReferenceSystem("EPSG:32632")
         transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
@@ -46,71 +50,136 @@ class DataManager:
             QgsMessageLog.logMessage(f"Error transforming extent: {e}", "IT-LCZ", Qgis.Critical)
             return []
 
-        # 2. Iterate over 50km grid
         tiles = []
         x_min = math.floor(utm_extent.xMinimum() / 50000) * 50000
         x_max = math.ceil(utm_extent.xMaximum() / 50000) * 50000
         y_min = math.floor(utm_extent.yMinimum() / 50000) * 50000
         y_max = math.ceil(utm_extent.yMaximum() / 50000) * 50000
 
-        # Step is 50,000 meters
         for x in range(int(x_min), int(x_max), 50000):
             for y in range(int(y_min), int(y_max), 50000):
-                # NNN = Northing in tens of km
                 nnn = int(y / 10000)
-                # EE = Easting in tens of km
                 ee = int(x / 10000)
-                
-                # Naming: w + NNN(3 digits) + EE(2 digits)
                 tile_name = f"w{str(nnn).zfill(3)}{str(ee).zfill(2)}"
                 tiles.append(tile_name)
-        
         return tiles
 
-    def download_tinitaly_tile(self, tile_name):
+    def calculate_tum_tiles(self, extent, crs_auth_id):
         """
-        Downloads and unzips a single Tinitaly tile.
+        Calculates the 5x5 degree tiles for TUM GBA dataset.
+        Format: {e/w}{lon_min}_{n/s}{lat_max}_{e/w}{lon_max}_{n/s}{lat_min}
         """
-        QgsMessageLog.logMessage(f"Avvio elaborazione quadrante: {tile_name}", "IT-LCZ", Qgis.Info)
+        source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
+        wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+        transform = QgsCoordinateTransform(source_crs, wgs84_crs, QgsProject.instance())
         
-        download_dir = self.get_download_dir("tinitaly_tiles")
-        if not download_dir:
-            QgsMessageLog.logMessage("Errore: Impossibile trovare la cartella di download. Il progetto è salvato?", "IT-LCZ", Qgis.Critical)
-            return False, "Project not saved"
+        try:
+            wgs_extent = transform.transformBoundingBox(extent)
+        except Exception as e:
+            QgsMessageLog.logMessage(f"Error transforming extent to WGS84: {e}", "IT-LCZ", Qgis.Critical)
+            return []
 
-        # URL Pattern: https://tinitaly.pi.ingv.it/data_1.1/[tile]_s10/[tile]_s10.zip
+        lon_min_full = math.floor(wgs_extent.xMinimum() / 5) * 5
+        lon_max_full = math.ceil(wgs_extent.xMaximum() / 5) * 5
+        lat_min_full = math.floor(wgs_extent.yMinimum() / 5) * 5
+        lat_max_full = math.ceil(wgs_extent.yMaximum() / 5) * 5
+
+        tiles = []
+        for lon in range(lon_min_full, lon_max_full, 5):
+            for lat in range(lat_min_full, lat_max_full, 5):
+                # {lon_min}_{lat_max}_{lon_max}_{lat_min}
+                # Lat max is higher than lat min
+                l_min = self._fmt_coord(lon, is_lat=False)
+                l_max = self._fmt_coord(lon + 5, is_lat=False)
+                t_max = self._fmt_coord(lat + 5, is_lat=True)
+                t_min = self._fmt_coord(lat, is_lat=True)
+                
+                tile_id = f"{l_min}_{t_max}_{l_max}_{t_min}"
+                tiles.append(tile_id)
+        return tiles
+
+    def _fmt_coord(self, val, is_lat=False):
+        prefix = ("n" if val >= 0 else "s") if is_lat else ("e" if val >= 0 else "w")
+        abs_val = abs(val)
+        digits = 2 if is_lat else 3
+        return f"{prefix}{str(abs_val).zfill(digits)}"
+
+    def download_tum_data(self, target_tiles, category="Height"):
+        """
+        Crawls TUM server and downloads matching tiles for a specific category.
+        """
+        QgsMessageLog.logMessage(f"Avvio ricerca TUM {category} per {target_tiles}", "IT-LCZ", Qgis.Info)
+        download_dir = self.get_download_dir(f"tum_{category.lower()}")
+        if not download_dir: return False, "Project not saved"
+
+        cat_url = urljoin(self.base_url_tum, category + "/")
+        regions = self._get_links_from_page(cat_url)
+        
+        results = []
+        for region_name, region_url in regions:
+            if not region_url.endswith('/'): continue
+            
+            QgsMessageLog.logMessage(f"Scansione regione TUM: {region_name}", "IT-LCZ", Qgis.Info)
+            files = self._get_links_from_page(region_url)
+            
+            for file_name, file_url in files:
+                match = next((t for t in target_tiles if t in file_name), None)
+                if match:
+                    save_path = os.path.join(download_dir, file_name)
+                    success, msg = self._download_file_generic(file_url, save_path, self.tum_auth)
+                    results.append((file_name, success, msg))
+
+        return results
+
+    def _get_links_from_page(self, url):
+        try:
+            response = requests.get(url, auth=self.tum_auth, timeout=30, verify=False)
+            response.raise_for_status()
+            links = re.findall(r'href=[\'"]?([^\'" >]+)', response.text, re.IGNORECASE)
+            valid_items = []
+            for link in links:
+                if link in ['../', './', '/'] or link.startswith('?'): continue
+                full_url = urljoin(url, link)
+                name = link.rstrip('/')
+                valid_items.append((name, full_url))
+            return valid_items
+        except Exception as e:
+            QgsMessageLog.logMessage(f"Errore scansione directory TUM {url}: {e}", "IT-LCZ", Qgis.Critical)
+            return []
+
+    def _download_file_generic(self, url, local_path, auth=None):
+        if os.path.exists(local_path):
+            return True, "File già presente"
+        try:
+            with requests.get(url, stream=True, auth=auth, timeout=120, verify=False) as r:
+                r.raise_for_status()
+                with open(local_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            return True, "Download completato"
+        except Exception as e:
+            if os.path.exists(local_path): os.remove(local_path)
+            return False, str(e)
+
+    def download_tinitaly_tile(self, tile_name):
+        # ... (keep existing implementation but refactor to use generic downloader if possible)
+        QgsMessageLog.logMessage(f"Avvio elaborazione quadrante Tinitaly: {tile_name}", "IT-LCZ", Qgis.Info)
+        download_dir = self.get_download_dir("tinitaly_tiles")
+        if not download_dir: return False, "Project not saved"
+
         filename = f"{tile_name}_s10.zip"
         url = f"{self.base_url_tinitaly}{tile_name}_s10/{filename}"
         save_path = os.path.join(download_dir, filename)
 
-        QgsMessageLog.logMessage(f"URL: {url}", "IT-LCZ", Qgis.Info)
-        QgsMessageLog.logMessage(f"Destinazione: {save_path}", "IT-LCZ", Qgis.Info)
-
         if os.path.exists(save_path):
-            QgsMessageLog.logMessage(f"Quadrante {tile_name} già presente localmente.", "IT-LCZ", Qgis.Info)
-            return True, f"Tile {tile_name} found locally"
+            return True, f"Tile {tile_name} già presente"
 
-        try:
-            QgsMessageLog.logMessage(f"Downloading {tile_name} (SSL verification disabled)...", "IT-LCZ", Qgis.Warning)
-            # Use verify=False to bypass local SSL certificate issues common in some environments
-            response = requests.get(url, stream=True, timeout=60, verify=False)
-            if response.status_code == 200:
-                with open(save_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                
-                QgsMessageLog.logMessage(f"Download completato: {tile_name}. Estrazione zip...", "IT-LCZ", Qgis.Info)
-                
-                # Unzip
+        success, msg = self._download_file_generic(url, save_path)
+        if success:
+            try:
                 with zipfile.ZipFile(save_path, 'r') as zip_ref:
                     zip_ref.extractall(download_dir)
-                
-                QgsMessageLog.logMessage(f"Estrazione completata per {tile_name}.", "IT-LCZ", Qgis.Success)
-                return True, f"Tile {tile_name} downloaded and extracted"
-            else:
-                QgsMessageLog.logMessage(f"Errore HTTP {response.status_code} per {tile_name}. Verificare l'URL.", "IT-LCZ", Qgis.Critical)
-                return False, f"HTTP Error {response.status_code}"
-        except Exception as e:
-            QgsMessageLog.logMessage(f"Eccezione durante il download di {tile_name}: {str(e)}", "IT-LCZ", Qgis.Critical)
-            return False, str(e)
+                return True, f"Tile {tile_name} scaricata ed estratta"
+            except Exception as e:
+                return False, f"Errore estrazione: {e}"
+        return False, msg

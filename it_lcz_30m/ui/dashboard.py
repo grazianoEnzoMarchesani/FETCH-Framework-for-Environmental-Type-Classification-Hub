@@ -237,16 +237,28 @@ class ITLCZDashboard(QDockWidget):
             else:
                 self.status_label.setText(f"Download completato con {error_count} errori.")
                 self.iface.messageBar().pushMessage("IT-LCZ 30m", f"Download completato con {error_count} errori. Controlla il log.", level=2)
-        else:
-            self.status_label.setText("Download DTM saltato (non selezionato).")
-            # Display tiles list anyway for info
-            tiles_text = ", ".join(tiles)
-            self.iface.messageBar().pushMessage(
-                "Tinitaly DTM", 
-                f"Quadranti trovati ({len(tiles)}): {tiles_text}", 
-                level=0, 
-                duration=5
-            )
+        
+        # --- TUM Global Building Heights ---
+        if self.checks["TUM (Edifici H 10m)"].isChecked():
+            self.status_label.setText("Calcolo tile TUM (5x5 gradi)...")
+            tum_tiles = self.data_manager.calculate_tum_tiles(extent, crs)
+            
+            if tum_tiles:
+                for category in self.data_manager.tum_categories:
+                    self.status_label.setText(f"Ricerca TUM {category} ({len(tum_tiles)} tile)...")
+                    QgsMessageLog.logMessage(f"Tile TUM target ({category}): {tum_tiles}", "IT-LCZ", Qgis.Info)
+                    
+                    results = self.data_manager.download_tum_data(tum_tiles, category=category)
+                    
+                    downloaded = [r[0] for r in results if r[1]]
+                    if downloaded:
+                        self.iface.messageBar().pushMessage("TUM GBA", f"Scaricati {len(downloaded)} file {category}: {', '.join(downloaded)}", level=0)
+                    else:
+                        QgsMessageLog.logMessage(f"Nessun file trovato per categoria TUM: {category}", "IT-LCZ", Qgis.Warning)
+            else:
+                QgsMessageLog.logMessage("Nessuna tile TUM calcolata per l'estensione AOI.", "IT-LCZ", Qgis.Warning)
+
+        self.status_label.setText("Processo completato.")
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
