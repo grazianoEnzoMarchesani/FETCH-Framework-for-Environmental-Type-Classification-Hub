@@ -243,12 +243,18 @@ class ITLCZDashboard(QDockWidget):
             self.status_label.setText("Calcolo tile TUM (5x5 gradi)...")
             tum_tiles = self.data_manager.calculate_tum_tiles(extent, crs)
             
-            if tum_tiles:
+                # Get AOI Geometry for clipping (WGS84)
+                source_crs = QgsCoordinateReferenceSystem(crs)
+                wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+                transform = QgsCoordinateTransform(source_crs, wgs84_crs, QgsProject.instance())
+                aoi_geom = QgsGeometry.fromRect(extent)
+                aoi_geom.transform(transform)
+
                 for category in self.data_manager.tum_categories:
                     self.status_label.setText(f"Ricerca TUM {category} ({len(tum_tiles)} tile)...")
                     QgsMessageLog.logMessage(f"Tile TUM target ({category}): {tum_tiles}", "IT-LCZ", Qgis.Info)
                     
-                    results = self.data_manager.download_tum_data(tum_tiles, category=category)
+                    results = self.data_manager.download_tum_data(tum_tiles, category=category, aoi_geometry=aoi_geom)
                     
                     downloaded = [r[0] for r in results if r[1]]
                     if downloaded:

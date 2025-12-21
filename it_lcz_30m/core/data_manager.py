@@ -178,44 +178,70 @@ class DataManager:
     def _process_tum_file(self, file_path, category, aoi_geometry=None):
         """
         Handles unzipping for Height and conversion to GPKG for LoD1.
+        Optionally clips to AOI for performance.
         """
+        processed_file = file_path
+        
         if category == "Height" and file_path.lower().endswith(".zip"):
             try:
                 QgsMessageLog.logMessage(f"Estrazione {os.path.basename(file_path)}...", "IT-LCZ", Qgis.Info)
                 with zipfile.ZipFile(file_path, 'r') as zip_ref:
                     zip_ref.extractall(os.path.dirname(file_path))
-                os.remove(file_path) # Remove zip after extraction
-                return True, "Estratto"
+                
+                # Check what was extracted (usually a .tif)
+                extracted_files = zip_ref.namelist()
+                for f in extracted_files:
+                    if f.lower().endswith(".tif"):
+                        processed_file = os.path.join(os.path.dirname(file_path), f)
+                        break
+                
+                os.remove(file_path) # Remove zip
             except Exception as e:
-                return False, f"Errore estrazione: {e}. Il file potrebbe essere corrotto."
+                return False, f"Errore estrazione: {e}"
 
         elif category == "LoD1" and file_path.lower().endswith(".geojson"):
-            # GeoJSON is slow, convert to GeoPackage (GPKG)
             gpkg_path = file_path.replace(".geojson", ".gpkg")
-            if os.path.exists(gpkg_path):
-                return True, "GPKG già presente"
-                
+            if not os.path.exists(gpkg_path):
+                try:
+                    QgsMessageLog.logMessage(f"Conversione {os.path.basename(file_path)} in GPKG...", "IT-LCZ", Qgis.Info)
+                    from qgis.core import QgsVectorLayer, QgsVectorFileWriter, QgsCoordinateTransformContext
+                    vlayer = QgsVectorLayer(file_path, "temp", "ogr")
+                    if vlayer.isValid():
+                        opts = QgsVectorFileWriter.SaveVectorOptions()
+                        opts.driverName = "GPKG"
+                        QgsVectorFileWriter.writeAsVectorFormatV3(vlayer, gpkg_path, QgsCoordinateTransformContext(), opts)
+                        os.remove(file_path)
+                        processed_file = gpkg_path
+                exceptException as e:
+                    QgsMessageLog.logMessage(f"Errore conversione: {e}", "IT-LCZ", Qgis.Warning)
+
+        # Optional: Clip to AOI to make it super fast
+        if aoi_geometry and os.path.exists(processed_file):
             try:
-                QgsMessageLog.logMessage(f"Conversione {os.path.basename(file_path)} in GPKG per performance...", "IT-LCZ", Qgis.Info)
-                from qgis.core import QgsVectorLayer, QgsVectorFileWriter, QgsCoordinateTransformContext
+                from qgis import processing
+                clipped_path = processed_file.replace(".", "_clipped.")
+                if os.path.exists(clipped_path): return True, "Gia' ritagliato"
                 
-                vlayer = QgsVectorLayer(file_path, "temp_layer", "ogr")
-                if not vlayer.isValid():
-                    return False, "GeoJSON corrotto o non valido"
+                QgsMessageLog.logMessage(f"Ritaglio {os.path.basename(processed_file)} su AOI...", "IT-LCZ", Qgis.Info)
                 
-                options = QgsVectorFileWriter.SaveVectorOptions()
-                options.driverName = "GPKG"
-                options.layerName = os.path.basename(gpkg_path).replace(".gpkg", "")
-                
-                # Copy to GPKG
-                error = QgsVectorFileWriter.writeAsVectorFormatV3(vlayer, gpkg_path, QgsCoordinateTransformContext(), options)
-                if error[0] == QgsVectorFileWriter.NoError:
-                    os.remove(file_path) # Clean up large GeoJSON
-                    return True, "Convertito in GPKG"
+                if category == "Height":
+                    # Clip raster
+                    extent = aoi_geometry.boundingBox()
+                    processing.run("gdal:cliprasterbyextent", {
+                        'INPUT': processed_file,
+                        'PROJWIN': f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()} [EPSG:4326]",
+                        'NODATA': None, 'OPTIONS': '', 'DATA_TYPE': 0, 'OUTPUT': clipped_path
+                    })
                 else:
-                    return False, f"Errore conversione GPKG: {error[1]}"
+                    # Clip vector
+                    processing.run("native:clip", {
+                        'INPUT': processed_file,
+                        'OVERLAY': aoi_geometry,
+                        'OUTPUT': clipped_path
+                    })
+                return True, "Scaricato, convertito e ritagliato"
             except Exception as e:
-                return False, f"Eccezione conversione: {e}"
+                QgsMessageLog.logMessage(f"Errore ritaglio: {e}", "IT-LCZ", Qgis.Warning)
 
         return True, "Processato"
 
