@@ -319,7 +319,7 @@ class DataManager:
                 'PROJWIN': wgs84_extent, # Pass the QgsRectangle object directly
                 'OVERWM': 0,
                 'RTYPE': 5, # Float32
-                'OPTIONS': '-co COMPRESS=DEFLATE -co PREDICTOR=2 -co ZLEVEL=9',
+                'OPTIONS': 'COMPRESS=DEFLATE -co PREDICTOR=2 -co ZLEVEL=9',
                 'DATA_TYPE': 5,
                 'EXTRA': '',
                 'OUTPUT': output_aoi
