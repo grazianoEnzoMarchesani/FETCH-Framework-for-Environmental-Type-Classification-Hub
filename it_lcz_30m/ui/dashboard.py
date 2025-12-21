@@ -284,6 +284,17 @@ class ITLCZDashboard(QDockWidget):
             else:
                 QgsMessageLog.logMessage("Nessun file ESA WorldCover scaricato o trovato.", "IT-LCZ", Qgis.Warning)
 
+        # --- Meta HRSL Population ---
+        if self.checks["Meta HRSL (Popolazione)"].isChecked():
+            self.status_label.setText("Acquisizione Meta HRSL (Popolazione)...")
+            success, msg = self.data_manager.fetch_meta_hrsl(extent, crs)
+            
+            if success:
+                self.iface.messageBar().pushMessage("Meta HRSL", "Popolazione acquisita e ritagliata con successo.", level=3)
+            else:
+                self.iface.messageBar().pushMessage("Meta HRSL", f"Errore: {msg}", level=2)
+                QgsMessageLog.logMessage(f"Meta HRSL Fallimento: {msg}", "IT-LCZ", Qgis.Critical)
+
         self.status_label.setText("Processo completato.")
 
     def closeEvent(self, event):

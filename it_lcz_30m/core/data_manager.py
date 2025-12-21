@@ -10,6 +10,7 @@ from qgis.core import (
     QgsProject, QgsRectangle, QgsCoordinateReferenceSystem, 
     QgsCoordinateTransform, QgsMessageLog, Qgis
 )
+import processing
 
 class DataManager:
     def __init__(self, iface):
@@ -17,6 +18,7 @@ class DataManager:
         self.base_url_tinitaly = "https://tinitaly.pi.ingv.it/data_1.1/"
         self.base_url_eth = "https://libdrive.ethz.ch/index.php/s/cO8or7iOe5dT2Rt/download?path=%2F3deg_cogs&files="
         self.base_url_esa_worldcover = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/"
+        self.url_meta_hrsl = "https://data.humdata.org/dataset/0eb77b21-06be-42c8-9245-2edaff79952f/resource/a5f709f2-9871-46ab-a573-a25b0a7615ca/download/ita_general_2020_geotiff.zip"
         
         self.tum_categories = ["LoD1"]
         
@@ -252,6 +254,90 @@ class DataManager:
                 QgsMessageLog.logMessage(f"Errore download ESA tile {tile_name}: {msg}", "IT-LCZ", Qgis.Warning)
 
         return results
+
+    def fetch_meta_hrsl(self, extent, crs_auth_id):
+        """
+        Downloads, extracts and clips Meta HRSL Population data for the AOI.
+        """
+        QgsMessageLog.logMessage("Avvio acquisizione Meta HRSL (Popolazione)...", "IT-LCZ", Qgis.Info)
+        
+        # 1. Paths
+        download_dir = self.get_download_dir("meta_hrsl")
+        if not download_dir: return False, "Project not saved"
+        
+        cache_dir = os.path.join(download_dir, "cache")
+        if not os.path.exists(cache_dir): os.makedirs(cache_dir)
+        
+        zip_path = os.path.join(cache_dir, "ita_population.zip")
+        output_aoi = os.path.join(download_dir, "meta_hrsl_aoi.tif")
+        
+        if os.path.exists(output_aoi):
+            return True, "Clipped population raster già presente"
+
+        # 2. Download ZIP if not in cache
+        if not os.path.exists(zip_path):
+            QgsMessageLog.logMessage("Download del dataset nazionale Meta HRSL (~500MB)...", "IT-LCZ", Qgis.Info)
+            success, msg = self._download_file_generic(self.url_meta_hrsl, zip_path)
+            if not success: return False, f"Download fallito: {msg}"
+        
+        # 3. Extract to find the TIF
+        tif_found = None
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                # Look for the .tif file inside
+                for name in zip_ref.namelist():
+                    if name.lower().endswith('.tif') and not name.startswith('__MACOSX'):
+                        tif_found = os.path.join(cache_dir, name)
+                        if not os.path.exists(tif_found):
+                            QgsMessageLog.logMessage(f"Estrazione {name}...", "IT-LCZ", Qgis.Info)
+                            zip_ref.extract(name, cache_dir)
+                        break
+        except Exception as e:
+            return False, f"Errore estrazione ZIP: {e}"
+        
+        if not tif_found or not os.path.exists(tif_found):
+            return False, "Nessun file TIF trovato nello ZIP della popolazione"
+
+        # 4. Clip to AOI using QGIS Processing
+        try:
+            QgsMessageLog.logMessage(f"Ritaglio Meta HRSL sull'estensione AOI...", "IT-LCZ", Qgis.Info)
+            
+            # Convert extent to WGS84 for clipping (Meta data is usually 4326)
+            source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
+            target_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+            transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
+            wgs84_extent = transform.transformBoundingBox(extent)
+            
+            # GDAL ProjWin format: [ulx, uly, lrx, lry] - wait, GDAL ProjWin is xmin, xmax, ymin, ymax or [ulx, uly, lrx, lry]?
+            # gdal:cliprasterbyextent uses PROJWIN which is [ulx, uly, lrx, lry]
+            
+            ulx = wgs84_extent.xMinimum()
+            uly = wgs84_extent.yMaximum()
+            lrx = wgs84_extent.xMaximum()
+            lry = wgs84_extent.yMinimum()
+            
+            projwin = f"{ulx},{uly},{lrx},{lry}"
+            
+            params = {
+                'INPUT': tif_found,
+                'PROJWIN': projwin,
+                'OVERWM': 0,
+                'RTYPE': 5, # Float32
+                'OPTIONS': '',
+                'DATA_TYPE': 5,
+                'EXTRA': '',
+                'OUTPUT': output_aoi
+            }
+            
+            processing.run("gdal:cliprasterbyextent", params)
+            
+            if os.path.exists(output_aoi):
+                return True, "Ritaglio popolazione completato"
+            else:
+                return False, "Errore durante il clipping GDAL: output non generato"
+                
+        except Exception as e:
+            return False, f"Errore durante il clipping: {e}"
 
 
     def _get_links_from_page(self, url):
