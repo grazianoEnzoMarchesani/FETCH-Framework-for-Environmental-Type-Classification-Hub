@@ -1573,9 +1573,9 @@ class DataManager:
         # Get existing fields and add new ones
         fields = grid_layer.fields()
         new_fields = [
-            QgsField("building_frac", QVariant.Double, 'double', 10, 2),
-            QgsField("impervious_frac", QVariant.Double, 'double', 10, 2),
-            QgsField("pervious_frac", QVariant.Double, 'double', 10, 2),
+            QgsField(name="building_frac", type=QVariant.Double),
+            QgsField(name="impervious_frac", type=QVariant.Double),
+            QgsField(name="pervious_frac", type=QVariant.Double),
         ]
         for f in new_fields:
             fields.append(f)
@@ -1613,8 +1613,10 @@ class DataManager:
             building_frac = 0.0
             if buildings_layer:
                 building_area = 0.0
-                # Get buildings intersecting this cell
-                for bldg in buildings_layer.getFeatures():
+                # Use spatial filter to get only buildings in this cell's bbox (MUCH faster)
+                from qgis.core import QgsFeatureRequest
+                request = QgsFeatureRequest().setFilterRect(bbox)
+                for bldg in buildings_layer.getFeatures(request):
                     bldg_geom = bldg.geometry()
                     if bldg_geom.intersects(geom):
                         intersection = bldg_geom.intersection(geom)
