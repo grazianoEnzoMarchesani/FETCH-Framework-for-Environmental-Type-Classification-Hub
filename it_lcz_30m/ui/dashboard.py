@@ -150,6 +150,9 @@ class ITLCZDashboard(QDockWidget):
         self.proc_layout.addWidget(self.btn_unify)
         
         self.btn_dsm = QPushButton("Genera DSM Sintetico")
+        self.btn_dsm.setToolTip("Crea DSM = DTM + Altezze Edifici + Altezze Alberi (filtrato con ESA)")
+        self.btn_dsm.setStyleSheet("background-color: #8e44ad; color: white; font-weight: bold; padding: 5px;")
+        self.btn_dsm.clicked.connect(self.run_dsm_generation)
         self.btn_params = QPushButton("Calcola Parametri LCZ")
         self.btn_classify = QPushButton("Esegui Classificazione Finale")
         self.btn_classify.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 8px;")
@@ -406,6 +409,65 @@ class ITLCZDashboard(QDockWidget):
             self.progress.setValue(0)
             self.status_label.setText(f"Errore: {message}")
             self.iface.messageBar().pushMessage("IT-LCZ", f"Errore: {message}", level=2)
+
+    def run_dsm_generation(self):
+        """Genera il DSM sintetico combinando DTM, altezze edifici e altezze alberi."""
+        project_path = QgsProject.instance().fileName()
+        if not project_path:
+            self.iface.messageBar().pushMessage(
+                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
+            )
+            return
+        
+        self.status_label.setText("Generazione DSM sintetico in corso...")
+        self.progress.setMaximum(0)  # Indeterminate progress
+        from qgis.PyQt.QtWidgets import QApplication
+        QApplication.processEvents()
+        
+        def log_callback(msg):
+            self.status_label.setText(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+            QApplication.processEvents()
+        
+        # Run DSM generation (overwrite=True to ensure fresh calculation)
+        success, message, output_path = self.data_manager.create_synthetic_dsm(
+            log_callback=log_callback, overwrite=True
+        )
+        
+        if success and output_path:
+            self.status_label.setText("Caricamento DSM nel progetto...")
+            QApplication.processEvents()
+            
+            # Load DSM into project
+            from qgis.core import QgsRasterLayer
+            layer_name = "DSM Sintetico (10m)"
+            
+            # Check if already loaded
+            existing = QgsProject.instance().mapLayersByName(layer_name)
+            if not existing:
+                layer = QgsRasterLayer(output_path, layer_name)
+                if layer.isValid():
+                    QgsProject.instance().addMapLayer(layer)
+                    self.progress.setMaximum(100)
+                    self.progress.setValue(100)
+                    self.status_label.setText("DSM sintetico creato e caricato.")
+                    self.iface.messageBar().pushMessage(
+                        "IT-LCZ", "DSM sintetico generato con successo!", level=3
+                    )
+                else:
+                    self.status_label.setText("DSM creato ma layer non valido.")
+            else:
+                self.progress.setMaximum(100)
+                self.progress.setValue(100)
+                self.status_label.setText("DSM già caricato nel progetto.")
+                self.iface.messageBar().pushMessage(
+                    "IT-LCZ", message, level=3
+                )
+        else:
+            self.progress.setMaximum(100)
+            self.progress.setValue(0)
+            self.status_label.setText(f"Errore DSM: {message}")
+            self.iface.messageBar().pushMessage("IT-LCZ", f"Errore DSM: {message}", level=2)
 
     def closeEvent(self, event):
         self.closingPlugin.emit()

@@ -698,6 +698,299 @@ class DataManager:
         
         return loaded_layers
 
+    def create_synthetic_dsm(self, log_callback=None, overwrite=False):
+        """
+        Creates a synthetic DSM (Digital Surface Model) at 10m resolution.
+        
+        Formula: DSM = DTM + MAX(H_Buildings, H_Trees)
+        The tallest element (building or tree) determines the surface height per pixel.
+        Filter: Uses ESA WorldCover to mask water (80) and bare soil (60) areas.
+        
+        Args:
+            log_callback: Optional callback for logging messages
+            overwrite: If True, regenerate DSM even if it already exists
+        
+        Returns:
+            tuple: (success, message, output_path)
+        """
+        import numpy as np
+        from osgeo import gdal, ogr
+        
+        def log(msg):
+            if log_callback:
+                log_callback(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+        
+        # Get paths
+        base_dir = self.get_project_dir()
+        if not base_dir:
+            return False, "Progetto non salvato", None
+        
+        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        if not os.path.exists(unified_dir):
+            return False, "Cartella unified non trovata. Esegui prima 'Unifica e Ritaglia Dati'.", None
+        
+        # Check required files
+        dtm_path = os.path.join(unified_dir, "dtm_10m.tif")
+        canopy_path = os.path.join(unified_dir, "canopy_height_10m.tif")
+        landuse_path = os.path.join(unified_dir, "landuse_10m.tif")
+        buildings_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
+        output_path = os.path.join(unified_dir, "dsm_10m.tif")
+        
+        # Check if already exists (skip if overwrite requested)
+        if os.path.exists(output_path):
+            if not overwrite:
+                return True, "DSM già presente (usa overwrite=True per rigenerare)", output_path
+            else:
+                log("Rimozione DSM esistente per rigenerazione...")
+                os.remove(output_path)
+        
+        if not os.path.exists(dtm_path):
+            return False, "DTM non trovato. Scarica prima i dati Tinitaly.", None
+        
+        log("Caricamento DTM di base...")
+        dtm_ds = gdal.Open(dtm_path)
+        if dtm_ds is None:
+            return False, "Impossibile aprire DTM", None
+        
+        # Get raster properties from DTM (reference)
+        geotransform = dtm_ds.GetGeoTransform()
+        projection = dtm_ds.GetProjection()
+        x_size = dtm_ds.RasterXSize
+        y_size = dtm_ds.RasterYSize
+        
+        dtm_band = dtm_ds.GetRasterBand(1)
+        dtm_nodata = dtm_band.GetNoDataValue()
+        dtm_array = dtm_band.ReadAsArray().astype(np.float32)
+        
+        # Initialize height arrays
+        building_heights = np.zeros_like(dtm_array)
+        tree_heights = np.zeros_like(dtm_array)
+        mask = np.ones_like(dtm_array)  # Default: all valid
+        
+        # 1. Rasterize buildings if available
+        if os.path.exists(buildings_path):
+            log("Rasterizzazione altezze edifici TUM...")
+            temp_buildings_raster = os.path.join(unified_dir, "temp_buildings_height.tif")
+            
+            try:
+                # Create temp raster for buildings
+                driver = gdal.GetDriverByName('GTiff')
+                temp_ds = driver.Create(temp_buildings_raster, x_size, y_size, 1, gdal.GDT_Float32)
+                temp_ds.SetGeoTransform(geotransform)
+                temp_ds.SetProjection(projection)
+                temp_band = temp_ds.GetRasterBand(1)
+                temp_band.SetNoDataValue(0)
+                temp_band.Fill(0)
+                
+                # Open vector layer
+                vector_ds = ogr.Open(buildings_path)
+                if vector_ds:
+                    layer = vector_ds.GetLayer()
+                    
+                    # Find height attribute (try common names)
+                    height_attr = None
+                    layer_defn = layer.GetLayerDefn()
+                    for i in range(layer_defn.GetFieldCount()):
+                        field_name = layer_defn.GetFieldDefn(i).GetName().lower()
+                        if field_name in ['building_height', 'height', 'h', 'h_mean', 'height_mean']:
+                            height_attr = layer_defn.GetFieldDefn(i).GetName()
+                            break
+                    
+                    if height_attr:
+                        log(f"  Usando attributo: {height_attr}")
+                        gdal.RasterizeLayer(temp_ds, [1], layer, options=[f"ATTRIBUTE={height_attr}"])
+                    else:
+                        log("  Attributo altezza non trovato, uso valore fisso 10m")
+                        gdal.RasterizeLayer(temp_ds, [1], layer, burn_values=[10])
+                    
+                    vector_ds = None
+                
+                temp_ds.FlushCache()
+                building_heights = temp_band.ReadAsArray().astype(np.float32)
+                temp_ds = None
+                
+                # Cleanup temp file
+                if os.path.exists(temp_buildings_raster):
+                    os.remove(temp_buildings_raster)
+                    
+                log(f"  Edifici rasterizzati. Max altezza: {np.nanmax(building_heights):.1f}m")
+                
+            except Exception as e:
+                log(f"  Errore rasterizzazione edifici: {e}")
+        else:
+            log("Layer edifici non disponibile, proseguo senza altezze edifici.")
+        
+        # 2. Load tree heights if available
+        if os.path.exists(canopy_path):
+            log("Caricamento altezze vegetazione ETH...")
+            canopy_ds = gdal.Open(canopy_path)
+            if canopy_ds:
+                # Get NoData value from the raster
+                canopy_band = canopy_ds.GetRasterBand(1)
+                canopy_nodata = canopy_band.GetNoDataValue()
+                
+                # Resample to match DTM if needed
+                canopy_array = canopy_band.ReadAsArray()
+                if canopy_array.shape == dtm_array.shape:
+                    tree_heights = canopy_array.astype(np.float32)
+                else:
+                    log(f"  Dimensioni non corrispondenti (canopy: {canopy_array.shape}, dtm: {dtm_array.shape})")
+                    # Use GDAL warp to resample
+                    temp_resampled = os.path.join(unified_dir, "temp_canopy_resampled.tif")
+                    warp_options = gdal.WarpOptions(
+                        width=x_size, height=y_size,
+                        outputBounds=(geotransform[0], 
+                                     geotransform[3] + y_size * geotransform[5],
+                                     geotransform[0] + x_size * geotransform[1],
+                                     geotransform[3]),
+                        resampleAlg=gdal.GRA_Bilinear
+                    )
+                    gdal.Warp(temp_resampled, canopy_ds, options=warp_options)
+                    resampled_ds = gdal.Open(temp_resampled)
+                    if resampled_ds:
+                        tree_heights = resampled_ds.GetRasterBand(1).ReadAsArray().astype(np.float32)
+                        resampled_ds = None
+                    if os.path.exists(temp_resampled):
+                        os.remove(temp_resampled)
+                
+                # CRITICAL: Handle NoData values (often 255 in 8-bit rasters)
+                # ETH Canopy Height uses 255 as NoData
+                tree_heights = np.nan_to_num(tree_heights, nan=0, posinf=0, neginf=0)
+                if canopy_nodata is not None:
+                    tree_heights[tree_heights == canopy_nodata] = 0
+                    log(f"  Filtrato NoData: {canopy_nodata}")
+                # Always filter 255 as it's the common NoData for 8-bit rasters
+                tree_heights[tree_heights == 255] = 0
+                # Also filter unreasonable values (tallest trees are ~60m)
+                tree_heights[tree_heights > 60] = 0
+                
+                log(f"  Altezza max vegetazione (dopo filtro): {np.max(tree_heights):.1f}m")
+                canopy_ds = None
+        else:
+            log("Dati vegetazione ETH non disponibili.")
+        
+        # 3. Create mask from ESA WorldCover
+        if os.path.exists(landuse_path):
+            log("Creazione maschera da ESA WorldCover...")
+            landuse_ds = gdal.Open(landuse_path)
+            if landuse_ds:
+                landuse_array = landuse_ds.GetRasterBand(1).ReadAsArray()
+                
+                # Handle dimension mismatch
+                if landuse_array.shape != dtm_array.shape:
+                    log(f"  Resampling land use da {landuse_array.shape} a {dtm_array.shape}")
+                    temp_resampled = os.path.join(unified_dir, "temp_landuse_resampled.tif")
+                    warp_options = gdal.WarpOptions(
+                        width=x_size, height=y_size,
+                        outputBounds=(geotransform[0], 
+                                     geotransform[3] + y_size * geotransform[5],
+                                     geotransform[0] + x_size * geotransform[1],
+                                     geotransform[3]),
+                        resampleAlg=gdal.GRA_NearestNeighbour
+                    )
+                    gdal.Warp(temp_resampled, landuse_ds, options=warp_options)
+                    resampled_ds = gdal.Open(temp_resampled)
+                    if resampled_ds:
+                        landuse_array = resampled_ds.GetRasterBand(1).ReadAsArray()
+                        resampled_ds = None
+                    if os.path.exists(temp_resampled):
+                        os.remove(temp_resampled)
+                
+                # ESA WorldCover classes to mask (set height to 0)
+                # 60 = Bare / sparse vegetation
+                # 80 = Permanent water bodies
+                mask = np.ones_like(dtm_array)
+                mask[landuse_array == 60] = 0  # Bare soil
+                mask[landuse_array == 80] = 0  # Water
+                
+                water_pixels = np.sum(landuse_array == 80)
+                bare_pixels = np.sum(landuse_array == 60)
+                log(f"  Filtrati {water_pixels} pixel acqua, {bare_pixels} pixel suolo nudo")
+                
+                landuse_ds = None
+        else:
+            log("Land use ESA non disponibile, nessun filtro applicato.")
+        
+        # 4. Calculate DSM
+        log("Calcolo DSM sintetico...")
+        
+        # Apply mask to heights (zero out heights in water/bare areas)
+        building_heights_filtered = building_heights * mask
+        tree_heights_filtered = tree_heights * mask
+        
+        # Handle nodata in DTM
+        if dtm_nodata is not None:
+            valid_dtm = dtm_array != dtm_nodata
+        else:
+            valid_dtm = ~np.isnan(dtm_array)
+        
+        # DIAGNOSTIC: Log value ranges for debugging
+        log(f"=== DIAGNOSTICA VALORI ===")
+        dtm_valid = dtm_array[valid_dtm]
+        log(f"  DTM: min={np.min(dtm_valid):.1f}m, max={np.max(dtm_valid):.1f}m, mean={np.mean(dtm_valid):.1f}m")
+        
+        bh_valid = building_heights_filtered[building_heights_filtered > 0]
+        if len(bh_valid) > 0:
+            log(f"  Buildings: min={np.min(bh_valid):.1f}m, max={np.max(bh_valid):.1f}m, mean={np.mean(bh_valid):.1f}m, count={len(bh_valid)}")
+        else:
+            log(f"  Buildings: nessun valore > 0")
+        
+        th_valid = tree_heights_filtered[tree_heights_filtered > 0]
+        if len(th_valid) > 0:
+            log(f"  Trees: min={np.min(th_valid):.1f}m, max={np.max(th_valid):.1f}m, mean={np.mean(th_valid):.1f}m, count={len(th_valid)}")
+        else:
+            log(f"  Trees: nessun valore > 0")
+        
+        # VALIDATION: Cap unreasonable heights
+        # Max building height in Italy is ~200m (Unicredit Tower), most are < 50m
+        # Max tree height is ~50m (Sequoia), most are < 30m
+        MAX_BUILDING_HEIGHT = 200.0
+        MAX_TREE_HEIGHT = 60.0
+        
+        building_heights_filtered = np.clip(building_heights_filtered, 0, MAX_BUILDING_HEIGHT)
+        tree_heights_filtered = np.clip(tree_heights_filtered, 0, MAX_TREE_HEIGHT)
+        
+        # DSM = DTM + MAX(Buildings, Trees)
+        # The tallest element (building or tree) determines the surface height
+        surface_heights = np.maximum(building_heights_filtered, tree_heights_filtered)
+        
+        log(f"  Surface heights (MAX): max={np.max(surface_heights):.1f}m")
+        
+        dsm_array = np.where(
+            valid_dtm,
+            dtm_array + surface_heights,
+            dtm_array  # Keep original DTM for nodata areas
+        )
+        
+        # Final DSM stats
+        dsm_valid = dsm_array[valid_dtm]
+        log(f"  DSM finale: min={np.min(dsm_valid):.1f}m, max={np.max(dsm_valid):.1f}m")
+        log(f"=========================")
+        
+        # 5. Write output
+        log("Salvataggio DSM sintetico...")
+        driver = gdal.GetDriverByName('GTiff')
+        out_ds = driver.Create(
+            output_path, x_size, y_size, 1, gdal.GDT_Float32,
+            options=['COMPRESS=DEFLATE', 'PREDICTOR=2', 'ZLEVEL=6']
+        )
+        out_ds.SetGeoTransform(geotransform)
+        out_ds.SetProjection(projection)
+        out_band = out_ds.GetRasterBand(1)
+        if dtm_nodata is not None:
+            out_band.SetNoDataValue(dtm_nodata)
+        out_band.WriteArray(dsm_array)
+        out_ds.FlushCache()
+        out_ds = None
+        dtm_ds = None
+        
+        # Stats
+        valid_values = dsm_array[valid_dtm]
+        log(f"DSM creato: min={np.min(valid_values):.1f}m, max={np.max(valid_values):.1f}m")
+        
+        return True, "DSM sintetico creato con successo", output_path
+
     def _get_links_from_page(self, url):
         try:
             response = requests.get(url, timeout=30, verify=False)
