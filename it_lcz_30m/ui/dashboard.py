@@ -153,11 +153,18 @@ class ITLCZDashboard(QDockWidget):
         self.btn_dsm.setToolTip("Crea DSM = DTM + Altezze Edifici + Altezze Alberi (filtrato con ESA)")
         self.btn_dsm.setStyleSheet("background-color: #8e44ad; color: white; font-weight: bold; padding: 5px;")
         self.btn_dsm.clicked.connect(self.run_dsm_generation)
+        
+        self.btn_svf = QPushButton("Calcola Sky View Factor")
+        self.btn_svf.setToolTip("Calcola SVF dal DSM usando SAGA GIS (0=ostruito, 1=cielo aperto)")
+        self.btn_svf.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 5px;")
+        self.btn_svf.clicked.connect(self.run_svf_calculation)
+        
         self.btn_params = QPushButton("Calcola Parametri LCZ")
         self.btn_classify = QPushButton("Esegui Classificazione Finale")
         self.btn_classify.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 8px;")
         
         self.proc_layout.addWidget(self.btn_dsm)
+        self.proc_layout.addWidget(self.btn_svf)
         self.proc_layout.addWidget(self.btn_params)
         self.proc_layout.addWidget(self.btn_classify)
         
@@ -468,6 +475,62 @@ class ITLCZDashboard(QDockWidget):
             self.progress.setValue(0)
             self.status_label.setText(f"Errore DSM: {message}")
             self.iface.messageBar().pushMessage("IT-LCZ", f"Errore DSM: {message}", level=2)
+
+    def run_svf_calculation(self):
+        """Calcola il Sky View Factor dal DSM usando SAGA GIS."""
+        project_path = QgsProject.instance().fileName()
+        if not project_path:
+            self.iface.messageBar().pushMessage(
+                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
+            )
+            return
+        
+        self.status_label.setText("Calcolo Sky View Factor in corso...")
+        self.progress.setMaximum(0)  # Indeterminate progress
+        from qgis.PyQt.QtWidgets import QApplication
+        QApplication.processEvents()
+        
+        def log_callback(msg):
+            self.status_label.setText(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+            QApplication.processEvents()
+        
+        # Run SVF calculation
+        success, message, output_path = self.data_manager.calculate_svf(
+            log_callback=log_callback,
+            search_radius=100,  # 100m radius for urban areas
+            num_sectors=16      # 16 directional sectors
+        )
+        
+        if success and output_path:
+            self.status_label.setText("Caricamento SVF nel progetto...")
+            QApplication.processEvents()
+            
+            # Load SVF into project
+            from qgis.core import QgsRasterLayer
+            layer_name = "Sky View Factor (10m)"
+            
+            # Remove existing layer if present
+            existing = QgsProject.instance().mapLayersByName(layer_name)
+            for lyr in existing:
+                QgsProject.instance().removeMapLayer(lyr.id())
+            
+            layer = QgsRasterLayer(output_path, layer_name)
+            if layer.isValid():
+                QgsProject.instance().addMapLayer(layer)
+                self.progress.setMaximum(100)
+                self.progress.setValue(100)
+                self.status_label.setText("Sky View Factor calcolato e caricato.")
+                self.iface.messageBar().pushMessage(
+                    "IT-LCZ", "SVF calcolato con successo!", level=3
+                )
+            else:
+                self.status_label.setText("SVF calcolato ma layer non valido.")
+        else:
+            self.progress.setMaximum(100)
+            self.progress.setValue(0)
+            self.status_label.setText(f"Errore SVF: {message}")
+            self.iface.messageBar().pushMessage("IT-LCZ", f"Errore SVF: {message}", level=2)
 
     def closeEvent(self, event):
         self.closingPlugin.emit()

@@ -991,6 +991,201 @@ class DataManager:
         
         return True, "DSM sintetico creato con successo", output_path
 
+    def calculate_svf(self, log_callback=None, search_radius=100, num_sectors=16):
+        """
+        Calculates Sky View Factor (SVF) from the synthetic DSM using pure Python.
+        
+        Uses the horizon angle method: for each direction, find the maximum 
+        elevation angle to obstacles, then calculate visible sky fraction.
+        
+        SVF = 1 - mean(sin²(horizon_angles)) across all directions
+        
+        Args:
+            log_callback: Optional callback for logging messages
+            search_radius: Maximum search radius in meters (default 100m for urban)
+            num_sectors: Number of directional sectors for analysis (default 16)
+        
+        Returns:
+            tuple: (success, message, output_path)
+        """
+        import numpy as np
+        from osgeo import gdal
+        
+        def log(msg):
+            if log_callback:
+                log_callback(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+        
+        # Get paths
+        base_dir = self.get_project_dir()
+        if not base_dir:
+            return False, "Progetto non salvato", None
+        
+        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        if not os.path.exists(unified_dir):
+            return False, "Cartella unified non trovata", None
+        
+        dsm_path = os.path.join(unified_dir, "dsm_10m.tif")
+        output_svf = os.path.join(unified_dir, "svf_10m.tif")
+        
+        if not os.path.exists(dsm_path):
+            return False, "DSM non trovato. Genera prima il DSM sintetico.", None
+        
+        # Check if already exists
+        if os.path.exists(output_svf):
+            log("SVF già presente, rimozione per ricalcolo...")
+            os.remove(output_svf)
+        
+        log(f"Calcolo Sky View Factor (raggio={search_radius}m, settori={num_sectors})...")
+        log("Algoritmo: Python/NumPy (horizon angle method)")
+        
+        try:
+            # Open DSM
+            dsm_ds = gdal.Open(dsm_path)
+            if dsm_ds is None:
+                return False, "Impossibile aprire DSM", None
+            
+            geotransform = dsm_ds.GetGeoTransform()
+            projection = dsm_ds.GetProjection()
+            x_size = dsm_ds.RasterXSize
+            y_size = dsm_ds.RasterYSize
+            
+            dsm_band = dsm_ds.GetRasterBand(1)
+            dsm_nodata = dsm_band.GetNoDataValue()
+            dsm_array = dsm_band.ReadAsArray().astype(np.float32)
+            
+            # Get pixel size
+            pixel_size = abs(geotransform[1])  # Assume square pixels
+            
+            # Calculate search radius in pixels
+            radius_pixels = int(search_radius / pixel_size)
+            radius_pixels = max(5, min(radius_pixels, 50))  # Limit between 5 and 50 pixels
+            
+            log(f"Raggio ricerca: {radius_pixels} pixel ({radius_pixels * pixel_size:.1f}m)")
+            log(f"Dimensioni raster: {x_size}x{y_size} pixel")
+            
+            # Initialize SVF array
+            svf_array = np.ones_like(dsm_array)
+            
+            # Create direction vectors (angles in radians)
+            angles = np.linspace(0, 2 * np.pi, num_sectors, endpoint=False)
+            
+            # For each direction, calculate horizon angle contribution
+            total_pixels = y_size * x_size
+            processed = 0
+            last_progress = 0
+            
+            log("Calcolo angoli orizzonte per ogni direzione...")
+            
+            # Process in batches for efficiency
+            # Use vectorized approach for each direction
+            horizon_sin2_sum = np.zeros_like(dsm_array)
+            
+            for idx, angle in enumerate(angles):
+                # Direction vector
+                dx = np.cos(angle)
+                dy = np.sin(angle)
+                
+                # Create offset arrays for this direction
+                max_horizon_angle = np.zeros_like(dsm_array)
+                
+                # Sample along the ray at increasing distances
+                for dist in range(1, radius_pixels + 1):
+                    # Calculate pixel offsets
+                    offset_x = int(round(dx * dist))
+                    offset_y = int(round(dy * dist))
+                    
+                    if offset_x == 0 and offset_y == 0:
+                        continue
+                    
+                    # Distance in meters
+                    distance_m = dist * pixel_size
+                    
+                    # Get elevation at offset position using array slicing
+                    # Create shifted view of DSM
+                    if offset_y >= 0 and offset_x >= 0:
+                        src_y = slice(0, y_size - offset_y) if offset_y > 0 else slice(0, y_size)
+                        src_x = slice(0, x_size - offset_x) if offset_x > 0 else slice(0, x_size)
+                        dst_y = slice(offset_y, y_size) if offset_y > 0 else slice(0, y_size)
+                        dst_x = slice(offset_x, x_size) if offset_x > 0 else slice(0, x_size)
+                    elif offset_y >= 0 and offset_x < 0:
+                        src_y = slice(0, y_size - offset_y) if offset_y > 0 else slice(0, y_size)
+                        src_x = slice(-offset_x, x_size)
+                        dst_y = slice(offset_y, y_size) if offset_y > 0 else slice(0, y_size)
+                        dst_x = slice(0, x_size + offset_x)
+                    elif offset_y < 0 and offset_x >= 0:
+                        src_y = slice(-offset_y, y_size)
+                        src_x = slice(0, x_size - offset_x) if offset_x > 0 else slice(0, x_size)
+                        dst_y = slice(0, y_size + offset_y)
+                        dst_x = slice(offset_x, x_size) if offset_x > 0 else slice(0, x_size)
+                    else:  # both negative
+                        src_y = slice(-offset_y, y_size)
+                        src_x = slice(-offset_x, x_size)
+                        dst_y = slice(0, y_size + offset_y)
+                        dst_x = slice(0, x_size + offset_x)
+                    
+                    # Calculate elevation difference
+                    elev_diff = dsm_array[src_y, src_x] - dsm_array[dst_y, dst_x]
+                    
+                    # Calculate horizon angle (arctan of elevation/distance)
+                    horizon_angle = np.arctan2(elev_diff, distance_m)
+                    
+                    # Update maximum horizon angle
+                    current_max = max_horizon_angle[dst_y, dst_x]
+                    max_horizon_angle[dst_y, dst_x] = np.maximum(current_max, horizon_angle)
+                
+                # Accumulate sin²(horizon_angle) for this direction
+                # Only count positive angles (obstacles above horizon)
+                positive_angles = np.maximum(max_horizon_angle, 0)
+                horizon_sin2_sum += np.sin(positive_angles) ** 2
+                
+                # Progress update
+                progress = int((idx + 1) / num_sectors * 100)
+                if progress >= last_progress + 10:
+                    log(f"Progresso: {progress}%")
+                    last_progress = progress
+            
+            # Calculate SVF: 1 - mean(sin²(horizon_angles))
+            svf_array = 1 - (horizon_sin2_sum / num_sectors)
+            
+            # Clamp to valid range [0, 1]
+            svf_array = np.clip(svf_array, 0, 1)
+            
+            # Handle nodata
+            if dsm_nodata is not None:
+                svf_array[dsm_array == dsm_nodata] = dsm_nodata
+            
+            # Close input
+            dsm_ds = None
+            
+            # Write output
+            log("Salvataggio SVF...")
+            driver = gdal.GetDriverByName('GTiff')
+            out_ds = driver.Create(
+                output_svf, x_size, y_size, 1, gdal.GDT_Float32,
+                options=['COMPRESS=DEFLATE', 'PREDICTOR=2', 'ZLEVEL=6']
+            )
+            out_ds.SetGeoTransform(geotransform)
+            out_ds.SetProjection(projection)
+            out_band = out_ds.GetRasterBand(1)
+            if dsm_nodata is not None:
+                out_band.SetNoDataValue(dsm_nodata)
+            out_band.WriteArray(svf_array)
+            out_ds.FlushCache()
+            out_ds = None
+            
+            # Get stats
+            valid_mask = svf_array != dsm_nodata if dsm_nodata is not None else np.ones_like(svf_array, dtype=bool)
+            valid_svf = svf_array[valid_mask]
+            log(f"SVF calcolato: min={np.min(valid_svf):.3f}, max={np.max(valid_svf):.3f}, mean={np.mean(valid_svf):.3f}")
+            
+            return True, "Sky View Factor calcolato con successo", output_svf
+                
+        except Exception as e:
+            log(f"Errore durante il calcolo SVF: {str(e)}")
+            return False, f"Errore SVF: {str(e)}", None
+
+
     def _get_links_from_page(self, url):
         try:
             response = requests.get(url, timeout=30, verify=False)
