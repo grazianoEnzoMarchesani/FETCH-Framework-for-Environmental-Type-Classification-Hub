@@ -1468,6 +1468,234 @@ class DataManager:
             log(f"✗ Layer non valido: {grid_path}")
             return None
 
+    def calculate_surface_fractions(self, grid_path=None, log_callback=None):
+        """
+        Calcola le frazioni di superficie per ogni cella della griglia LCZ.
+        
+        Frazioni calcolate:
+        - building_frac: % edifici (da TUM LoD1 vettoriale)
+        - impervious_frac: % impermeabile esclusi edifici (ESA classe 50 - edifici)
+        - pervious_frac: % permeabile (ESA classi 10,20,30,40,60,90,95,100)
+        
+        Args:
+            grid_path: Path alla griglia LCZ (opzionale, cerca automaticamente)
+            log_callback: Callback per logging
+        
+        Returns:
+            tuple: (success, message, updated_grid_path)
+        """
+        import numpy as np
+        from osgeo import gdal, ogr
+        from qgis.core import QgsVectorLayer, QgsField, QgsFeature, QgsGeometry
+        from qgis.PyQt.QtCore import QVariant
+        
+        def log(msg):
+            if log_callback:
+                log_callback(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+        
+        # Get paths
+        base_dir = self.get_project_dir()
+        if not base_dir:
+            return False, "Progetto non salvato", None
+        
+        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        if not os.path.exists(unified_dir):
+            return False, "Cartella unified non trovata", None
+        
+        # Find grid file
+        if grid_path is None:
+            # Look for any grid file
+            import glob
+            grid_files = glob.glob(os.path.join(unified_dir, "lcz_grid_*.gpkg"))
+            if not grid_files:
+                return False, "Griglia LCZ non trovata. Genera prima la griglia.", None
+            grid_path = grid_files[0]
+        
+        if not os.path.exists(grid_path):
+            return False, f"File griglia non trovato: {grid_path}", None
+        
+        # Check required files
+        landuse_path = os.path.join(unified_dir, "landuse_10m.tif")
+        buildings_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
+        
+        if not os.path.exists(landuse_path):
+            return False, "ESA WorldCover non trovato. Scarica prima i dati.", None
+        
+        log(f"Griglia: {os.path.basename(grid_path)}")
+        log(f"Land Use: {os.path.basename(landuse_path)}")
+        log(f"Edifici: {'Presente' if os.path.exists(buildings_path) else 'Non presente'}")
+        
+        # Load grid layer
+        grid_layer = QgsVectorLayer(grid_path, "grid_temp", "ogr")
+        if not grid_layer.isValid():
+            return False, "Impossibile aprire la griglia", None
+        
+        feature_count = grid_layer.featureCount()
+        log(f"Celle griglia: {feature_count}")
+        
+        # ESA WorldCover class mapping
+        # Pervious classes: 10 (tree), 20 (shrub), 30 (grass), 40 (crop), 
+        #                   60 (bare), 90 (wetland), 95 (mangrove), 100 (moss)
+        # Impervious: 50 (built-up)
+        # Excluded: 70 (snow), 80 (water)
+        PERVIOUS_CLASSES = [10, 20, 30, 40, 60, 90, 95, 100]
+        IMPERVIOUS_CLASS = 50
+        EXCLUDED_CLASSES = [70, 80]
+        
+        # Open landuse raster
+        landuse_ds = gdal.Open(landuse_path)
+        if not landuse_ds:
+            return False, "Impossibile aprire ESA WorldCover", None
+        
+        landuse_band = landuse_ds.GetRasterBand(1)
+        landuse_gt = landuse_ds.GetGeoTransform()
+        landuse_data = landuse_band.ReadAsArray()
+        
+        # Load buildings if available
+        buildings_layer = None
+        if os.path.exists(buildings_path):
+            buildings_layer = QgsVectorLayer(buildings_path, "buildings_temp", "ogr")
+            if not buildings_layer.isValid():
+                log("⚠ Layer edifici non valido, proseguo senza")
+                buildings_layer = None
+            else:
+                log(f"Edifici caricati: {buildings_layer.featureCount()} feature")
+        
+        # Prepare output - create new grid with attributes
+        output_path = grid_path.replace(".gpkg", "_lcz_params.gpkg")
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        
+        # Copy grid and add new fields
+        from qgis.core import QgsVectorFileWriter, QgsFields
+        
+        # Get existing fields and add new ones
+        fields = grid_layer.fields()
+        new_fields = [
+            QgsField("building_frac", QVariant.Double, 'double', 10, 2),
+            QgsField("impervious_frac", QVariant.Double, 'double', 10, 2),
+            QgsField("pervious_frac", QVariant.Double, 'double', 10, 2),
+        ]
+        for f in new_fields:
+            fields.append(f)
+        
+        # Create output file
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.driverName = "GPKG"
+        options.fileEncoding = "UTF-8"
+        
+        writer = QgsVectorFileWriter.create(
+            output_path,
+            fields,
+            grid_layer.wkbType(),
+            grid_layer.crs(),
+            QgsProject.instance().transformContext(),
+            options
+        )
+        
+        if writer.hasError() != QgsVectorFileWriter.NoError:
+            return False, f"Errore creazione output: {writer.errorMessage()}", None
+        
+        # Process each grid cell
+        log("Calcolo frazioni di superficie...")
+        processed = 0
+        
+        for feature in grid_layer.getFeatures():
+            geom = feature.geometry()
+            bbox = geom.boundingBox()
+            cell_area = geom.area()
+            
+            if cell_area <= 0:
+                continue
+            
+            # 1. Calculate Building Fraction from vector layer
+            building_frac = 0.0
+            if buildings_layer:
+                building_area = 0.0
+                # Get buildings intersecting this cell
+                for bldg in buildings_layer.getFeatures():
+                    bldg_geom = bldg.geometry()
+                    if bldg_geom.intersects(geom):
+                        intersection = bldg_geom.intersection(geom)
+                        if intersection:
+                            building_area += intersection.area()
+                
+                building_frac = min(100.0, (building_area / cell_area) * 100)
+            
+            # 2. Calculate from ESA WorldCover (raster statistics)
+            # Convert bbox to pixel coordinates
+            x_min_px = int((bbox.xMinimum() - landuse_gt[0]) / landuse_gt[1])
+            x_max_px = int((bbox.xMaximum() - landuse_gt[0]) / landuse_gt[1])
+            y_min_px = int((bbox.yMaximum() - landuse_gt[3]) / landuse_gt[5])  # Note: inverted
+            y_max_px = int((bbox.yMinimum() - landuse_gt[3]) / landuse_gt[5])
+            
+            # Clamp to raster bounds
+            x_min_px = max(0, x_min_px)
+            x_max_px = min(landuse_ds.RasterXSize, x_max_px)
+            y_min_px = max(0, y_min_px)
+            y_max_px = min(landuse_ds.RasterYSize, y_max_px)
+            
+            if x_max_px <= x_min_px or y_max_px <= y_min_px:
+                # Cell outside raster bounds
+                impervious_frac = 0.0
+                pervious_frac = 100.0 - building_frac
+            else:
+                # Extract subset
+                subset = landuse_data[y_min_px:y_max_px, x_min_px:x_max_px]
+                total_pixels = subset.size
+                
+                if total_pixels > 0:
+                    # Count pixels by class
+                    impervious_pixels = np.sum(subset == IMPERVIOUS_CLASS)
+                    pervious_pixels = sum(np.sum(subset == c) for c in PERVIOUS_CLASSES)
+                    excluded_pixels = sum(np.sum(subset == c) for c in EXCLUDED_CLASSES)
+                    
+                    valid_pixels = total_pixels - excluded_pixels
+                    
+                    if valid_pixels > 0:
+                        # ESA built-up fraction
+                        esa_builtup_frac = (impervious_pixels / valid_pixels) * 100
+                        
+                        # Impervious = ESA built-up minus buildings (to avoid double counting)
+                        impervious_frac = max(0, esa_builtup_frac - building_frac)
+                        
+                        # Pervious = rest
+                        pervious_frac = max(0, 100.0 - building_frac - impervious_frac)
+                    else:
+                        impervious_frac = 0.0
+                        pervious_frac = 100.0 - building_frac
+                else:
+                    impervious_frac = 0.0
+                    pervious_frac = 100.0 - building_frac
+            
+            # Create new feature with calculated values
+            new_feat = QgsFeature(fields)
+            new_feat.setGeometry(geom)
+            
+            # Copy original attributes
+            for i in range(grid_layer.fields().count()):
+                new_feat.setAttribute(i, feature.attribute(i))
+            
+            # Set new attributes
+            new_feat.setAttribute("building_frac", round(building_frac, 2))
+            new_feat.setAttribute("impervious_frac", round(impervious_frac, 2))
+            new_feat.setAttribute("pervious_frac", round(pervious_frac, 2))
+            
+            writer.addFeature(new_feat)
+            
+            processed += 1
+            if processed % 100 == 0:
+                log(f"Processate {processed}/{feature_count} celle...")
+        
+        del writer
+        landuse_ds = None
+        
+        log(f"✓ Calcolo completato: {processed} celle processate")
+        log(f"✓ Output salvato: {os.path.basename(output_path)}")
+        
+        return True, f"Frazioni calcolate per {processed} celle", output_path
+
     def _get_links_from_page(self, url):
         try:
             response = requests.get(url, timeout=30, verify=False)

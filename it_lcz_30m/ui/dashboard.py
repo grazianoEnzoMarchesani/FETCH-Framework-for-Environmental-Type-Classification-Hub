@@ -217,6 +217,27 @@ class ITLCZDashboard(QDockWidget):
         
         self.scroll_layout.addWidget(self.grid_group)
         
+        # 5. LCZ Parameters Calculation
+        self.params_group = QGroupBox("5. Calcolo Parametri LCZ")
+        self.params_layout = QVBoxLayout(self.params_group)
+        
+        self.params_info_label = QLabel("Calcola le frazioni di superficie per ogni cella:")
+        self.params_info_label.setStyleSheet("font-size: 10px; color: #7f8c8d;")
+        self.params_layout.addWidget(self.params_info_label)
+        
+        self.params_list_label = QLabel("• Building fraction (da TUM Buildings)\n• Impervious fraction (da ESA WorldCover)\n• Pervious fraction (vegetazione, suolo)")
+        self.params_list_label.setStyleSheet("font-size: 10px; margin-left: 10px;")
+        self.params_layout.addWidget(self.params_list_label)
+        
+        self.params_layout.addSpacing(5)
+        
+        self.btn_calc_fractions = QPushButton("Calcola Frazioni Superficie")
+        self.btn_calc_fractions.setStyleSheet("background-color: #9b59b6; color: white; font-weight: bold; padding: 5px;")
+        self.btn_calc_fractions.clicked.connect(self.run_surface_fractions)
+        self.params_layout.addWidget(self.btn_calc_fractions)
+        
+        self.scroll_layout.addWidget(self.params_group)
+        
         # Progress & Log
         self.info_group = QGroupBox("Status")
         self.info_layout = QVBoxLayout(self.info_group)
@@ -672,6 +693,60 @@ class ITLCZDashboard(QDockWidget):
             self.progress.setValue(0)
             self.status_label.setText(f"Errore griglia: {message}")
             self.iface.messageBar().pushMessage("IT-LCZ", f"Errore griglia: {message}", level=2)
+
+    def run_surface_fractions(self):
+        """Calculate surface fractions (building, impervious, pervious) for each grid cell."""
+        project_path = QgsProject.instance().fileName()
+        if not project_path:
+            self.iface.messageBar().pushMessage(
+                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
+            )
+            return
+        
+        self.status_label.setText("Calcolo frazioni di superficie...")
+        self.progress.setMaximum(0)  # Indeterminate progress
+        from qgis.PyQt.QtWidgets import QApplication
+        QApplication.processEvents()
+        
+        def log_callback(msg):
+            self.status_label.setText(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+            QApplication.processEvents()
+        
+        # Run surface fractions calculation
+        success, message, output_path = self.data_manager.calculate_surface_fractions(
+            log_callback=log_callback
+        )
+        
+        if success and output_path:
+            self.status_label.setText("Caricamento risultati nel progetto...")
+            QApplication.processEvents()
+            
+            # Load result into project
+            from qgis.core import QgsVectorLayer
+            layer_name = "Griglia LCZ (Frazioni)"
+            
+            # Remove existing layer if present
+            existing = QgsProject.instance().mapLayersByName(layer_name)
+            for lyr in existing:
+                QgsProject.instance().removeMapLayer(lyr.id())
+            
+            layer = QgsVectorLayer(output_path, layer_name, "ogr")
+            if layer.isValid():
+                QgsProject.instance().addMapLayer(layer)
+                self.progress.setMaximum(100)
+                self.progress.setValue(100)
+                self.status_label.setText(f"Frazioni calcolate: {layer.featureCount()} celle")
+                self.iface.messageBar().pushMessage(
+                    "IT-LCZ", f"Frazioni superficie calcolate con successo!", level=3
+                )
+            else:
+                self.status_label.setText("Frazioni calcolate ma layer non valido.")
+        else:
+            self.progress.setMaximum(100)
+            self.progress.setValue(0)
+            self.status_label.setText(f"Errore: {message}")
+            self.iface.messageBar().pushMessage("IT-LCZ", f"Errore: {message}", level=2)
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
