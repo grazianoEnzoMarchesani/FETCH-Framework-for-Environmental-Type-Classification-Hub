@@ -991,19 +991,24 @@ class DataManager:
         
         return True, "DSM sintetico creato con successo", output_path
 
-    def calculate_svf(self, log_callback=None, search_radius=100, num_sectors=16):
+    def calculate_svf(self, log_callback=None, search_radius=100, num_sectors=16, canopy_opacity=0.7):
         """
         Calculates Sky View Factor (SVF) from the synthetic DSM using pure Python.
         
-        Uses the horizon angle method: for each direction, find the maximum 
-        elevation angle to obstacles, then calculate visible sky fraction.
+        Uses the horizon angle method with DUAL-LAYER transparency:
+        - Buildings: 100% opaque (full obstruction)
+        - Tree canopies: configurable opacity (default 70%, meaning 30% transparent)
         
-        SVF = 1 - mean(sin²(horizon_angles)) across all directions
+        The algorithm identifies whether obstacles are trees or buildings and applies
+        differential weighting to accurately model semi-transparent vegetation.
+        
+        SVF = 1 - mean(weighted_sin²(horizon_angles)) across all directions
         
         Args:
             log_callback: Optional callback for logging messages
             search_radius: Maximum search radius in meters (default 100m for urban)
             num_sectors: Number of directional sectors for analysis (default 16)
+            canopy_opacity: Opacity of tree canopies (0-1, default 0.7 = 70% opaque)
         
         Returns:
             tuple: (success, message, output_path)
@@ -1026,6 +1031,7 @@ class DataManager:
             return False, "Cartella unified non trovata", None
         
         dsm_path = os.path.join(unified_dir, "dsm_10m.tif")
+        canopy_path = os.path.join(unified_dir, "canopy_height_10m.tif")
         output_svf = os.path.join(unified_dir, "svf_10m.tif")
         
         if not os.path.exists(dsm_path):
@@ -1037,7 +1043,8 @@ class DataManager:
             os.remove(output_svf)
         
         log(f"Calcolo Sky View Factor (raggio={search_radius}m, settori={num_sectors})...")
-        log("Algoritmo: Python/NumPy (horizon angle method)")
+        log(f"Opacità chiome: {canopy_opacity*100:.0f}% (trasparenza: {(1-canopy_opacity)*100:.0f}%)")
+        log("Algoritmo: Python/NumPy (horizon angle method con trasparenza chiome)")
         
         try:
             # Open DSM
@@ -1054,6 +1061,55 @@ class DataManager:
             dsm_nodata = dsm_band.GetNoDataValue()
             dsm_array = dsm_band.ReadAsArray().astype(np.float32)
             
+            # Load canopy height to identify tree areas
+            canopy_array = np.zeros_like(dsm_array)
+            has_canopy_data = False
+            
+            if os.path.exists(canopy_path):
+                log("Caricamento mappa chiome per calcolo trasparenza...")
+                canopy_ds = gdal.Open(canopy_path)
+                if canopy_ds:
+                    canopy_band = canopy_ds.GetRasterBand(1)
+                    canopy_nodata = canopy_band.GetNoDataValue()
+                    temp_canopy = canopy_band.ReadAsArray()
+                    
+                    # Handle dimension mismatch
+                    if temp_canopy.shape == dsm_array.shape:
+                        canopy_array = temp_canopy.astype(np.float32)
+                    else:
+                        log(f"  Resampling canopy da {temp_canopy.shape} a {dsm_array.shape}...")
+                        temp_resampled = os.path.join(unified_dir, "temp_canopy_svf.tif")
+                        warp_options = gdal.WarpOptions(
+                            width=x_size, height=y_size,
+                            outputBounds=(geotransform[0], 
+                                         geotransform[3] + y_size * geotransform[5],
+                                         geotransform[0] + x_size * geotransform[1],
+                                         geotransform[3]),
+                            resampleAlg=gdal.GRA_Bilinear
+                        )
+                        gdal.Warp(temp_resampled, canopy_ds, options=warp_options)
+                        resampled_ds = gdal.Open(temp_resampled)
+                        if resampled_ds:
+                            canopy_array = resampled_ds.GetRasterBand(1).ReadAsArray().astype(np.float32)
+                            resampled_ds = None
+                        if os.path.exists(temp_resampled):
+                            os.remove(temp_resampled)
+                    
+                    # Clean canopy data (handle NoData, invalid values)
+                    canopy_array = np.nan_to_num(canopy_array, nan=0, posinf=0, neginf=0)
+                    if canopy_nodata is not None:
+                        canopy_array[canopy_array == canopy_nodata] = 0
+                    canopy_array[canopy_array == 255] = 0  # Common NoData for 8-bit
+                    canopy_array[canopy_array > 60] = 0    # Unreasonable heights
+                    canopy_array[canopy_array < 0] = 0
+                    
+                    has_canopy_data = True
+                    tree_pixels = np.sum(canopy_array > 0)
+                    log(f"  Mappa chiome caricata: {tree_pixels} pixel con alberi")
+                    canopy_ds = None
+            else:
+                log("Mappa chiome non disponibile - tutti gli ostacoli trattati come opachi al 100%")
+            
             # Get pixel size
             pixel_size = abs(geotransform[1])  # Assume square pixels
             
@@ -1064,30 +1120,23 @@ class DataManager:
             log(f"Raggio ricerca: {radius_pixels} pixel ({radius_pixels * pixel_size:.1f}m)")
             log(f"Dimensioni raster: {x_size}x{y_size} pixel")
             
-            # Initialize SVF array
-            svf_array = np.ones_like(dsm_array)
-            
             # Create direction vectors (angles in radians)
             angles = np.linspace(0, 2 * np.pi, num_sectors, endpoint=False)
             
-            # For each direction, calculate horizon angle contribution
-            total_pixels = y_size * x_size
-            processed = 0
+            log("Calcolo angoli orizzonte con trasparenza differenziata...")
+            
+            # Accumulator for weighted sin² contributions
+            weighted_sin2_sum = np.zeros_like(dsm_array)
             last_progress = 0
-            
-            log("Calcolo angoli orizzonte per ogni direzione...")
-            
-            # Process in batches for efficiency
-            # Use vectorized approach for each direction
-            horizon_sin2_sum = np.zeros_like(dsm_array)
             
             for idx, angle in enumerate(angles):
                 # Direction vector
                 dx = np.cos(angle)
                 dy = np.sin(angle)
                 
-                # Create offset arrays for this direction
+                # Track maximum horizon angle and whether it comes from trees or buildings
                 max_horizon_angle = np.zeros_like(dsm_array)
+                max_is_tree = np.zeros_like(dsm_array, dtype=bool)  # True if max obstacle is tree
                 
                 # Sample along the ray at increasing distances
                 for dist in range(1, radius_pixels + 1):
@@ -1101,8 +1150,7 @@ class DataManager:
                     # Distance in meters
                     distance_m = dist * pixel_size
                     
-                    # Get elevation at offset position using array slicing
-                    # Create shifted view of DSM
+                    # Get slices for array operations
                     if offset_y >= 0 and offset_x >= 0:
                         src_y = slice(0, y_size - offset_y) if offset_y > 0 else slice(0, y_size)
                         src_x = slice(0, x_size - offset_x) if offset_x > 0 else slice(0, x_size)
@@ -1130,14 +1178,25 @@ class DataManager:
                     # Calculate horizon angle (arctan of elevation/distance)
                     horizon_angle = np.arctan2(elev_diff, distance_m)
                     
-                    # Update maximum horizon angle
+                    # Determine if obstacle at source position is a tree
+                    # (canopy_height > 0 at source position)
+                    is_tree_obstacle = canopy_array[src_y, src_x] > 0 if has_canopy_data else np.zeros_like(horizon_angle, dtype=bool)
+                    
+                    # Update maximum horizon angle and track obstacle type
                     current_max = max_horizon_angle[dst_y, dst_x]
-                    max_horizon_angle[dst_y, dst_x] = np.maximum(current_max, horizon_angle)
+                    is_higher = horizon_angle > current_max
+                    
+                    max_horizon_angle[dst_y, dst_x] = np.where(is_higher, horizon_angle, current_max)
+                    max_is_tree[dst_y, dst_x] = np.where(is_higher, is_tree_obstacle, max_is_tree[dst_y, dst_x])
                 
-                # Accumulate sin²(horizon_angle) for this direction
+                # Calculate sin²(horizon_angle) with opacity weighting
                 # Only count positive angles (obstacles above horizon)
                 positive_angles = np.maximum(max_horizon_angle, 0)
-                horizon_sin2_sum += np.sin(positive_angles) ** 2
+                sin2_contribution = np.sin(positive_angles) ** 2
+                
+                # Apply opacity: trees get canopy_opacity, buildings get 1.0
+                opacity_weight = np.where(max_is_tree, canopy_opacity, 1.0)
+                weighted_sin2_sum += sin2_contribution * opacity_weight
                 
                 # Progress update
                 progress = int((idx + 1) / num_sectors * 100)
@@ -1145,8 +1204,8 @@ class DataManager:
                     log(f"Progresso: {progress}%")
                     last_progress = progress
             
-            # Calculate SVF: 1 - mean(sin²(horizon_angles))
-            svf_array = 1 - (horizon_sin2_sum / num_sectors)
+            # Calculate SVF: 1 - mean(weighted_sin²(horizon_angles))
+            svf_array = 1 - (weighted_sin2_sum / num_sectors)
             
             # Clamp to valid range [0, 1]
             svf_array = np.clip(svf_array, 0, 1)
@@ -1178,6 +1237,9 @@ class DataManager:
             valid_mask = svf_array != dsm_nodata if dsm_nodata is not None else np.ones_like(svf_array, dtype=bool)
             valid_svf = svf_array[valid_mask]
             log(f"SVF calcolato: min={np.min(valid_svf):.3f}, max={np.max(valid_svf):.3f}, mean={np.mean(valid_svf):.3f}")
+            
+            if has_canopy_data:
+                log(f"Nota: SVF nelle zone alberate è stato aumentato del ~{(1-canopy_opacity)*100:.0f}% grazie alla trasparenza chiome")
             
             return True, "Sky View Factor calcolato con successo", output_svf
                 
@@ -1468,14 +1530,15 @@ class DataManager:
             log(f"✗ Layer non valido: {grid_path}")
             return None
 
-    def calculate_surface_fractions(self, grid_path=None, log_callback=None):
+    def calculate_lcz_parameters(self, grid_path=None, log_callback=None):
         """
-        Calcola le frazioni di superficie per ogni cella della griglia LCZ.
+        Calcola i parametri LCZ per ogni cella della griglia.
         
-        Frazioni calcolate:
+        Parametri calcolati:
         - building_frac: % edifici (da TUM LoD1 vettoriale)
         - impervious_frac: % impermeabile esclusi edifici (ESA classe 50 - edifici)
         - pervious_frac: % permeabile (ESA classi 10,20,30,40,60,90,95,100)
+        - svf_mean: Sky View Factor medio (da raster svf_10m.tif)
         
         Args:
             grid_path: Path alla griglia LCZ (opzionale, cerca automaticamente)
@@ -1510,7 +1573,18 @@ class DataManager:
             grid_files = glob.glob(os.path.join(unified_dir, "lcz_grid_*.gpkg"))
             if not grid_files:
                 return False, "Griglia LCZ non trovata. Genera prima la griglia.", None
-            grid_path = grid_files[0]
+            # Prioritize 'custom' then '100m' then '50m' then '30m'
+            priority = ['custom', '100m', '50m', '30m']
+            grid_path = None
+            for p in priority:
+                for f in grid_files:
+                    if p in f:
+                        grid_path = f
+                        break
+                if grid_path: break
+            
+            if not grid_path:
+                grid_path = grid_files[0]
         
         if not os.path.exists(grid_path):
             return False, f"File griglia non trovato: {grid_path}", None
@@ -1518,6 +1592,7 @@ class DataManager:
         # Check required files
         landuse_path = os.path.join(unified_dir, "landuse_10m.tif")
         buildings_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
+        svf_path = os.path.join(unified_dir, "svf_10m.tif")
         
         if not os.path.exists(landuse_path):
             return False, "ESA WorldCover non trovato. Scarica prima i dati.", None
@@ -1562,6 +1637,22 @@ class DataManager:
             else:
                 log(f"Edifici caricati: {buildings_layer.featureCount()} feature")
         
+        # Load SVF raster if available
+        svf_ds = None
+        svf_data = None
+        svf_gt = None
+        svf_nodata = None
+        if os.path.exists(svf_path):
+            svf_ds = gdal.Open(svf_path)
+            if svf_ds:
+                svf_band = svf_ds.GetRasterBand(1)
+                svf_nodata = svf_band.GetNoDataValue()
+                svf_gt = svf_ds.GetGeoTransform()
+                svf_data = svf_band.ReadAsArray()
+                log(f"SVF raster caricato: {svf_ds.RasterXSize}x{svf_ds.RasterYSize}")
+        else:
+            log("⚠ SVF raster non trovato, parametro svf_mean non calcolato")
+        
         # Prepare output - create new grid with attributes
         output_path = grid_path.replace(".gpkg", "_lcz_params.gpkg")
         if os.path.exists(output_path):
@@ -1576,6 +1667,7 @@ class DataManager:
             QgsField(name="building_frac", type=QVariant.Double),
             QgsField(name="impervious_frac", type=QVariant.Double),
             QgsField(name="pervious_frac", type=QVariant.Double),
+            QgsField(name="svf_mean", type=QVariant.Double),
         ]
         for f in new_fields:
             fields.append(f)
@@ -1671,6 +1763,33 @@ class DataManager:
                     impervious_frac = 0.0
                     pervious_frac = 100.0 - building_frac
             
+            # 3. Calculate mean SVF from raster (zonal statistics)
+            svf_mean = None
+            if svf_data is not None and svf_gt is not None:
+                # Convert bbox to pixel coordinates for SVF raster
+                svf_x_min_px = int((bbox.xMinimum() - svf_gt[0]) / svf_gt[1])
+                svf_x_max_px = int((bbox.xMaximum() - svf_gt[0]) / svf_gt[1])
+                svf_y_min_px = int((bbox.yMaximum() - svf_gt[3]) / svf_gt[5])  # Note: inverted
+                svf_y_max_px = int((bbox.yMinimum() - svf_gt[3]) / svf_gt[5])
+                
+                # Clamp to raster bounds
+                svf_x_min_px = max(0, svf_x_min_px)
+                svf_x_max_px = min(svf_ds.RasterXSize, svf_x_max_px)
+                svf_y_min_px = max(0, svf_y_min_px)
+                svf_y_max_px = min(svf_ds.RasterYSize, svf_y_max_px)
+                
+                if svf_x_max_px > svf_x_min_px and svf_y_max_px > svf_y_min_px:
+                    svf_subset = svf_data[svf_y_min_px:svf_y_max_px, svf_x_min_px:svf_x_max_px]
+                    
+                    # Filter out NoData values
+                    if svf_nodata is not None:
+                        valid_svf = svf_subset[svf_subset != svf_nodata]
+                    else:
+                        valid_svf = svf_subset[~np.isnan(svf_subset)]
+                    
+                    if len(valid_svf) > 0:
+                        svf_mean = float(np.mean(valid_svf))
+            
             # Create new feature with calculated values
             new_feat = QgsFeature(fields)
             new_feat.setGeometry(geom)
@@ -1683,6 +1802,7 @@ class DataManager:
             new_feat.setAttribute("building_frac", round(building_frac, 2))
             new_feat.setAttribute("impervious_frac", round(impervious_frac, 2))
             new_feat.setAttribute("pervious_frac", round(pervious_frac, 2))
+            new_feat.setAttribute("svf_mean", round(svf_mean, 3) if svf_mean is not None else None)
             
             writer.addFeature(new_feat)
             
@@ -1692,6 +1812,8 @@ class DataManager:
         
         del writer
         landuse_ds = None
+        if svf_ds:
+            svf_ds = None
         
         log(f"✓ Calcolo completato: {processed} celle processate")
         log(f"✓ Output salvato: {os.path.basename(output_path)}")
