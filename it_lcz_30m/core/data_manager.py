@@ -1530,26 +1530,32 @@ class DataManager:
             log(f"✗ Layer non valido: {grid_path}")
             return None
 
-    def calculate_lcz_parameters(self, grid_path=None, log_callback=None):
+    def calculate_lcz_parameters(self, grid_path=None, parameter_id=None, log_callback=None):
         """
-        Calcola i parametri LCZ per ogni cella della griglia.
+        Calcola i parametri LCZ per ogni cella della griglia (Stewart and Oke, 2012).
         
-        Parametri calcolati:
-        - building_frac: % edifici (da TUM LoD1 vettoriale)
-        - impervious_frac: % impermeabile esclusi edifici (ESA classe 50 - edifici)
-        - pervious_frac: % permeabile (ESA classi 10,20,30,40,60,90,95,100)
-        - svf_mean: Sky View Factor medio (da raster svf_10m.tif)
+        Supporta l'esecuzione atomica di singoli parametri.
+        
+        Parametri gestiti:
+        1. sky_view_factor: SVF medio
+        2. aspect_ratio: H/W ratio (Prossimamente)
+        3. building_surface_fraction: % edifici
+        4. impervious_surface_fraction: % impermeabile
+        5. pervious_surface_fraction: % permeabile
+        6. roughness_elements_height: Altezza media elementi (Prossimamente)
+        7. terrain_roughness_class: Classe rugosità (Prossimamente)
+        8. surface_admittance: Capacità termica (Prossimamente)
+        9. surface_albedo: Albedo superficiale (Prossimamente)
+        10. anthropogenic_heat_output: Calore antropogenico (Prossimamente)
         
         Args:
-            grid_path: Path alla griglia LCZ (opzionale, cerca automaticamente)
+            grid_path: Path alla griglia LCZ
+            parameter_id: ID del parametro da calcolare (es. 'building_frac')
             log_callback: Callback per logging
-        
-        Returns:
-            tuple: (success, message, updated_grid_path)
         """
         import numpy as np
         from osgeo import gdal, ogr
-        from qgis.core import QgsVectorLayer, QgsField, QgsFeature, QgsGeometry
+        from qgis.core import QgsVectorLayer, QgsField, QgsFeature, QgsGeometry, QgsVectorFileWriter
         from qgis.PyQt.QtCore import QVariant
         
         def log(msg):
@@ -1557,6 +1563,23 @@ class DataManager:
                 log_callback(msg)
             QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
         
+        # Mapping parameter_id to column names and human names
+        PARAM_MAP = {
+            'sky_view_factor': ('svf_mean', 'Sky View Factor'),
+            'aspect_ratio': ('aspect_ratio', 'Aspect Ratio'),
+            'building_surface_fraction': ('building_frac', 'Building Surface Fraction'),
+            'impervious_surface_fraction': ('impervious_frac', 'Impervious Surface Fraction'),
+            'pervious_surface_fraction': ('pervious_frac', 'Pervious Surface Fraction'),
+            'roughness_elements_height': ('roughness_h', 'Roughness Elements Height'),
+            'terrain_roughness_class': ('rough_class', 'Terrain Roughness Class'),
+            'surface_admittance': ('admittance', 'Surface Admittance'),
+            'surface_albedo': ('albedo', 'Surface Albedo'),
+            'anthropogenic_heat_output': ('anthro_heat', 'Anthro Heat Output')
+        }
+        
+        if parameter_id and parameter_id not in PARAM_MAP:
+            return False, f"Parametro non riconosciuto: {parameter_id}", None
+
         # Get paths
         base_dir = self.get_project_dir()
         if not base_dir:
@@ -1566,248 +1589,194 @@ class DataManager:
         if not os.path.exists(unified_dir):
             return False, "Cartella unified non trovata", None
         
-        # Find grid file
+        # Find entry grid if not provided
         if grid_path is None:
-            # Look for any grid file
-            import glob
-            grid_files = glob.glob(os.path.join(unified_dir, "lcz_grid_*.gpkg"))
-            if not grid_files:
-                return False, "Griglia LCZ non trovata. Genera prima la griglia.", None
-            # Prioritize 'custom' then '100m' then '50m' then '30m'
-            priority = ['custom', '100m', '50m', '30m']
-            grid_path = None
-            for p in priority:
-                for f in grid_files:
-                    if p in f:
-                        grid_path = f
-                        break
-                if grid_path: break
-            
-            if not grid_path:
-                grid_path = grid_files[0]
-        
+             import glob
+             grid_files = glob.glob(os.path.join(unified_dir, "lcz_grid_*.gpkg"))
+             if not grid_files:
+                 return False, "Griglia LCZ non trovata.", None
+             priority = ['custom', '100m', '50m', '30m']
+             for p in priority:
+                 for f in grid_files:
+                     if p in f: grid_path = f; break
+                 if grid_path: break
+             if not grid_path: grid_path = grid_files[0]
+
         if not os.path.exists(grid_path):
-            return False, f"File griglia non trovato: {grid_path}", None
-        
-        # Check required files
-        landuse_path = os.path.join(unified_dir, "landuse_10m.tif")
-        buildings_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
-        svf_path = os.path.join(unified_dir, "svf_10m.tif")
-        
-        if not os.path.exists(landuse_path):
-            return False, "ESA WorldCover non trovato. Scarica prima i dati.", None
-        
-        log(f"Griglia: {os.path.basename(grid_path)}")
-        log(f"Land Use: {os.path.basename(landuse_path)}")
-        log(f"Edifici: {'Presente' if os.path.exists(buildings_path) else 'Non presente'}")
-        
-        # Load grid layer
-        grid_layer = QgsVectorLayer(grid_path, "grid_temp", "ogr")
-        if not grid_layer.isValid():
-            return False, "Impossibile aprire la griglia", None
-        
-        feature_count = grid_layer.featureCount()
-        log(f"Celle griglia: {feature_count}")
-        
-        # ESA WorldCover class mapping
-        # Pervious classes: 10 (tree), 20 (shrub), 30 (grass), 40 (crop), 
-        #                   60 (bare), 90 (wetland), 95 (mangrove), 100 (moss)
-        # Impervious: 50 (built-up)
-        # Excluded: 70 (snow), 80 (water)
-        PERVIOUS_CLASSES = [10, 20, 30, 40, 60, 90, 95, 100]
-        IMPERVIOUS_CLASS = 50
-        EXCLUDED_CLASSES = [70, 80]
-        
-        # Open landuse raster
-        landuse_ds = gdal.Open(landuse_path)
-        if not landuse_ds:
-            return False, "Impossibile aprire ESA WorldCover", None
-        
-        landuse_band = landuse_ds.GetRasterBand(1)
-        landuse_gt = landuse_ds.GetGeoTransform()
-        landuse_data = landuse_band.ReadAsArray()
-        
-        # Load buildings if available
+            return False, f"File non trovato: {grid_path}", None
+
+        # We will work on a resulting file '_lcz_params.gpkg' to keep original grid clean
+        # but if we are already working on a result file, we update it.
+        target_path = grid_path
+        if not grid_path.endswith("_lcz_params.gpkg"):
+            target_path = grid_path.replace(".gpkg", "_lcz_params.gpkg")
+            if not os.path.exists(target_path):
+                # Copy original to target
+                import shutil
+                shutil.copy2(grid_path, target_path)
+                log(f"Creata copia di lavoro: {os.path.basename(target_path)}")
+
+        log(f"Parametro: {PARAM_MAP[parameter_id][1] if parameter_id else 'Tutti'}")
+        log(f"Layer: {os.path.basename(target_path)}")
+
+        # Open target layer
+        layer = QgsVectorLayer(target_path, "lcz_work_layer", "ogr")
+        if not layer.isValid():
+            return False, "Impossibile aprire il layer di lavoro", None
+
+        # Ensure requested field(s) exist
+        layer.startEditing()
+        if parameter_id:
+            field_name = PARAM_MAP[parameter_id][0]
+            if layer.fields().indexFromName(field_name) == -1:
+                layer.addAttribute(QgsField(field_name, QVariant.Double))
+        else:
+            # Legacy/All: ensure all 10 fields exist
+            for pid, (fname, _) in PARAM_MAP.items():
+                if layer.fields().indexFromName(fname) == -1:
+                    layer.addAttribute(QgsField(fname, QVariant.Double))
+        layer.commitChanges()
+
+        # Preparation for calculation
+        # Load datasets based on what we need
+        landuse_ds = None
+        landuse_data = None
+        landuse_gt = None
         buildings_layer = None
-        if os.path.exists(buildings_path):
-            buildings_layer = QgsVectorLayer(buildings_path, "buildings_temp", "ogr")
-            if not buildings_layer.isValid():
-                log("⚠ Layer edifici non valido, proseguo senza")
-                buildings_layer = None
-            else:
-                log(f"Edifici caricati: {buildings_layer.featureCount()} feature")
-        
-        # Load SVF raster if available
         svf_ds = None
         svf_data = None
         svf_gt = None
         svf_nodata = None
-        if os.path.exists(svf_path):
+        
+        # Shared resources
+        landuse_path = os.path.join(unified_dir, "landuse_10m.tif")
+        buildings_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
+        svf_path = os.path.join(unified_dir, "svf_10m.tif")
+
+        # ESA Classes
+        PERVIOUS_CLASSES = [10, 20, 30, 40, 60, 90, 95, 100]
+        IMPERVIOUS_CLASS = 50
+        EXCLUDED_CLASSES = [70, 80]
+
+        # Conditional loading
+        needs_landuse = parameter_id in ['impervious_surface_fraction', 'pervious_surface_fraction'] or not parameter_id
+        needs_buildings = parameter_id in ['building_surface_fraction', 'impervious_surface_fraction', 'pervious_surface_fraction', 'roughness_elements_height'] or not parameter_id
+        needs_svf = parameter_id in ['sky_view_factor'] or not parameter_id
+
+        if needs_landuse and os.path.exists(landuse_path):
+            landuse_ds = gdal.Open(landuse_path)
+            if landuse_ds:
+                landuse_band = landuse_ds.GetRasterBand(1)
+                landuse_gt = landuse_ds.GetGeoTransform()
+                landuse_data = landuse_band.ReadAsArray()
+        
+        if needs_buildings and os.path.exists(buildings_path):
+            buildings_layer = QgsVectorLayer(buildings_path, "bld_temp", "ogr")
+            if not buildings_layer.isValid(): buildings_layer = None
+
+        if needs_svf and os.path.exists(svf_path):
             svf_ds = gdal.Open(svf_path)
             if svf_ds:
                 svf_band = svf_ds.GetRasterBand(1)
                 svf_nodata = svf_band.GetNoDataValue()
                 svf_gt = svf_ds.GetGeoTransform()
                 svf_data = svf_band.ReadAsArray()
-                log(f"SVF raster caricato: {svf_ds.RasterXSize}x{svf_ds.RasterYSize}")
-        else:
-            log("⚠ SVF raster non trovato, parametro svf_mean non calcolato")
-        
-        # Prepare output - create new grid with attributes
-        output_path = grid_path.replace(".gpkg", "_lcz_params.gpkg")
-        if os.path.exists(output_path):
-            os.remove(output_path)
-        
-        # Copy grid and add new fields
-        from qgis.core import QgsVectorFileWriter, QgsFields
-        
-        # Get existing fields and add new ones
-        fields = grid_layer.fields()
-        new_fields = [
-            QgsField(name="building_frac", type=QVariant.Double),
-            QgsField(name="impervious_frac", type=QVariant.Double),
-            QgsField(name="pervious_frac", type=QVariant.Double),
-            QgsField(name="svf_mean", type=QVariant.Double),
-        ]
-        for f in new_fields:
-            fields.append(f)
-        
-        # Create output file
-        options = QgsVectorFileWriter.SaveVectorOptions()
-        options.driverName = "GPKG"
-        options.fileEncoding = "UTF-8"
-        
-        writer = QgsVectorFileWriter.create(
-            output_path,
-            fields,
-            grid_layer.wkbType(),
-            grid_layer.crs(),
-            QgsProject.instance().transformContext(),
-            options
-        )
-        
-        if writer.hasError() != QgsVectorFileWriter.NoError:
-            return False, f"Errore creazione output: {writer.errorMessage()}", None
-        
-        # Process each grid cell
-        log("Calcolo frazioni di superficie...")
+
+        # Start updating
+        layer.startEditing()
+        feature_count = layer.featureCount()
         processed = 0
         
-        for feature in grid_layer.getFeatures():
+        log(f"Processando {feature_count} celle...")
+        
+        for feature in layer.getFeatures():
             geom = feature.geometry()
             bbox = geom.boundingBox()
             cell_area = geom.area()
             
-            if cell_area <= 0:
-                continue
-            
-            # 1. Calculate Building Fraction from vector layer
-            building_frac = 0.0
-            if buildings_layer:
-                building_area = 0.0
-                # Use spatial filter to get only buildings in this cell's bbox (MUCH faster)
-                from qgis.core import QgsFeatureRequest
-                request = QgsFeatureRequest().setFilterRect(bbox)
-                for bldg in buildings_layer.getFeatures(request):
-                    bldg_geom = bldg.geometry()
-                    if bldg_geom.intersects(geom):
-                        intersection = bldg_geom.intersection(geom)
-                        if intersection:
-                            building_area += intersection.area()
+            if cell_area <= 0: continue
+
+            # --- 1. Building Fraction ---
+            if not parameter_id or parameter_id == 'building_surface_fraction':
+                val = 0.0
+                if buildings_layer:
+                    from qgis.core import QgsFeatureRequest
+                    b_area = 0.0
+                    for bldg in buildings_layer.getFeatures(QgsFeatureRequest().setFilterRect(bbox)):
+                        if bldg.geometry().intersects(geom):
+                            inter = bldg.geometry().intersection(geom)
+                            if inter: b_area += inter.area()
+                    val = min(100.0, (b_area / cell_area) * 100)
+                feature.setAttribute(PARAM_MAP['building_surface_fraction'][0], round(val, 2))
+
+            # --- 2. SVF ---
+            if not parameter_id or parameter_id == 'sky_view_factor':
+                val = None
+                if svf_data is not None:
+                    px = int((bbox.xMinimum() - svf_gt[0]) / svf_gt[1])
+                    py = int((bbox.yMaximum() - svf_gt[3]) / svf_gt[5])
+                    px2 = int((bbox.xMaximum() - svf_gt[0]) / svf_gt[1])
+                    py2 = int((bbox.yMinimum() - svf_gt[3]) / svf_gt[5])
+                    px, px2 = sorted([px, px2]); py, py2 = sorted([py, py2])
+                    px = max(0, px); px2 = min(svf_ds.RasterXSize, px2)
+                    py = max(0, py); py2 = min(svf_ds.RasterYSize, py2)
+                    if px2 > px and py2 > py:
+                        sub = svf_data[py:py2, px:px2]
+                        v_svf = sub[sub != svf_nodata] if svf_nodata is not None else sub[~np.isnan(sub)]
+                        if len(v_svf) > 0: val = float(np.mean(v_svf))
+                feature.setAttribute(PARAM_MAP['sky_view_factor'][0], round(val, 3) if val is not None else None)
+
+            # --- 3. Impervious & Pervious ---
+            if not parameter_id or parameter_id in ['impervious_surface_fraction', 'pervious_surface_fraction']:
+                imp_f, per_f = 0.0, 100.0
+                # We need building_frac for these
+                b_frac = feature.attribute(PARAM_MAP['building_surface_fraction'][0])
+                if b_frac is None or b_frac == QVariant(): b_frac = 0.0 # Fallback if not calc yet
+
+                if landuse_data is not None:
+                    px = int((bbox.xMinimum() - landuse_gt[0]) / landuse_gt[1])
+                    py = int((bbox.yMaximum() - landuse_gt[3]) / landuse_gt[5])
+                    px2 = int((bbox.xMaximum() - landuse_gt[0]) / landuse_gt[1])
+                    py2 = int((bbox.yMinimum() - landuse_gt[3]) / landuse_gt[5])
+                    px, px2 = sorted([px, px2]); py, py2 = sorted([py, py2])
+                    px = max(0, px); px2 = min(landuse_ds.RasterXSize, px2)
+                    py = max(0, py); py2 = min(landuse_ds.RasterYSize, py2)
+                    if px2 > px and py2 > py:
+                        sub = landuse_data[py:py2, px:px2]
+                        tot = sub.size
+                        if tot > 0:
+                            i_pcs = np.sum(sub == IMPERVIOUS_CLASS)
+                            p_pcs = sum(np.sum(sub == c) for c in PERVIOUS_CLASSES)
+                            ex_pcs = sum(np.sum(sub == c) for c in EXCLUDED_CLASSES)
+                            v_pcs = tot - ex_pcs
+                            if v_pcs > 0:
+                                esa_imp = (i_pcs / v_pcs) * 100
+                                imp_f = max(0, esa_imp - b_frac)
+                                per_f = max(0, 100.0 - b_frac - imp_f)
                 
-                building_frac = min(100.0, (building_area / cell_area) * 100)
-            
-            # 2. Calculate from ESA WorldCover (raster statistics)
-            # Convert bbox to pixel coordinates
-            x_min_px = int((bbox.xMinimum() - landuse_gt[0]) / landuse_gt[1])
-            x_max_px = int((bbox.xMaximum() - landuse_gt[0]) / landuse_gt[1])
-            y_min_px = int((bbox.yMaximum() - landuse_gt[3]) / landuse_gt[5])  # Note: inverted
-            y_max_px = int((bbox.yMinimum() - landuse_gt[3]) / landuse_gt[5])
-            
-            # Clamp to raster bounds
-            x_min_px = max(0, x_min_px)
-            x_max_px = min(landuse_ds.RasterXSize, x_max_px)
-            y_min_px = max(0, y_min_px)
-            y_max_px = min(landuse_ds.RasterYSize, y_max_px)
-            
-            if x_max_px <= x_min_px or y_max_px <= y_min_px:
-                # Cell outside raster bounds
-                impervious_frac = 0.0
-                pervious_frac = 100.0 - building_frac
-            else:
-                # Extract subset
-                subset = landuse_data[y_min_px:y_max_px, x_min_px:x_max_px]
-                total_pixels = subset.size
-                
-                if total_pixels > 0:
-                    # Count pixels by class
-                    impervious_pixels = np.sum(subset == IMPERVIOUS_CLASS)
-                    pervious_pixels = sum(np.sum(subset == c) for c in PERVIOUS_CLASSES)
-                    excluded_pixels = sum(np.sum(subset == c) for c in EXCLUDED_CLASSES)
-                    
-                    valid_pixels = total_pixels - excluded_pixels
-                    
-                    if valid_pixels > 0:
-                        # ESA built-up fraction
-                        esa_builtup_frac = (impervious_pixels / valid_pixels) * 100
-                        
-                        # Impervious = ESA built-up minus buildings (to avoid double counting)
-                        impervious_frac = max(0, esa_builtup_frac - building_frac)
-                        
-                        # Pervious = rest
-                        pervious_frac = max(0, 100.0 - building_frac - impervious_frac)
-                    else:
-                        impervious_frac = 0.0
-                        pervious_frac = 100.0 - building_frac
-                else:
-                    impervious_frac = 0.0
-                    pervious_frac = 100.0 - building_frac
-            
-            # 3. Calculate mean SVF from raster (zonal statistics)
-            svf_mean = None
-            if svf_data is not None and svf_gt is not None:
-                # Convert bbox to pixel coordinates for SVF raster
-                svf_x_min_px = int((bbox.xMinimum() - svf_gt[0]) / svf_gt[1])
-                svf_x_max_px = int((bbox.xMaximum() - svf_gt[0]) / svf_gt[1])
-                svf_y_min_px = int((bbox.yMaximum() - svf_gt[3]) / svf_gt[5])  # Note: inverted
-                svf_y_max_px = int((bbox.yMinimum() - svf_gt[3]) / svf_gt[5])
-                
-                # Clamp to raster bounds
-                svf_x_min_px = max(0, svf_x_min_px)
-                svf_x_max_px = min(svf_ds.RasterXSize, svf_x_max_px)
-                svf_y_min_px = max(0, svf_y_min_px)
-                svf_y_max_px = min(svf_ds.RasterYSize, svf_y_max_px)
-                
-                if svf_x_max_px > svf_x_min_px and svf_y_max_px > svf_y_min_px:
-                    svf_subset = svf_data[svf_y_min_px:svf_y_max_px, svf_x_min_px:svf_x_max_px]
-                    
-                    # Filter out NoData values
-                    if svf_nodata is not None:
-                        valid_svf = svf_subset[svf_subset != svf_nodata]
-                    else:
-                        valid_svf = svf_subset[~np.isnan(svf_subset)]
-                    
-                    if len(valid_svf) > 0:
-                        svf_mean = float(np.mean(valid_svf))
-            
-            # Create new feature with calculated values
-            new_feat = QgsFeature(fields)
-            new_feat.setGeometry(geom)
-            
-            # Copy original attributes
-            for i in range(grid_layer.fields().count()):
-                new_feat.setAttribute(i, feature.attribute(i))
-            
-            # Set new attributes
-            new_feat.setAttribute("building_frac", round(building_frac, 2))
-            new_feat.setAttribute("impervious_frac", round(impervious_frac, 2))
-            new_feat.setAttribute("pervious_frac", round(pervious_frac, 2))
-            new_feat.setAttribute("svf_mean", round(svf_mean, 3) if svf_mean is not None else None)
-            
-            writer.addFeature(new_feat)
-            
+                if not parameter_id or parameter_id == 'impervious_surface_fraction':
+                    feature.setAttribute(PARAM_MAP['impervious_surface_fraction'][0], round(imp_f, 2))
+                if not parameter_id or parameter_id == 'pervious_surface_fraction':
+                    feature.setAttribute(PARAM_MAP['pervious_surface_fraction'][0], round(per_f, 2))
+
+            # --- 4. Placeholders for other 6 params ---
+            # To be implemented in future steps
+            other_params = ['aspect_ratio', 'roughness_elements_height', 'terrain_roughness_class', 
+                           'surface_admittance', 'surface_albedo', 'anthropogenic_heat_output']
+            for op in other_params:
+                if not parameter_id or parameter_id == op:
+                    # Current logic: leave as NULL or 0 for now
+                    feature.setAttribute(PARAM_MAP[op][0], None)
+
+            layer.updateFeature(feature)
             processed += 1
-            if processed % 100 == 0:
+            if processed % 100 == 0: log(f"Processate {processed}/{feature_count} celle...")
+
+        layer.commitChanges()
+        landuse_ds = None; svf_ds = None
+        
+        log(f"✓ Calcolo completato per {processed} celle")
+        return True, "Parametri aggiornati con successo", target_path
                 log(f"Processate {processed}/{feature_count} celle...")
         
         del writer

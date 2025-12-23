@@ -6,7 +6,7 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QCheckBox, QProgressBar, 
     QGroupBox, QScrollArea, QFileDialog, QComboBox,
-    QRadioButton, QLineEdit, QInputDialog
+    QRadioButton, QLineEdit, QInputDialog, QGridLayout
 )
 from qgis.core import (
     QgsProject, QgsMapLayer, QgsWkbTypes, QgsMapLayerProxyModel, 
@@ -225,10 +225,31 @@ class ITLCZDashboard(QDockWidget):
         
         self.params_layout.addSpacing(5)
         
-        self.btn_calc_params = QPushButton("Calcola Parametri LCZ")
-        self.btn_calc_params.setStyleSheet("background-color: #9b59b6; color: white; font-weight: bold; padding: 5px;")
-        self.btn_calc_params.clicked.connect(self.run_lcz_parameters)
-        self.params_layout.addWidget(self.btn_calc_params)
+        # Grid of 10 atomic buttons
+        self.params_grid = QGridLayout()
+        self.param_buttons = {}
+        
+        params = [
+            ('sky_view_factor', 'Sky View Factor', '#9b59b6'),
+            ('aspect_ratio', 'Aspect Ratio', '#9b59b6'),
+            ('building_surface_fraction', 'Building Surf. Frac.', '#9b59b6'),
+            ('impervious_surface_fraction', 'Impervious Surf. Frac.', '#9b59b6'),
+            ('pervious_surface_fraction', 'Pervious Surf. Frac.', '#9b59b6'),
+            ('roughness_elements_height', 'Roughness El. H', '#8e44ad'),
+            ('terrain_roughness_class', 'Terrain Rough. Class', '#8e44ad'),
+            ('surface_admittance', 'Surface Admittance', '#8e44ad'),
+            ('surface_albedo', 'Surface Albedo', '#8e44ad'),
+            ('anthropogenic_heat_output', 'Anthro. Heat Output', '#8e44ad')
+        ]
+        
+        for i, (pid, name, color) in enumerate(params):
+            btn = QPushButton(name)
+            btn.setStyleSheet(f"background-color: {color}; color: white; font-weight: bold; font-size: 9px; padding: 5px;")
+            btn.clicked.connect(lambda checked, p=pid: self.run_specific_lcz_param(p))
+            self.params_grid.addWidget(btn, i // 2, i % 2)
+            self.param_buttons[pid] = btn
+            
+        self.params_layout.addLayout(self.params_grid)
         
         self.scroll_layout.addWidget(self.params_group)
         
@@ -695,8 +716,8 @@ class ITLCZDashboard(QDockWidget):
             self.status_label.setText(f"Errore griglia: {message}")
             self.iface.messageBar().pushMessage("IT-LCZ", f"Errore griglia: {message}", level=2)
 
-    def run_lcz_parameters(self):
-        """Calculate LCZ parameters (building_frac, impervious_frac, pervious_frac, svf_mean) for each grid cell."""
+    def run_specific_lcz_param(self, parameter_id=None):
+        """Calculate a specific LCZ parameter for each grid cell."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
             self.iface.messageBar().pushMessage(
@@ -706,96 +727,71 @@ class ITLCZDashboard(QDockWidget):
         
         # 1. Scan for valid grid layers in the project
         grid_layer_names = [
-            "Griglia LCZ (30m)", 
-            "Griglia LCZ (50m)", 
-            "Griglia LCZ (100m)", 
-            "Griglia LCZ (custom)"
+            "Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", "Griglia LCZ (custom)",
+            "Griglia LCZ (30m) - Parametri", "Griglia LCZ (50m) - Parametri", 
+            "Griglia LCZ (100m) - Parametri", "Griglia LCZ (custom) - Parametri"
         ]
         
         found_layers = []
         for name in grid_layer_names:
             layers = QgsProject.instance().mapLayersByName(name)
             if layers:
-                # Assuming the first one if multiple with same name (unlikely for our naming convention)
                 found_layers.append(layers[0])
         
         selected_layer = None
-        
         if not found_layers:
-            self.iface.messageBar().pushMessage(
-                "Errore", "Nessuna griglia LCZ trovata nel progetto. Generala al punto 4 prima di procedere.", level=2
-            )
-            self.status_label.setText("⚠ Genera una griglia prima di calcolare i parametri")
+            self.iface.messageBar().pushMessage("Errore", "Nessuna griglia LCZ trovata.", level=2)
             return
         
-        elif len(found_layers) == 1:
+        if len(found_layers) == 1:
             selected_layer = found_layers[0]
-            QgsMessageLog.logMessage(f"Uso automaticamente l'unica griglia trovata: {selected_layer.name()}", "IT-LCZ", Qgis.Info)
-        
         else:
-            # Multiple layers found, ask user to select one
             items = [layer.name() for layer in found_layers]
-            item, ok = QInputDialog.getItem(
-                self, "Selezione Griglia", 
-                "Sono state trovate più griglie. Scegline una su cui lavorare:", 
-                items, 0, False
-            )
-            
+            item, ok = QInputDialog.getItem(self, "Selezione Griglia", "Scegli la griglia:", items, 0, False)
             if ok and item:
-                # Find the layer object again by name
                 for layer in found_layers:
-                    if layer.name() == item:
-                        selected_layer = layer
-                        break
-            else:
-                self.status_label.setText("Calcolo parametri annullato dall'utente.")
-                return
+                    if layer.name() == item: selected_layer = layer; break
+            else: return
 
-        # Get the source file path of the selected layer
         grid_path = selected_layer.source()
-        
-        self.status_label.setText(f"Calcolo parametri LCZ su {selected_layer.name()}...")
-        self.progress.setMaximum(0)  # Indeterminate progress
+        self.status_label.setText(f"Calcolo {parameter_id}...")
+        self.progress.setMaximum(0)
         from qgis.PyQt.QtWidgets import QApplication
         QApplication.processEvents()
         
         def log_callback(msg):
             self.status_label.setText(msg)
-            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
             QApplication.processEvents()
         
-        # Run LCZ parameters calculation
         success, message, output_path = self.data_manager.calculate_lcz_parameters(
             grid_path=grid_path,
+            parameter_id=parameter_id,
             log_callback=log_callback
         )
         
         if success and output_path:
-            self.status_label.setText("Caricamento risultati nel progetto...")
-            QApplication.processEvents()
-            
-            # Load result into project
-            from qgis.core import QgsVectorLayer
-            # Using a name that identifies which grid it came from
-            source_name = selected_layer.name()
+            self.status_label.setText("Aggiornamento layer...")
+            # If the result path is different (first run), load it. Otherwise, refresh.
+            source_name = selected_layer.name().replace(" - Parametri", "")
             layer_name = f"{source_name} - Parametri"
             
-            # Remove existing layer if present
             existing = QgsProject.instance().mapLayersByName(layer_name)
-            for lyr in existing:
-                QgsProject.instance().removeMapLayer(lyr.id())
-            
-            layer = QgsVectorLayer(output_path, layer_name, "ogr")
-            if layer.isValid():
-                QgsProject.instance().addMapLayer(layer)
-                self.progress.setMaximum(100)
-                self.progress.setValue(100)
-                self.status_label.setText(f"Parametri LCZ calcolati: {layer.featureCount()} celle")
-                self.iface.messageBar().pushMessage(
-                    "IT-LCZ", f"Parametri LCZ calcolati con successo!", level=3
-                )
+            if not existing:
+                from qgis.core import QgsVectorLayer
+                layer = QgsVectorLayer(output_path, layer_name, "ogr")
+                if layer.isValid():
+                    QgsProject.instance().addMapLayer(layer)
             else:
-                self.status_label.setText("Parametri calcolati ma layer non valido.")
+                # Refresh existing layer if it was the one modified
+                for lyr in existing:
+                    lyr.triggerRepaint()
+                    if hasattr(lyr, 'dataProvider'):
+                        lyr.dataProvider().forceReload()
+
+            self.progress.setMaximum(100)
+            self.progress.setValue(100)
+            self.status_label.setText(f"Calcolo {parameter_id} completato.")
+            self.iface.messageBar().pushMessage("IT-LCZ", f"Parametro {parameter_id} calcolato!", level=3)
         else:
             self.progress.setMaximum(100)
             self.progress.setValue(0)
