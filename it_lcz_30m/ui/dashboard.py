@@ -232,9 +232,7 @@ class ITLCZDashboard(QDockWidget):
         params = [
             ('sky_view_factor', 'Sky View Factor', '#9b59b6'),
             ('aspect_ratio', 'Aspect Ratio', '#9b59b6'),
-            ('building_surface_fraction', 'Building Surf. Frac.', '#9b59b6'),
-            ('impervious_surface_fraction', 'Impervious Surf. Frac.', '#9b59b6'),
-            ('pervious_surface_fraction', 'Pervious Surf. Frac.', '#9b59b6'),
+            ('surface_fractions', 'Surface Frac. (BSF/ISF/PSF)', '#9b59b6'),
             ('roughness_elements_height', 'Roughness El. H', '#8e44ad'),
             ('terrain_roughness_class', 'Terrain Rough. Class', '#8e44ad'),
             ('surface_admittance', 'Surface Admittance', '#8e44ad'),

@@ -1567,9 +1567,7 @@ class DataManager:
         PARAM_MAP = {
             'sky_view_factor': ('svf_mean', 'Sky View Factor'),
             'aspect_ratio': ('aspect_ratio', 'Aspect Ratio'),
-            'building_surface_fraction': ('building_frac', 'Building Surface Fraction'),
-            'impervious_surface_fraction': ('impervious_frac', 'Impervious Surface Fraction'),
-            'pervious_surface_fraction': ('pervious_frac', 'Pervious Surface Fraction'),
+            'surface_fractions': ('surface_fracs', 'Surface Fractions (BSF/ISF/PSF)'),
             'roughness_elements_height': ('roughness_h', 'Roughness Elements Height'),
             'terrain_roughness_class': ('rough_class', 'Terrain Roughness Class'),
             'surface_admittance': ('admittance', 'Surface Admittance'),
@@ -1653,9 +1651,9 @@ class DataManager:
         EXCLUDED_CLASSES = [70, 80]
 
         # Conditional loading
-        needs_landuse = parameter_id in ['impervious_surface_fraction', 'pervious_surface_fraction'] or not parameter_id
-        needs_buildings = parameter_id in ['building_surface_fraction', 'impervious_surface_fraction', 'pervious_surface_fraction', 'roughness_elements_height'] or not parameter_id
-        needs_svf = parameter_id in ['sky_view_factor'] or not parameter_id
+        needs_landuse = parameter_id == 'surface_fractions' or not parameter_id
+        needs_buildings = parameter_id in ['surface_fractions', 'roughness_elements_height'] or not parameter_id
+        needs_svf = parameter_id == 'sky_view_factor' or not parameter_id
 
         if needs_landuse and os.path.exists(landuse_path):
             landuse_ds = gdal.Open(landuse_path)
@@ -1713,12 +1711,12 @@ class DataManager:
                 processed += 1
             layer.commitChanges()
 
-        elif parameter_id == 'building_surface_fraction':
-            log("Calcolo Building Fraction (Ottimizzazione spaziale)...")
-            layer.startEditing()
-            idx_dst = layer.fields().indexFromName('building_frac')
-            if idx_dst == -1:
-                return False, "Indice campo building_frac non trovato.", None
+        elif parameter_id == 'surface_fractions':
+            log("Calcolo Frazioni di Superficie consolidate (BSF + ISF + PSF = 100%)...")
+            
+            # 1. First Pass: Calculate Building Surface Fraction (BSF)
+            log("Fase 1: Calcolo Building Fraction...")
+            bsf_data = {} # cell_id -> bsf
             for feature in layer.getFeatures():
                 geom = feature.geometry()
                 bbox = geom.boundingBox()
@@ -1732,12 +1730,10 @@ class DataManager:
                             inter = bldg.geometry().intersection(geom)
                             if inter: b_area += inter.area()
                     val = min(100.0, (b_area / cell_area) * 100)
-                layer.changeAttributeValue(feature.id(), idx_dst, round(val, 2))
-                processed += 1
-            layer.commitChanges()
+                bsf_data[feature.id()] = val
 
-        elif parameter_id in ['impervious_surface_fraction', 'pervious_surface_fraction']:
-            log("Calcolo Frazioni ESA ottimizzato (Zonal Histogram)...")
+            # 2. Second Pass: Calculate ESA classes (Zonal Histogram)
+            log("Fase 2: Analisi Land Cover (ESA WorldCover)...")
             res = processing.run("native:zonalhistogram", {
                 'INPUT_VECTOR': target_path,
                 'INPUT_RASTER': landuse_path,
@@ -1753,10 +1749,12 @@ class DataManager:
             idx_bld = layer.fields().indexFromName('building_frac')
             
             if idx_imp == -1 or idx_per == -1 or idx_bld == -1:
-                return False, f"Indici campi ESA non trovati (Imp: {idx_imp}, Per: {idx_per}, Bld: {idx_bld})", None
+                return False, f"Indici campi superficie non trovati (Imp: {idx_imp}, Per: {idx_per}, Bld: {idx_bld})", None
             
             f_src = temp_layer.fields()
             for feat in temp_layer.getFeatures():
+                fid = feat.id()
+                # Count pixels for each class
                 p_imp = feat.attribute('h_50') if f_src.indexFromName('h_50') != -1 else 0
                 p_per = 0
                 for c in PERVIOUS_CLASSES:
@@ -1771,19 +1769,31 @@ class DataManager:
                         p_exc += feat.attribute(p_name)
                 
                 p_tot = p_imp + p_per + p_exc
-                b_frac = feat.attribute(idx_bld)
-                if b_frac is None or b_frac == QVariant(): b_frac = 0.0
                 
+                # BSF has absolute priority (calculated from vectors)
+                b_frac = bsf_data.get(fid, 0.0)
+                
+                # Combine values to ensure 100% sum
+                # ISF = pixels_50_fraction - BSF (since buildings are often inside built pixels)
+                # PSF = remainder
                 imp_f, per_f = 0.0, 100.0 - b_frac
                 if p_tot > 0:
                     esa_imp_f = (p_imp / p_tot) * 100
+                    # Buildings frequently overlap with ESA built pixels (class 50)
                     imp_f = max(0, esa_imp_f - b_frac)
+                    # The sum must be 100
                     per_f = max(0, 100.0 - b_frac - imp_f)
                 
-                if parameter_id == 'impervious_surface_fraction' or not parameter_id:
-                    layer.changeAttributeValue(feat.id(), idx_imp, round(imp_f, 2))
-                if parameter_id == 'pervious_surface_fraction' or not parameter_id:
-                    layer.changeAttributeValue(feat.id(), idx_per, round(per_f, 2))
+                # Force final normalization if floating point errors occur
+                total = b_frac + imp_f + per_f
+                if total > 0:
+                    b_frac = (b_frac / total) * 100
+                    imp_f = (imp_f / total) * 100
+                    per_f = (per_f / total) * 100
+
+                layer.changeAttributeValue(fid, idx_bld, round(b_frac, 2))
+                layer.changeAttributeValue(fid, idx_imp, round(imp_f, 2))
+                layer.changeAttributeValue(fid, idx_per, round(per_f, 2))
                 processed += 1
             layer.commitChanges()
         
