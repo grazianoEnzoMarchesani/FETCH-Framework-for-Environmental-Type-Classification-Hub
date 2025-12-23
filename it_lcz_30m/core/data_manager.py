@@ -1689,15 +1689,41 @@ class DataManager:
         
         log(f"Processando {feature_count} celle...")
         
-        for feature in layer.getFeatures():
-            geom = feature.geometry()
-            bbox = geom.boundingBox()
-            cell_area = geom.area()
+        # --- Optimization: Use QGIS Processing for heavy tasks ---
+        if parameter_id == 'sky_view_factor':
+            if not os.path.exists(svf_path):
+                return False, "Raster SVF non trovato. Esegui prima il calcolo SVF.", None
             
-            if cell_area <= 0: continue
+            log("Calcolo SVF ottimizzato (Zonal Statistics)...")
+            res = processing.run("native:zonalstatisticsfb", {
+                'INPUT': target_path,
+                'INPUT_RASTER': svf_path,
+                'RASTER_BAND': 1,
+                'COLUMN_PREFIX': '_tmp_svf_',
+                'STATISTICS': [2],  # Mean
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            temp_layer = res['OUTPUT']
+            
+            layer.startEditing()
+            idx_dst = layer.fields().indexFromName('svf_mean')
+            idx_src = temp_layer.fields().indexFromName('_tmp_svf_mean')
+            
+            for feat in temp_layer.getFeatures():
+                val = feat.attribute(idx_src)
+                if val is not None and val != QVariant():
+                    layer.changeAttributeValue(feat.id(), idx_dst, round(val, 3))
+                processed += 1
+            layer.commitChanges()
 
-            # --- 1. Building Fraction ---
-            if not parameter_id or parameter_id == 'building_surface_fraction':
+        elif parameter_id == 'building_surface_fraction':
+            log("Calcolo Building Fraction (Ottimizzazione spaziale)...")
+            layer.startEditing()
+            idx_dst = layer.fields().indexFromName('building_frac')
+            for feature in layer.getFeatures():
+                geom = feature.geometry()
+                bbox = geom.boundingBox()
+                cell_area = geom.area()
                 val = 0.0
                 if buildings_layer:
                     from qgis.core import QgsFeatureRequest
@@ -1707,72 +1733,59 @@ class DataManager:
                             inter = bldg.geometry().intersection(geom)
                             if inter: b_area += inter.area()
                     val = min(100.0, (b_area / cell_area) * 100)
-                feature.setAttribute(PARAM_MAP['building_surface_fraction'][0], round(val, 2))
+                layer.changeAttributeValue(feature.id(), idx_dst, round(val, 2))
+                processed += 1
+            layer.commitChanges()
 
-            # --- 2. SVF ---
-            if not parameter_id or parameter_id == 'sky_view_factor':
-                val = None
-                if svf_data is not None:
-                    px = int((bbox.xMinimum() - svf_gt[0]) / svf_gt[1])
-                    py = int((bbox.yMaximum() - svf_gt[3]) / svf_gt[5])
-                    px2 = int((bbox.xMaximum() - svf_gt[0]) / svf_gt[1])
-                    py2 = int((bbox.yMinimum() - svf_gt[3]) / svf_gt[5])
-                    px, px2 = sorted([px, px2]); py, py2 = sorted([py, py2])
-                    px = max(0, px); px2 = min(svf_ds.RasterXSize, px2)
-                    py = max(0, py); py2 = min(svf_ds.RasterYSize, py2)
-                    if px2 > px and py2 > py:
-                        sub = svf_data[py:py2, px:px2]
-                        v_svf = sub[sub != svf_nodata] if svf_nodata is not None else sub[~np.isnan(sub)]
-                        if len(v_svf) > 0: val = float(np.mean(v_svf))
-                feature.setAttribute(PARAM_MAP['sky_view_factor'][0], round(val, 3) if val is not None else None)
-
-            # --- 3. Impervious & Pervious ---
-            if not parameter_id or parameter_id in ['impervious_surface_fraction', 'pervious_surface_fraction']:
-                imp_f, per_f = 0.0, 100.0
-                # We need building_frac for these
-                b_frac = feature.attribute(PARAM_MAP['building_surface_fraction'][0])
-                if b_frac is None or b_frac == QVariant(): b_frac = 0.0 # Fallback if not calc yet
-
-                if landuse_data is not None:
-                    px = int((bbox.xMinimum() - landuse_gt[0]) / landuse_gt[1])
-                    py = int((bbox.yMaximum() - landuse_gt[3]) / landuse_gt[5])
-                    px2 = int((bbox.xMaximum() - landuse_gt[0]) / landuse_gt[1])
-                    py2 = int((bbox.yMinimum() - landuse_gt[3]) / landuse_gt[5])
-                    px, px2 = sorted([px, px2]); py, py2 = sorted([py, py2])
-                    px = max(0, px); px2 = min(landuse_ds.RasterXSize, px2)
-                    py = max(0, py); py2 = min(landuse_ds.RasterYSize, py2)
-                    if px2 > px and py2 > py:
-                        sub = landuse_data[py:py2, px:px2]
-                        tot = sub.size
-                        if tot > 0:
-                            i_pcs = np.sum(sub == IMPERVIOUS_CLASS)
-                            p_pcs = sum(np.sum(sub == c) for c in PERVIOUS_CLASSES)
-                            ex_pcs = sum(np.sum(sub == c) for c in EXCLUDED_CLASSES)
-                            v_pcs = tot - ex_pcs
-                            if v_pcs > 0:
-                                esa_imp = (i_pcs / v_pcs) * 100
-                                imp_f = max(0, esa_imp - b_frac)
-                                per_f = max(0, 100.0 - b_frac - imp_f)
+        elif parameter_id in ['impervious_surface_fraction', 'pervious_surface_fraction']:
+            log("Calcolo Frazioni ESA ottimizzato (Zonal Histogram)...")
+            res = processing.run("native:zonalhistogram", {
+                'INPUT_VECTOR': target_path,
+                'RASTER_LAYER': landuse_path,
+                'RASTER_BAND': 1,
+                'COLUMN_PREFIX': 'h_',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            temp_layer = res['OUTPUT']
+            
+            layer.startEditing()
+            idx_imp = layer.fields().indexFromName('impervious_frac')
+            idx_per = layer.fields().indexFromName('pervious_frac')
+            idx_bld = layer.fields().indexFromName('building_frac')
+            
+            f_src = temp_layer.fields()
+            for feat in temp_layer.getFeatures():
+                p_imp = feat.attribute('h_50') if f_src.indexFromName('h_50') != -1 else 0
+                p_per = 0
+                for c in PERVIOUS_CLASSES:
+                    p_name = f'h_{c}'
+                    if f_src.indexFromName(p_name) != -1:
+                        p_per += feat.attribute(p_name)
                 
-                if not parameter_id or parameter_id == 'impervious_surface_fraction':
-                    feature.setAttribute(PARAM_MAP['impervious_surface_fraction'][0], round(imp_f, 2))
-                if not parameter_id or parameter_id == 'pervious_surface_fraction':
-                    feature.setAttribute(PARAM_MAP['pervious_surface_fraction'][0], round(per_f, 2))
-
-            # --- 4. Placeholders for other 6 params ---
-            # To be implemented in future steps
-            other_params = ['aspect_ratio', 'roughness_elements_height', 'terrain_roughness_class', 
-                           'surface_admittance', 'surface_albedo', 'anthropogenic_heat_output']
-            for op in other_params:
-                if not parameter_id or parameter_id == op:
-                    # Current logic: leave as NULL or 0 for now
-                    feature.setAttribute(PARAM_MAP[op][0], None)
-
-            layer.updateFeature(feature)
-            processed += 1
-            if processed % 100 == 0: log(f"Processate {processed}/{feature_count} celle...")
-
-        layer.commitChanges()
+                p_exc = 0
+                for c in EXCLUDED_CLASSES:
+                    p_name = f'h_{c}'
+                    if f_src.indexFromName(p_name) != -1:
+                        p_exc += feat.attribute(p_name)
+                
+                p_tot = p_imp + p_per + p_exc
+                b_frac = feat.attribute(idx_bld)
+                if b_frac is None or b_frac == QVariant(): b_frac = 0.0
+                
+                imp_f, per_f = 0.0, 100.0 - b_frac
+                if p_tot > 0:
+                    esa_imp_f = (p_imp / p_tot) * 100
+                    imp_f = max(0, esa_imp_f - b_frac)
+                    per_f = max(0, 100.0 - b_frac - imp_f)
+                
+                layer.changeAttributeValue(feat.id(), idx_imp, round(imp_f, 2))
+                layer.changeAttributeValue(feat.id(), idx_per, round(per_f, 2))
+                processed += 1
+            layer.commitChanges()
+        
+        else:
+            log(f"Parametro {parameter_id} non ancora implementato o placeholder.")
+            
         landuse_ds = None; svf_ds = None
         
         log(f"✓ Calcolo completato per {processed} celle")
