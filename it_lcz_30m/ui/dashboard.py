@@ -11,7 +11,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.core import (
     QgsProject, QgsMapLayer, QgsWkbTypes, QgsMapLayerProxyModel, 
     QgsRectangle, QgsMessageLog, Qgis, QgsCoordinateReferenceSystem, 
-    QgsCoordinateTransform, QgsGeometry
+    QgsCoordinateTransform, QgsGeometry, QgsBackgroundTask, QgsApplication
 )
 from qgis.gui import QgsMapLayerComboBox, QgsFileWidget
 from ..core.utils import is_within_italy
@@ -716,8 +716,38 @@ class ITLCZDashboard(QDockWidget):
             self.status_label.setText(f"Errore griglia: {message}")
             self.iface.messageBar().pushMessage("IT-LCZ", f"Errore griglia: {message}", level=2)
 
+class LCZParameterTask(QgsBackgroundTask):
+    """Task for running LCZ parameter calculation in the background."""
+    def __init__(self, data_manager, grid_path, parameter_id):
+        super().__init__(f"Calcolo LCZ: {parameter_id}", QgsBackgroundTask.CanCancel)
+        self.data_manager = data_manager
+        self.grid_path = grid_path
+        self.parameter_id = parameter_id
+        self.success = False
+        self.message = ""
+        self.output_path = ""
+        self.log_msgs = []
+
+    def run(self):
+        def task_log(msg):
+            self.log_msgs.append(msg)
+            # Use progressChanged to pass messages back to UI if needed, 
+            # but for now we just log locally and reports at the end.
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+
+        try:
+            self.success, self.message, self.output_path = self.data_manager.calculate_lcz_parameters(
+                grid_path=self.grid_path,
+                parameter_id=self.parameter_id,
+                log_callback=task_log
+            )
+            return self.success
+        except Exception as e:
+            self.message = str(e)
+            return False
+
     def run_specific_lcz_param(self, parameter_id=None):
-        """Calculate a specific LCZ parameter for each grid cell."""
+        """Calculate a specific LCZ parameter for each grid cell in background."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
             self.iface.messageBar().pushMessage(
@@ -725,7 +755,7 @@ class ITLCZDashboard(QDockWidget):
             )
             return
         
-        # 1. Scan for valid grid layers in the project
+        # 1. Scan for valid grid layers
         grid_layer_names = [
             "Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", "Griglia LCZ (custom)",
             "Griglia LCZ (30m) - Parametri", "Griglia LCZ (50m) - Parametri", 
@@ -735,8 +765,7 @@ class ITLCZDashboard(QDockWidget):
         found_layers = []
         for name in grid_layer_names:
             layers = QgsProject.instance().mapLayersByName(name)
-            if layers:
-                found_layers.append(layers[0])
+            if layers: found_layers.append(layers[0])
         
         selected_layer = None
         if not found_layers:
@@ -754,49 +783,44 @@ class ITLCZDashboard(QDockWidget):
             else: return
 
         grid_path = selected_layer.source()
-        self.status_label.setText(f"Calcolo {parameter_id}...")
+        
+        # Disable buttons
+        for btn in self.param_buttons.values(): btn.setEnabled(False)
+        self.status_label.setText(f"Avvio calcolo {parameter_id}...")
         self.progress.setMaximum(0)
-        from qgis.PyQt.QtWidgets import QApplication
-        QApplication.processEvents()
         
-        def log_callback(msg):
-            self.status_label.setText(msg)
-            QApplication.processEvents()
+        # Create and start task
+        task = LCZParameterTask(self.data_manager, grid_path, parameter_id)
         
-        success, message, output_path = self.data_manager.calculate_lcz_parameters(
-            grid_path=grid_path,
-            parameter_id=parameter_id,
-            log_callback=log_callback
-        )
-        
-        if success and output_path:
-            self.status_label.setText("Aggiornamento layer...")
-            # If the result path is different (first run), load it. Otherwise, refresh.
-            source_name = selected_layer.name().replace(" - Parametri", "")
-            layer_name = f"{source_name} - Parametri"
+        def on_finished(success):
+            for btn in self.param_buttons.values(): btn.setEnabled(True)
+            self.progress.setMaximum(100)
+            self.progress.setValue(100 if success else 0)
             
-            existing = QgsProject.instance().mapLayersByName(layer_name)
-            if not existing:
-                from qgis.core import QgsVectorLayer
-                layer = QgsVectorLayer(output_path, layer_name, "ogr")
-                if layer.isValid():
-                    QgsProject.instance().addMapLayer(layer)
+            if success and task.output_path:
+                self.status_label.setText(f"Calcolo {parameter_id} completato.")
+                # Update layer
+                source_name = selected_layer.name().replace(" - Parametri", "")
+                layer_name = f"{source_name} - Parametri"
+                existing = QgsProject.instance().mapLayersByName(layer_name)
+                if not existing:
+                    from qgis.core import QgsVectorLayer
+                    layer = QgsVectorLayer(task.output_path, layer_name, "ogr")
+                    if layer.isValid(): QgsProject.instance().addMapLayer(layer)
+                else:
+                    for lyr in existing:
+                        lyr.triggerRepaint()
+                        if hasattr(lyr, 'dataProvider'): lyr.dataProvider().reloadData()
+                
+                self.iface.messageBar().pushMessage("IT-LCZ", f"Parametro {parameter_id} calcolato!", level=3)
             else:
-                # Refresh existing layer if it was the one modified
-                for lyr in existing:
-                    lyr.triggerRepaint()
-                    if hasattr(lyr, 'dataProvider'):
-                        lyr.dataProvider().forceReload()
+                self.status_label.setText(f"Errore: {task.message}")
+                self.iface.messageBar().pushMessage("IT-LCZ", f"Errore: {task.message}", level=2)
 
-            self.progress.setMaximum(100)
-            self.progress.setValue(100)
-            self.status_label.setText(f"Calcolo {parameter_id} completato.")
-            self.iface.messageBar().pushMessage("IT-LCZ", f"Parametro {parameter_id} calcolato!", level=3)
-        else:
-            self.progress.setMaximum(100)
-            self.progress.setValue(0)
-            self.status_label.setText(f"Errore: {message}")
-            self.iface.messageBar().pushMessage("IT-LCZ", f"Errore: {message}", level=2)
+        task.completed.connect(lambda: on_finished(True))
+        task.terminated.connect(lambda: on_finished(False))
+        
+        QgsApplication.taskManager().addTask(task)
 
     def closeEvent(self, event):
         self.closingPlugin.emit()

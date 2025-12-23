@@ -1629,7 +1629,7 @@ class DataManager:
         if parameter_id:
             field_name = PARAM_MAP[parameter_id][0]
             if layer.fields().indexFromName(field_name) == -1:
-                layer.addAttribute(QgsField(field_name, QVariant.Double))
+                layer.addAttribute(QgsField(field_name, QVariant.Double, "Double"))
         else:
             # Legacy/All: ensure all 10 fields exist
             for pid, (fname, _) in PARAM_MAP.items():
@@ -1741,7 +1741,7 @@ class DataManager:
             log("Calcolo Frazioni ESA ottimizzato (Zonal Histogram)...")
             res = processing.run("native:zonalhistogram", {
                 'INPUT_VECTOR': target_path,
-                'RASTER_LAYER': landuse_path,
+                'INPUT_RASTER': landuse_path,
                 'RASTER_BAND': 1,
                 'COLUMN_PREFIX': 'h_',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
