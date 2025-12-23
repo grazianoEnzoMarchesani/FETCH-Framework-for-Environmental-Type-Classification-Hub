@@ -37,3 +37,63 @@ def is_within_italy(extent, crs_auth_id):
         
     # Check if the AOI intersects the Italian territory
     return italy_geom.intersects(extent_geom)
+
+def get_utm_zone_for_extent(extent, crs_auth_id):
+    """
+    Determina la zona UTM corretta basata sul centroide dell'extent.
+    Restituisce l'EPSG della zona UTM appropriata per l'Italia.
+    """
+    source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
+    wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+    transform = QgsCoordinateTransform(source_crs, wgs84, QgsProject.instance())
+    wgs84_extent = transform.transformBoundingBox(extent)
+    
+    # Calcola zona UTM dal centroide
+    center_lon = (wgs84_extent.xMinimum() + wgs84_extent.xMaximum()) / 2
+    zone = int((center_lon + 180) / 6) + 1
+    
+    # Per Italia, usa sempre emisfero nord (326XX)
+    return f"EPSG:326{zone:02d}"
+
+def download_file_generic(url, local_path, auth=None):
+    """Generic file downloader used by various modules with robust SSL error handling."""
+    import requests
+    import os
+    import sys
+    from qgis.core import QgsMessageLog, Qgis, QgsApplication
+    
+    # Fix PROJ environment if missing (needed for some library imports during download/processing)
+    if sys.platform == 'darwin' and 'PROJ_LIB' not in os.environ:
+        proj_path = os.path.join(QgsApplication.pkgDataPath(), "proj")
+        if os.path.exists(proj_path):
+            os.environ['PROJ_LIB'] = proj_path
+            os.environ['PROJ_DATA'] = proj_path
+
+    try:
+        # Try with SSL verification first
+        response = requests.get(url, stream=True, auth=auth, timeout=30)
+        response.raise_for_status()
+    except Exception as e:
+        error_msg = str(e)
+        # Be very inclusive for SSL/Connection errors on macOS
+        is_ssl_issue = any(phrase in error_msg for phrase in ["SSL", "certificate", "verify", "handshake", "connection"])
+        
+        if is_ssl_issue:
+            QgsMessageLog.logMessage(f"Possible SSL/Connection issue for {url}. Retrying without verification...", "IT-LCZ", Qgis.Warning)
+            try:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                response = requests.get(url, stream=True, auth=auth, timeout=60, verify=False)
+                response.raise_for_status()
+            except Exception as e2:
+                return False, f"Second-attempt failure: {str(e2)}"
+        else:
+            return False, error_msg
+
+    try:
+        with open(local_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk: f.write(chunk)
+        return True, "Success"
+    except Exception as e:
+        return False, str(e)

@@ -695,7 +695,14 @@ class ITLCZDashboard(QDockWidget):
             self.status_label.setText("Caricamento griglia nel progetto...")
             QApplication.processEvents()
             
-            loaded_layer = self.data_manager.load_grid_layer(output_path, log_callback=log_callback)
+            # Determine layer name for compatibility with LCZ parameter scanning
+            if self.grid_auto_radio.isChecked():
+                cell_size_text = self.cell_size_combo.currentText()
+                layer_name = f"Griglia LCZ ({cell_size_text})"
+            else:
+                layer_name = "Griglia LCZ (custom)"
+                
+            loaded_layer = self.data_manager.load_grid_layer(output_path, layer_name=layer_name, log_callback=log_callback)
             
             if loaded_layer:
                 self.progress.setMaximum(100)

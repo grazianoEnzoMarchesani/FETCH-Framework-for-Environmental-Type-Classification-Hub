@@ -40,6 +40,24 @@ if sys.platform == 'darwin':  # macOS
 os.environ['EODAG__COP_DATASPACE__DOWNLOAD__OUTPUTS_EXTENSION'] = '.zip'
 os.environ['EODAG__COP_DATASPACE__DOWNLOAD__EXTRACT'] = 'true'
 
+# Fix PROJ data path for QGIS on macOS to avoid "Valid PROJ data directory not found"
+if sys.platform == 'darwin':
+    from qgis.core import QgsApplication
+    proj_path = os.path.join(QgsApplication.pkgDataPath(), "proj")
+    if not os.path.exists(proj_path):
+        # Fallback for some QGIS versions/installations
+        proj_path = "/Applications/QGIS-final-3_44_5.app/Contents/Resources/qgis/proj"
+    
+    if os.path.exists(proj_path):
+        os.environ['PROJ_LIB'] = proj_path
+        os.environ['PROJ_DATA'] = proj_path
+        try:
+            import pyproj
+            pyproj.datadir.set_data_dir(proj_path)
+        except:
+            pass
+
+
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
