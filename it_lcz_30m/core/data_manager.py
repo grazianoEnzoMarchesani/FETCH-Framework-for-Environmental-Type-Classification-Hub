@@ -1624,17 +1624,11 @@ class DataManager:
         if not layer.isValid():
             return False, "Impossibile aprire il layer di lavoro", None
 
-        # Ensure requested field(s) exist
+        # Ensure all 10 LCZ parameter fields exist
         layer.startEditing()
-        if parameter_id:
-            field_name = PARAM_MAP[parameter_id][0]
-            if layer.fields().indexFromName(field_name) == -1:
-                layer.addAttribute(QgsField(field_name, QVariant.Double))
-        else:
-            # Legacy/All: ensure all 10 fields exist
-            for pid, (fname, _) in PARAM_MAP.items():
-                if layer.fields().indexFromName(fname) == -1:
-                    layer.addAttribute(QgsField(fname, QVariant.Double))
+        for pid, (fname, _) in PARAM_MAP.items():
+            if layer.fields().indexFromName(fname) == -1:
+                layer.addAttribute(QgsField(fname, QVariant.Double))
         layer.commitChanges()
 
         # Preparation for calculation
@@ -1709,6 +1703,9 @@ class DataManager:
             idx_dst = layer.fields().indexFromName('svf_mean')
             idx_src = temp_layer.fields().indexFromName('_tmp_svf_mean')
             
+            if idx_dst == -1 or idx_src == -1:
+                return False, f"Indice campo SVF non trovato (Dst: {idx_dst}, Src: {idx_src})", None
+            
             for feat in temp_layer.getFeatures():
                 val = feat.attribute(idx_src)
                 if val is not None and val != QVariant():
@@ -1720,6 +1717,8 @@ class DataManager:
             log("Calcolo Building Fraction (Ottimizzazione spaziale)...")
             layer.startEditing()
             idx_dst = layer.fields().indexFromName('building_frac')
+            if idx_dst == -1:
+                return False, "Indice campo building_frac non trovato.", None
             for feature in layer.getFeatures():
                 geom = feature.geometry()
                 bbox = geom.boundingBox()
@@ -1752,6 +1751,9 @@ class DataManager:
             idx_imp = layer.fields().indexFromName('impervious_frac')
             idx_per = layer.fields().indexFromName('pervious_frac')
             idx_bld = layer.fields().indexFromName('building_frac')
+            
+            if idx_imp == -1 or idx_per == -1 or idx_bld == -1:
+                return False, f"Indici campi ESA non trovati (Imp: {idx_imp}, Per: {idx_per}, Bld: {idx_bld})", None
             
             f_src = temp_layer.fields()
             for feat in temp_layer.getFeatures():
