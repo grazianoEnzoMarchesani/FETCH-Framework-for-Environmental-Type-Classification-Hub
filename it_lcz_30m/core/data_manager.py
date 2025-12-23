@@ -1777,17 +1777,6 @@ class DataManager:
         
         log(f"✓ Calcolo completato per {processed} celle")
         return True, "Parametri aggiornati con successo", target_path
-                log(f"Processate {processed}/{feature_count} celle...")
-        
-        del writer
-        landuse_ds = None
-        if svf_ds:
-            svf_ds = None
-        
-        log(f"✓ Calcolo completato: {processed} celle processate")
-        log(f"✓ Output salvato: {os.path.basename(output_path)}")
-        
-        return True, f"Frazioni calcolate per {processed} celle", output_path
 
     def _get_links_from_page(self, url):
         try:
