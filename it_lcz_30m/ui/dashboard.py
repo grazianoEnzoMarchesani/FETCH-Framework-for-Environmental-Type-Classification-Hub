@@ -8,10 +8,8 @@ from qgis.PyQt.QtWidgets import (
     QGroupBox, QScrollArea, QFileDialog, QComboBox,
     QRadioButton, QLineEdit, QInputDialog, QGridLayout
 )
-from qgis.core import (
-    QgsProject, QgsMapLayer, QgsWkbTypes, QgsMapLayerProxyModel, 
     QgsRectangle, QgsMessageLog, Qgis, QgsCoordinateReferenceSystem, 
-    QgsCoordinateTransform, QgsGeometry, QgsBackgroundTask, QgsApplication
+    QgsCoordinateTransform, QgsGeometry, QgsTask, QgsApplication
 )
 from qgis.gui import QgsMapLayerComboBox, QgsFileWidget
 from ..core.utils import is_within_italy
@@ -716,10 +714,10 @@ class ITLCZDashboard(QDockWidget):
             self.status_label.setText(f"Errore griglia: {message}")
             self.iface.messageBar().pushMessage("IT-LCZ", f"Errore griglia: {message}", level=2)
 
-class LCZParameterTask(QgsBackgroundTask):
+class LCZParameterTask(QgsTask):
     """Task for running LCZ parameter calculation in the background."""
     def __init__(self, data_manager, grid_path, parameter_id):
-        super().__init__(f"Calcolo LCZ: {parameter_id}", QgsBackgroundTask.CanCancel)
+        super().__init__(f"Calcolo LCZ: {parameter_id}", QgsTask.CanCancel)
         self.data_manager = data_manager
         self.grid_path = grid_path
         self.parameter_id = parameter_id
