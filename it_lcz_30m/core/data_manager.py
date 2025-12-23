@@ -1629,7 +1629,7 @@ class DataManager:
         if parameter_id:
             field_name = PARAM_MAP[parameter_id][0]
             if layer.fields().indexFromName(field_name) == -1:
-                layer.addAttribute(QgsField(field_name, QVariant.Double, "Double"))
+                layer.addAttribute(QgsField(field_name, QVariant.Double))
         else:
             # Legacy/All: ensure all 10 fields exist
             for pid, (fname, _) in PARAM_MAP.items():
