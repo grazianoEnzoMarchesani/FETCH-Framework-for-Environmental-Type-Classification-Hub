@@ -1780,8 +1780,10 @@ class DataManager:
                     imp_f = max(0, esa_imp_f - b_frac)
                     per_f = max(0, 100.0 - b_frac - imp_f)
                 
-                layer.changeAttributeValue(feat.id(), idx_imp, round(imp_f, 2))
-                layer.changeAttributeValue(feat.id(), idx_per, round(per_f, 2))
+                if parameter_id == 'impervious_surface_fraction' or not parameter_id:
+                    layer.changeAttributeValue(feat.id(), idx_imp, round(imp_f, 2))
+                if parameter_id == 'pervious_surface_fraction' or not parameter_id:
+                    layer.changeAttributeValue(feat.id(), idx_per, round(per_f, 2))
                 processed += 1
             layer.commitChanges()
         
