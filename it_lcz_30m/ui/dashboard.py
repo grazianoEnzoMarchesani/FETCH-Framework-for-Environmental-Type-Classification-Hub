@@ -8,6 +8,8 @@ from qgis.PyQt.QtWidgets import (
     QGroupBox, QScrollArea, QFileDialog, QComboBox,
     QRadioButton, QLineEdit, QInputDialog, QGridLayout
 )
+from qgis.core import (
+    QgsProject, QgsMapLayer, QgsWkbTypes, QgsMapLayerProxyModel, 
     QgsRectangle, QgsMessageLog, Qgis, QgsCoordinateReferenceSystem, 
     QgsCoordinateTransform, QgsGeometry, QgsTask, QgsApplication
 )
@@ -714,36 +716,6 @@ class ITLCZDashboard(QDockWidget):
             self.status_label.setText(f"Errore griglia: {message}")
             self.iface.messageBar().pushMessage("IT-LCZ", f"Errore griglia: {message}", level=2)
 
-class LCZParameterTask(QgsTask):
-    """Task for running LCZ parameter calculation in the background."""
-    def __init__(self, data_manager, grid_path, parameter_id):
-        super().__init__(f"Calcolo LCZ: {parameter_id}", QgsTask.CanCancel)
-        self.data_manager = data_manager
-        self.grid_path = grid_path
-        self.parameter_id = parameter_id
-        self.success = False
-        self.message = ""
-        self.output_path = ""
-        self.log_msgs = []
-
-    def run(self):
-        def task_log(msg):
-            self.log_msgs.append(msg)
-            # Use progressChanged to pass messages back to UI if needed, 
-            # but for now we just log locally and reports at the end.
-            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
-
-        try:
-            self.success, self.message, self.output_path = self.data_manager.calculate_lcz_parameters(
-                grid_path=self.grid_path,
-                parameter_id=self.parameter_id,
-                log_callback=task_log
-            )
-            return self.success
-        except Exception as e:
-            self.message = str(e)
-            return False
-
     def run_specific_lcz_param(self, parameter_id=None):
         """Calculate a specific LCZ parameter for each grid cell in background."""
         project_path = QgsProject.instance().fileName()
@@ -825,3 +797,31 @@ class LCZParameterTask(QgsTask):
         event.accept()
 
     closingPlugin = pyqtSignal()
+
+class LCZParameterTask(QgsTask):
+    """Task for running LCZ parameter calculation in the background."""
+    def __init__(self, data_manager, grid_path, parameter_id):
+        super().__init__(f"Calcolo LCZ: {parameter_id}", QgsTask.CanCancel)
+        self.data_manager = data_manager
+        self.grid_path = grid_path
+        self.parameter_id = parameter_id
+        self.success = False
+        self.message = ""
+        self.output_path = ""
+        self.log_msgs = []
+
+    def run(self):
+        def task_log(msg):
+            self.log_msgs.append(msg)
+            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
+
+        try:
+            self.success, self.message, self.output_path = self.data_manager.calculate_lcz_parameters(
+                grid_path=self.grid_path,
+                parameter_id=self.parameter_id,
+                log_callback=task_log
+            )
+            return self.success
+        except Exception as e:
+            self.message = str(e)
+            return False
