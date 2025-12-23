@@ -787,8 +787,8 @@ class ITLCZDashboard(QDockWidget):
                 self.status_label.setText(f"Errore: {task.message}")
                 self.iface.messageBar().pushMessage("IT-LCZ", f"Errore: {task.message}", level=2)
 
-        task.completed.connect(lambda: on_finished(True))
-        task.terminated.connect(lambda: on_finished(False))
+        task.taskCompleted.connect(lambda: on_finished(True))
+        task.taskTerminated.connect(lambda: on_finished(False))
         
         QgsApplication.taskManager().addTask(task)
 
