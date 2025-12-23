@@ -1567,7 +1567,7 @@ class DataManager:
         PARAM_MAP = {
             'sky_view_factor': ('svf_mean', 'Sky View Factor'),
             'aspect_ratio': ('aspect_ratio', 'Aspect Ratio'),
-            'surface_fractions': ('surface_fracs', 'Surface Fractions (BSF/ISF/PSF)'),
+            'surface_fractions': (None, 'Surface Fractions (BSF/ISF/PSF)'),
             'roughness_elements_height': ('roughness_h', 'Roughness Elements Height'),
             'terrain_roughness_class': ('rough_class', 'Terrain Roughness Class'),
             'surface_admittance': ('admittance', 'Surface Admittance'),
@@ -1622,12 +1622,30 @@ class DataManager:
         if not layer.isValid():
             return False, "Impossibile aprire il layer di lavoro", None
 
-        # Ensure all 10 LCZ parameter fields exist
-        layer.startEditing()
-        for pid, (fname, _) in PARAM_MAP.items():
+        # Fields needed for the 10 LCZ parameters
+        REQUIRED_FIELDS = [
+            'svf_mean', 'aspect_ratio', 'building_frac', 'impervious_frac', 
+            'pervious_frac', 'roughness_h', 'rough_class', 'admittance', 
+            'albedo', 'anthro_heat'
+        ]
+
+        # Ensure all required LCZ parameter fields exist via provider
+        missing = []
+        for fname in REQUIRED_FIELDS:
             if layer.fields().indexFromName(fname) == -1:
-                layer.addAttribute(QgsField(fname, QVariant.Double))
-        layer.commitChanges()
+                missing.append(QgsField(fname, QVariant.Double, "double", 20, 10))
+        
+        if missing:
+            if not layer.dataProvider().addAttributes(missing):
+                return False, "Impossibile aggiungere i campi al layer.", None
+            layer.updateFields()
+
+        # REMOVE redundant field 'surface_fracs' if it was added in previous versions
+        idx_redundant = layer.fields().indexFromName('surface_fracs')
+        if idx_redundant != -1:
+            layer.dataProvider().deleteAttributes([idx_redundant])
+            layer.updateFields()
+            log("Rimosso campo ridondante 'surface_fracs'")
 
         # Preparation for calculation
         # Load datasets based on what we need
@@ -1675,7 +1693,6 @@ class DataManager:
                 svf_data = svf_band.ReadAsArray()
 
         # Start updating
-        layer.startEditing()
         feature_count = layer.featureCount()
         processed = 0
         
@@ -1697,19 +1714,21 @@ class DataManager:
             })
             temp_layer = res['OUTPUT']
             
-            layer.startEditing()
             idx_dst = layer.fields().indexFromName('svf_mean')
             idx_src = temp_layer.fields().indexFromName('_tmp_svf_mean')
             
             if idx_dst == -1 or idx_src == -1:
                 return False, f"Indice campo SVF non trovato (Dst: {idx_dst}, Src: {idx_src})", None
             
+            updates = {}
             for feat in temp_layer.getFeatures():
                 val = feat.attribute(idx_src)
                 if val is not None and val != QVariant():
-                    layer.changeAttributeValue(feat.id(), idx_dst, round(val, 3))
+                    updates[feat.id()] = {idx_dst: round(val, 3)}
                 processed += 1
-            layer.commitChanges()
+            
+            if updates:
+                layer.dataProvider().changeAttributeValues(updates)
 
         elif parameter_id == 'surface_fractions':
             log("Calcolo Frazioni di Superficie consolidate (BSF + ISF + PSF = 100%)...")
@@ -1743,7 +1762,6 @@ class DataManager:
             })
             temp_layer = res['OUTPUT']
             
-            layer.startEditing()
             idx_imp = layer.fields().indexFromName('impervious_frac')
             idx_per = layer.fields().indexFromName('pervious_frac')
             idx_bld = layer.fields().indexFromName('building_frac')
@@ -1752,21 +1770,43 @@ class DataManager:
                 return False, f"Indici campi superficie non trovati (Imp: {idx_imp}, Per: {idx_per}, Bld: {idx_bld})", None
             
             f_src = temp_layer.fields()
+            
+            # Find the original FID attribute name in processing output (GPKG usually keeps it)
+            fid_attr = None
+            for candidate in ['fid', 'FID', 'ogc_fid']:
+                if f_src.indexFromName(candidate) != -1:
+                    fid_attr = candidate
+                    break
+
+            # Helper for safe value extraction
+            def sf_val(f, name):
+                idx = f.fields().indexFromName(name)
+                if idx == -1: return 0
+                v = f.attribute(idx)
+                if v is None or v == QVariant(): return 0
+                try: return float(v)
+                except: return 0
+
+            updates = {}
             for feat in temp_layer.getFeatures():
-                fid = feat.id()
-                # Count pixels for each class
-                p_imp = feat.attribute('h_50') if f_src.indexFromName('h_50') != -1 else 0
+                # Use attribute-based FID if found, otherwise fallback to internal ID
+                # (ZonalHistogram on same vector usually preserves order/IDs)
+                fid = feat.attribute(fid_attr) if fid_attr else feat.id()
+                try:
+                    fid = int(fid)
+                except:
+                    fid = feat.id()
+                
+                p_imp = sf_val(feat, 'h_50')
                 p_per = 0
                 for c in PERVIOUS_CLASSES:
                     p_name = f'h_{c}'
-                    if f_src.indexFromName(p_name) != -1:
-                        p_per += feat.attribute(p_name)
+                    p_per += sf_val(feat, p_name)
                 
                 p_exc = 0
                 for c in EXCLUDED_CLASSES:
                     p_name = f'h_{c}'
-                    if f_src.indexFromName(p_name) != -1:
-                        p_exc += feat.attribute(p_name)
+                    p_exc += sf_val(feat, p_name)
                 
                 p_tot = p_imp + p_per + p_exc
                 
@@ -1791,11 +1831,15 @@ class DataManager:
                     imp_f = (imp_f / total) * 100
                     per_f = (per_f / total) * 100
 
-                layer.changeAttributeValue(fid, idx_bld, round(b_frac, 2))
-                layer.changeAttributeValue(fid, idx_imp, round(imp_f, 2))
-                layer.changeAttributeValue(fid, idx_per, round(per_f, 2))
+                updates[fid] = {
+                    idx_bld: round(b_frac, 2),
+                    idx_imp: round(imp_f, 2),
+                    idx_per: round(per_f, 2)
+                }
                 processed += 1
-            layer.commitChanges()
+            
+            if updates:
+                layer.dataProvider().changeAttributeValues(updates)
         
         else:
             log(f"Parametro {parameter_id} non ancora implementato o placeholder.")

@@ -735,10 +735,14 @@ class ITLCZDashboard(QDockWidget):
             layers = QgsProject.instance().mapLayersByName(name)
             if layers: found_layers.append(layers[0])
         
-        selected_layer = None
         if not found_layers:
             self.iface.messageBar().pushMessage("Errore", "Nessuna griglia LCZ trovata.", level=2)
             return
+
+        # Priority Selection: if there are any " - Parametri" layers, stick to those
+        param_layers = [l for l in found_layers if l.name().endswith(" - Parametri")]
+        if param_layers:
+            found_layers = param_layers
         
         if len(found_layers) == 1:
             selected_layer = found_layers[0]
