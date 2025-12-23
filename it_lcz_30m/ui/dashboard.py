@@ -159,12 +159,8 @@ class ITLCZDashboard(QDockWidget):
         self.btn_svf.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 5px;")
         self.btn_svf.clicked.connect(self.run_svf_calculation)
         
-        self.btn_classify = QPushButton("Esegui Classificazione Finale")
-        self.btn_classify.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 8px;")
-        
         self.proc_layout.addWidget(self.btn_dsm)
         self.proc_layout.addWidget(self.btn_svf)
-        self.proc_layout.addWidget(self.btn_classify)
         
         self.scroll_layout.addWidget(self.proc_group)
         
@@ -235,6 +231,13 @@ class ITLCZDashboard(QDockWidget):
         self.params_layout.addWidget(self.btn_calc_params)
         
         self.scroll_layout.addWidget(self.params_group)
+        
+        # 6. Final Classification
+        self.btn_classify = QPushButton("Esegui Classificazione Finale")
+        self.btn_classify.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 10px; margin-top: 10px;")
+        # Note: self.btn_classify.clicked.connect(...) is missing in the current file, 
+        # but I will just move the definition for now as requested.
+        self.scroll_layout.addWidget(self.btn_classify)
         
         # Progress & Log
         self.info_group = QGroupBox("Status")
