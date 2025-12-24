@@ -67,8 +67,8 @@ A centralized UI within QGIS to select the Area of Interest (AOI), manage creden
 
 ### Phase 2: Core Parameters & Albedo (In Progress)
 - [x] Sentinel-2 Albedo integration.
-- [/] Optimization of Sky View Factor with transparency.
-- [/] Refactor of building height calculation logic (Synthetic DSM).
+- [ ] Optimization of Sky View Factor with transparency (In progress).
+- [ ] Refactor of building height calculation logic (Synthetic DSM) (In progress).
 - [ ] Full UI integration for parameter weights and thresholds.
 
 ### Phase 3: Advanced Analytics & UX (Planned)
