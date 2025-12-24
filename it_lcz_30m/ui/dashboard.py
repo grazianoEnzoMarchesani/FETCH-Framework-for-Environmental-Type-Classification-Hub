@@ -356,6 +356,7 @@ class ITLCZDashboard(QDockWidget):
         self.info_layout.setContentsMargins(10, 10, 10, 10)
         
         self.status_label = QLabel("Pronto")
+        self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
         self.info_layout.addWidget(self.status_label)
         
