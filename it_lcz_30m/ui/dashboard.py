@@ -251,7 +251,6 @@ class ITLCZDashboard(QDockWidget):
         self.btn_dsm.setObjectName("AccentButton")
         self.btn_dsm.setIcon(QgsApplication.getThemeIcon("mActionHillshade.svg"))
         self.btn_dsm.setToolTip("FASE 2: Crea DSM = DTM + Altezze Edifici + Altezze Alberi")
-        self.btn_dsm.setEnabled(False)
         self.btn_dsm.clicked.connect(self.run_dsm_generation)
         self.proc_layout.addWidget(self.btn_dsm)
         
@@ -264,7 +263,6 @@ class ITLCZDashboard(QDockWidget):
         self.btn_svf.setObjectName("PrimaryButton")
         self.btn_svf.setIcon(QgsApplication.getThemeIcon("mActionAlgorithm.svg"))
         self.btn_svf.setToolTip("FASE 3: Calcola SVF dal DSM usando SAGA GIS")
-        self.btn_svf.setEnabled(False)
         self.btn_svf.clicked.connect(self.run_svf_calculation)
         self.proc_layout.addWidget(self.btn_svf)
         
@@ -282,7 +280,7 @@ class ITLCZDashboard(QDockWidget):
         self.cell_size_layout.addWidget(QLabel("Dimensione:"))
         self.cell_size_combo = QComboBox()
         self.cell_size_combo.addItems(["30m", "50m", "100m"])
-        self.cell_size_combo.setCurrentIndex(0)
+        self.cell_size_combo.setCurrentText("30m")
         self.cell_size_layout.addWidget(self.cell_size_combo)
         self.grid_layout.addLayout(self.cell_size_layout)
         
@@ -382,8 +380,13 @@ class ITLCZDashboard(QDockWidget):
         
         self.setWidget(self.root)
         
-        # Initial validation if a layer is selected
+        # Connect to project signals for dynamic UI gating
+        QgsProject.instance().layersAdded.connect(self.check_layers_and_update_ui)
+        QgsProject.instance().layersRemoved.connect(self.check_layers_and_update_ui)
+        
+        # Initial validation and gating
         self.validate_aoi_layer()
+        self.check_layers_and_update_ui()
 
     def toggle_aoi_mode(self, checked):
         self.aoi_combo.setEnabled(checked)
@@ -435,6 +438,39 @@ class ITLCZDashboard(QDockWidget):
         else:
             self.status_label.setText("Pronto")
             self.status_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+            # Always check gating state when re-enabling
+            self.check_layers_and_update_ui()
+
+    def check_layers_and_update_ui(self, *args):
+        """Enable or disable Sections 4, 5 and Classification based on layer presence."""
+        # 1. Sequential Processing Dependencies (Section 3)
+        has_dtm = bool(QgsProject.instance().mapLayersByName("DTM Tinitaly (10m)"))
+        has_dsm = bool(QgsProject.instance().mapLayersByName("DSM Sintetico (10m)"))
+        has_svf = bool(QgsProject.instance().mapLayersByName("Sky View Factor (10m)"))
+        
+        self.btn_dsm.setEnabled(has_dtm)
+        self.btn_svf.setEnabled(has_dsm)
+        
+        # 2. Section 4 (Grid) needs SVF (end of sequential process)
+        self.grid_group.setEnabled(has_svf)
+        
+        # 3. Section 5 needs a Grid layer
+        grid_names = ["Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", 
+                      "Griglia LCZ (custom)", "Griglia LCZ (30m) - Parametri", 
+                      "Griglia LCZ (50m) - Parametri", "Griglia LCZ (100m) - Parametri", 
+                      "Griglia LCZ (custom) - Parametri"]
+        
+        has_grid = False
+        for name in grid_names:
+            if QgsProject.instance().mapLayersByName(name):
+                has_grid = True
+                break
+        
+        # Section 5 is enabled if Section 3 is done AND a grid exists
+        self.params_group.setEnabled(has_svf and has_grid)
+        
+        # Classification enabled if grid exists
+        self.btn_classify.setEnabled(has_grid)
 
     def run_downloads(self):
         project_path = QgsProject.instance().fileName()
@@ -540,7 +576,6 @@ class ITLCZDashboard(QDockWidget):
                 loaded = self.data_manager.load_unified_layers()
                 self.status_label.setText(f"Completato: {len(task.output_paths)} dataset unificati, {len(loaded)} layer caricati.")
                 self.iface.messageBar().pushMessage("IT-LCZ", "Dati unificati e caricati con successo!", level=3)
-                self.btn_dsm.setEnabled(True)
             else:
                 self.status_label.setText(f"Errore unificazione: {task.message}")
         
@@ -579,13 +614,11 @@ class ITLCZDashboard(QDockWidget):
                         QgsProject.instance().addMapLayer(layer)
                         self.status_label.setText("DSM sintetico creato e caricato.")
                         self.iface.messageBar().pushMessage("IT-LCZ", "DSM sintetico generato con successo!", level=3)
-                        self.btn_svf.setEnabled(True)
                     else:
                         self.status_label.setText("DSM creato ma layer non valido.")
                 else:
                     self.status_label.setText("DSM aggiornato.")
                     self.iface.messageBar().pushMessage("IT-LCZ", "DSM generato con successo!", level=3)
-                    self.btn_svf.setEnabled(True)
             else:
                 self.status_label.setText(f"Errore DSM: {task.message}")
         
