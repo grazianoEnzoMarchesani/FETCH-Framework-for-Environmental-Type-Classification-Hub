@@ -6,7 +6,8 @@ import processing
 from osgeo import gdal
 from qgis.core import (
     QgsProject, Qgis, QgsMessageLog, QgsVectorLayer, 
-    QgsField, QgsCoordinateReferenceSystem, QgsCoordinateTransform
+    QgsField, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
+    QgsGeometry, QgsFeatureRequest
 )
 from qgis.PyQt.QtCore import QVariant
 
@@ -183,34 +184,61 @@ class LCZCalculator:
             log(f"Raster mancante: {os.path.basename(raster_path)}", Qgis.Warning)
             return 0
         
+        # Ensure robust linking ID
+        idx_link = self._ensure_link_id(layer)
+        
         log(f"Calcolo statistiche zonali per {field_name}...")
         res = processing.run("native:zonalstatisticsfb", {
-            'INPUT': target_path, 'INPUT_RASTER': raster_path, 'COLUMN_PREFIX': f'_tmp_{prefix}_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
+            'INPUT': layer, 'INPUT_RASTER': raster_path, 'COLUMN_PREFIX': f'_tmp_{prefix}_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
         })
         temp_layer = res['OUTPUT']
         idx_dst = layer.fields().indexFromName(field_name)
-        idx_src = temp_layer.fields().indexFromName(f'_tmp_{prefix}_mean') # Added missing underscore after {prefix}
+        idx_src = temp_layer.fields().indexFromName(f'_tmp_{prefix}_mean')
+        idx_temp_link = temp_layer.fields().indexFromName('_link_id')
         
         if idx_src == -1:
             log(f"Errore: colonna temporanea _tmp_{prefix}_mean non trovata.", Qgis.Warning)
             return 0
 
+        # Map back using _link_id
+        val_map = {}
+        for feat in temp_layer.getFeatures():
+            link_id = feat.attribute(idx_temp_link)
+            val = feat.attribute(idx_src)
+            if link_id is not None and val is not None and str(val) != 'NULL':
+                val_map[link_id] = val
+
         layer.startEditing()
         processed = 0
-        for feat in temp_layer.getFeatures():
-            val = feat.attribute(idx_src)
-            if val is not None and str(val) != 'NULL':
+        for feat in layer.getFeatures():
+            link_id = feat.attribute(idx_link)
+            if link_id in val_map:
                 try:
-                    layer.changeAttributeValue(feat.id(), idx_dst, round(float(val), 3))
+                    layer.changeAttributeValue(feat.id(), idx_dst, round(float(val_map[link_id]), 3))
                     processed += 1
                 except: pass
         layer.commitChanges()
         return processed
 
+    def _ensure_link_id(self, layer):
+        """Ensure the layer has a unique _link_id field for robust joining."""
+        idx = layer.fields().indexFromName('_link_id')
+        if idx == -1:
+            layer.dataProvider().addAttributes([QgsField('_link_id', QVariant.Int)])
+            layer.updateFields()
+            idx = layer.fields().indexFromName('_link_id')
+            layer.startEditing()
+            for i, feat in enumerate(layer.getFeatures()):
+                layer.changeAttributeValue(feat.id(), idx, i)
+            layer.commitChanges()
+        return idx
+
     def _calc_roughness_height(self, layer, target_path, dsm_path, dtm_path, log):
         """Calcolo geometric mean height of roughness elements (z_H)."""
         if not os.path.exists(dsm_path) or not os.path.exists(dtm_path):
             log("DSM o DTM mancante", Qgis.Warning); return 0
+        
+        idx_link = self._ensure_link_id(layer)
         
         # We need Mean(DSM) - Mean(DTM) for each cell
         log("Fase 1: Analisi DTM...")
@@ -218,18 +246,28 @@ class LCZCalculator:
         
         log("Fase 2: Analisi DSM...")
         res = processing.run("native:zonalstatisticsfb", {
-            'INPUT': target_path, 'INPUT_RASTER': dsm_path, 'COLUMN_PREFIX': '_tmp_dsm_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
+            'INPUT': layer, 'INPUT_RASTER': dsm_path, 'COLUMN_PREFIX': '_tmp_dsm_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
         })
         temp_layer = res['OUTPUT']
         idx_dst = layer.fields().indexFromName('z_h')
         idx_dsm = temp_layer.fields().indexFromName('_tmp_dsm_mean')
+        idx_temp_link = temp_layer.fields().indexFromName('_link_id')
         
+        dsm_map = {}
+        for feat in temp_layer.getFeatures():
+            lk = feat.attribute(idx_temp_link)
+            val = feat.attribute(idx_dsm)
+            if lk is not None and val is not None: dsm_map[lk] = val
+
         layer.startEditing()
         processed = 0
-        for feat in temp_layer.getFeatures():
+        for feat in layer.getFeatures():
             fid = feat.id()
-            dtm_mean = layer.getFeature(fid).attribute('z_h')
-            dsm_mean = feat.attribute(idx_dsm)
+            lk = feat.attribute(idx_link)
+            if lk not in dsm_map: continue
+            
+            dtm_mean = feat.attribute('z_h')
+            dsm_mean = dsm_map[lk]
             
             if dtm_mean is not None and dsm_mean is not None:
                 try:
@@ -332,32 +370,65 @@ class LCZCalculator:
         PERVIOUS = [10, 20, 30, 40, 60, 90, 95, 100]
         EXCLUDED = [70, 80]
         
+        idx_link = self._ensure_link_id(layer)
+        
         # 1. BSF from vectors
         log("Fase 1: Calcolo Building Fraction dai vettori...")
         bsf_data = {}
         bld_layer = QgsVectorLayer(buildings_path, "bld", "ogr")
         if bld_layer.isValid():
             from qgis.core import QgsFeatureRequest
+            
+            # CRS transform for spatial matching
+            transform = None
+            if bld_layer.crs() != layer.crs():
+                log(f"Riproiezione edifici {bld_layer.crs().authid()} -> {layer.crs().authid()}")
+                transform = QgsCoordinateTransform(bld_layer.crs(), layer.crs(), QgsProject.instance())
+            
+            found_bld = 0
             for feature in layer.getFeatures():
                 geom = feature.geometry()
                 cell_area = geom.area()
                 b_area = 0.0
-                for bldg in bld_layer.getFeatures(QgsFeatureRequest().setFilterRect(geom.boundingBox())):
-                    if bldg.geometry().intersects(geom):
-                        inter = bldg.geometry().intersection(geom)
+                
+                # Filter bounding box (need to transform if needed)
+                bbox = geom.boundingBox()
+                # Simple optimization: if we have transform, we should probably transform the geom back to bld_layer crs
+                # for the setFilterRect, OR transform all bld features once.
+                # Since we are iterating cells, let's transform the cell geom to bld_layer CRS for the query.
+                query_geom = QgsGeometry(geom)
+                if transform:
+                    try:
+                        inv_transform = QgsCoordinateTransform(layer.crs(), bld_layer.crs(), QgsProject.instance())
+                        query_geom.transform(inv_transform)
+                    except: pass
+                
+                request = QgsFeatureRequest().setFilterRect(query_geom.boundingBox())
+                for bldg in bld_layer.getFeatures(request):
+                    bldg_geom = bldg.geometry()
+                    if transform:
+                        bldg_geom.transform(transform) # Bring building to grid CRS
+                    
+                    if bldg_geom.intersects(geom):
+                        inter = bldg_geom.intersection(geom)
                         if inter: b_area += inter.area()
-                bsf_data[feature.id()] = min(100.0, (b_area / cell_area) * 100)
+                
+                if b_area > 0: found_bld += 1
+                bsf_data[feature.attribute(idx_link)] = min(100.0, (b_area / cell_area) * 100)
+            
+            log(f"Edifici trovati in {found_bld} celle.")
         
         # 2. ISF/PSF from Zonal Histogram
         log("Fase 2: Analisi Land Cover (ESA WorldCover)...")
         res = processing.run("native:zonalhistogram", {
-            'INPUT_VECTOR': target_path, 'INPUT_RASTER': landuse_path, 'RASTER_BAND': 1, 'COLUMN_PREFIX': 'h_', 'OUTPUT': 'TEMPORARY_OUTPUT'
+            'INPUT_VECTOR': layer, 'INPUT_RASTER': landuse_path, 'RASTER_BAND': 1, 'COLUMN_PREFIX': 'h_', 'OUTPUT': 'TEMPORARY_OUTPUT'
         })
         temp_layer = res['OUTPUT']
         
         idx_imp = layer.fields().indexFromName('impervious_frac')
         idx_per = layer.fields().indexFromName('pervious_frac')
         idx_bld = layer.fields().indexFromName('building_frac')
+        idx_temp_link = temp_layer.fields().indexFromName('_link_id')
         
         def get_val(f, name):
             idx = f.fields().indexFromName(name)
@@ -367,14 +438,17 @@ class LCZCalculator:
 
         layer.startEditing()
         processed = 0
+        fid_map = {f.attribute(idx_link): f.id() for f in layer.getFeatures()}
         for feat in temp_layer.getFeatures():
-            fid = feat.id()
+            lk = feat.attribute(idx_temp_link)
+            if lk is None: continue
+            
             p_imp = get_val(feat, 'h_50')
             p_per = sum(get_val(feat, f'h_{c}') for c in PERVIOUS)
             p_exc = sum(get_val(feat, f'h_{c}') for c in EXCLUDED)
             p_tot = p_imp + p_per + p_exc
             
-            b_frac = bsf_data.get(fid, 0.0)
+            b_frac = bsf_data.get(lk, 0.0)
             imp_f, per_f = 0.0, 100.0 - b_frac
             
             if p_tot > 0:
@@ -388,10 +462,12 @@ class LCZCalculator:
                 imp_f = (imp_f / total) * 100
                 per_f = (per_f / total) * 100
             
-            layer.changeAttributeValue(fid, idx_bld, round(b_frac, 1))
-            layer.changeAttributeValue(fid, idx_imp, round(imp_f, 1))
-            layer.changeAttributeValue(fid, idx_per, round(per_f, 1))
-            processed += 1
+            target_fid = fid_map.get(lk)
+            if target_fid is not None:
+                layer.changeAttributeValue(target_fid, idx_bld, round(b_frac, 1))
+                layer.changeAttributeValue(target_fid, idx_imp, round(imp_f, 1))
+                layer.changeAttributeValue(target_fid, idx_per, round(per_f, 1))
+                processed += 1
             
         layer.commitChanges()
         return processed
