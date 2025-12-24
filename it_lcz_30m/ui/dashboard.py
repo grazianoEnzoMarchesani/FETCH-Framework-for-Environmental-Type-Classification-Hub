@@ -255,7 +255,7 @@ class ITLCZDashboard(QDockWidget):
         self.proc_layout.addWidget(self.arrow1)
         
         self.btn_dsm = QPushButton(" 2. Genera DSM Sintetico")
-        self.btn_dsm.setObjectName("AccentButton")
+        self.btn_dsm.setObjectName("PrimaryButton")
         self.btn_dsm.setIcon(QgsApplication.getThemeIcon("mActionHillshade.svg"))
         self.btn_dsm.setToolTip("FASE 2: Crea DSM = DTM + Altezze Edifici + Altezze Alberi")
         self.btn_dsm.clicked.connect(self.run_dsm_generation)
