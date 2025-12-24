@@ -13,7 +13,7 @@ class RoughnessHeightProcessor(LCZBaseProcessor):
             self.log(msg, level)
 
         base_dir = self.dm.get_project_dir()
-        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
         dsm_path = os.path.join(unified_dir, "dsm_10m.tif")
         dtm_path = os.path.join(unified_dir, "dtm_10m.tif")
 

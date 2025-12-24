@@ -17,7 +17,7 @@ class SurfaceFractionsProcessor(LCZBaseProcessor):
         EXCLUDED = [70, 80]
         
         base_dir = self.dm.get_project_dir()
-        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
         buildings_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
         landuse_path = os.path.join(unified_dir, "landuse_10m.tif")
 

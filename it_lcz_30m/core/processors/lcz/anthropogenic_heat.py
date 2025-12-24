@@ -17,7 +17,7 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
         idx_dst = layer.fields().indexFromName('anthro_heat')
 
         base_dir = self.dm.get_project_dir()
-        pop_path = os.path.join(base_dir, "it_lcz_data", "unified", "population_10m.tif")
+        pop_path = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified", "population_10m.tif")
 
         # For Anthro Heat, try population zonal sum
         pop_data = {}

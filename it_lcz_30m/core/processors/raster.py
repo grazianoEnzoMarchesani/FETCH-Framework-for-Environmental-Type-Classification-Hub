@@ -71,7 +71,7 @@ class RasterProcessor:
         base_dir = self.dm.get_project_dir()
         if not base_dir: return False, "Progetto non salvato", None
         
-        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
         if not os.path.exists(unified_dir):
             return False, "Cartella unified non trovata.", None
         

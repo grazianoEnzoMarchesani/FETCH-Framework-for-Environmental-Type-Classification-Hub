@@ -48,7 +48,7 @@ class VectorProcessor:
         base_dir = self.dm.get_project_dir()
         if not base_dir: return False, "Progetto non salvato", None
         
-        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
         output_path = os.path.join(unified_dir, f"lcz_grid_{cell_size}m.gpkg")
         
         if os.path.exists(output_path):
@@ -115,7 +115,7 @@ class VectorProcessor:
         base_dir = self.dm.get_project_dir()
         if not base_dir: return False, "Progetto non salvato", None
         
-        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
         output_path = os.path.join(unified_dir, "lcz_grid_custom.gpkg")
         
         if os.path.exists(output_path):

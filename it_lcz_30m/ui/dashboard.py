@@ -450,10 +450,19 @@ class ITLCZDashboard(QDockWidget):
 
     def check_layers_and_update_ui(self, *args):
         """Enable or disable Sections 4, 5 and Classification based on layer presence."""
+        data_dir = os.path.join(self.data_manager.get_project_dir() or "", self.data_manager.get_data_dir_name())
+        
+        def has_valid_layer(name):
+            layers = QgsProject.instance().mapLayersByName(name)
+            for lyr in layers:
+                if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir)):
+                    return True
+            return False
+
         # 1. Sequential Processing Dependencies (Section 3)
-        has_dtm = bool(QgsProject.instance().mapLayersByName("DTM Tinitaly (10m)"))
-        has_dsm = bool(QgsProject.instance().mapLayersByName("DSM Sintetico (10m)"))
-        has_svf = bool(QgsProject.instance().mapLayersByName("Sky View Factor (10m)"))
+        has_dtm = has_valid_layer("DTM Tinitaly (10m)")
+        has_dsm = has_valid_layer("DSM Sintetico (10m)")
+        has_svf = has_valid_layer("Sky View Factor (10m)")
         
         self.btn_dsm.setEnabled(has_dtm)
         self.btn_svf.setEnabled(has_dsm)
@@ -469,7 +478,7 @@ class ITLCZDashboard(QDockWidget):
         
         has_grid = False
         for name in grid_names:
-            if QgsProject.instance().mapLayersByName(name):
+            if has_valid_layer(name):
                 has_grid = True
                 break
         
@@ -610,12 +619,16 @@ class ITLCZDashboard(QDockWidget):
             self.progress.setMaximum(100)
             self.progress.setValue(100 if success else 0)
             
+            data_dir = os.path.join(self.data_manager.get_project_dir() or "", self.data_manager.get_data_dir_name())
+            
             if success and task.output_path:
                 self.status_label.setText("Caricamento DSM nel progetto...")
                 from qgis.core import QgsRasterLayer
                 layer_name = "DSM Sintetico (10m)"
                 existing = QgsProject.instance().mapLayersByName(layer_name)
-                if not existing:
+                valid_existing = [lyr for lyr in existing if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir))]
+                
+                if not valid_existing:
                     layer = QgsRasterLayer(task.output_path, layer_name)
                     if layer.isValid():
                         QgsProject.instance().addMapLayer(layer)
@@ -653,13 +666,17 @@ class ITLCZDashboard(QDockWidget):
             self.progress.setMaximum(100)
             self.progress.setValue(100 if success else 0)
             
+            data_dir = os.path.join(self.data_manager.get_project_dir() or "", self.data_manager.get_data_dir_name())
+            
             if success and task.output_path:
                 self.status_label.setText("Caricamento SVF nel progetto...")
                 from qgis.core import QgsRasterLayer
                 layer_name = "Sky View Factor (10m)"
                 
                 existing = QgsProject.instance().mapLayersByName(layer_name)
-                for lyr in existing:
+                valid_existing = [lyr for lyr in existing if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir))]
+                
+                for lyr in valid_existing:
                     QgsProject.instance().removeMapLayer(lyr.id())
                 
                 layer = QgsRasterLayer(task.output_path, layer_name)
@@ -771,12 +788,17 @@ class ITLCZDashboard(QDockWidget):
         ]
         
         found_layers = []
+        data_dir = os.path.join(self.data_manager.get_project_dir(), self.data_manager.get_data_dir_name())
+        
         for name in grid_layer_names:
             layers = QgsProject.instance().mapLayersByName(name)
-            if layers: found_layers.append(layers[0])
+            for lyr in layers:
+                # Basic check: is the file inside the project's data folder?
+                if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir)):
+                    found_layers.append(lyr)
         
         if not found_layers:
-            self.iface.messageBar().pushMessage("Errore", "Nessuna griglia LCZ trovata.", level=2)
+            self.iface.messageBar().pushMessage("Errore", f"Nessuna griglia LCZ trovata nella cartella {self.data_manager.get_data_dir_name()}.", level=2)
             return
 
         # Priority Selection: if there are any " - Parametri" layers, stick to those
@@ -809,18 +831,22 @@ class ITLCZDashboard(QDockWidget):
             self.progress.setMaximum(100)
             self.progress.setValue(100 if success else 0)
             
+            data_dir = os.path.join(self.data_manager.get_project_dir() or "", self.data_manager.get_data_dir_name())
+            
             if success and task.output_path:
                 self.status_label.setText(f"Calcolo {parameter_id} completato.")
                 # Update layer
                 source_name = selected_layer.name().replace(" - Parametri", "")
                 layer_name = f"{source_name} - Parametri"
                 existing = QgsProject.instance().mapLayersByName(layer_name)
-                if not existing:
+                valid_existing = [lyr for lyr in existing if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir))]
+                
+                if not valid_existing:
                     from qgis.core import QgsVectorLayer
                     layer = QgsVectorLayer(task.output_path, layer_name, "ogr")
                     if layer.isValid(): QgsProject.instance().addMapLayer(layer)
                 else:
-                    for lyr in existing:
+                    for lyr in valid_existing:
                         lyr.triggerRepaint()
                         if hasattr(lyr, 'dataProvider'): lyr.dataProvider().reloadData()
                 

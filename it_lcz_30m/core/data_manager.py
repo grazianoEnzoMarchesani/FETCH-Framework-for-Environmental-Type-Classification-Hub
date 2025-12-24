@@ -57,10 +57,19 @@ class DataManager:
         project_path = QgsProject.instance().fileName()
         return os.path.dirname(project_path) if project_path else None
 
+    def get_data_dir_name(self):
+        """Returns the dynamic data folder name: FETCH+ProjectName."""
+        project_path = QgsProject.instance().fileName()
+        if not project_path:
+            return "it_lcz_data" # Fallback if project not saved
+        
+        project_name = os.path.splitext(os.path.basename(project_path))[0]
+        return f"FETCH+{project_name}"
+
     def get_download_dir(self, subfolder):
         base_dir = self.get_project_dir()
         if not base_dir: return None
-        target_dir = os.path.join(base_dir, "it_lcz_data", subfolder)
+        target_dir = os.path.join(base_dir, self.get_data_dir_name(), subfolder)
         if not os.path.exists(target_dir): os.makedirs(target_dir)
         return target_dir
 
@@ -120,7 +129,7 @@ class DataManager:
         base_dir = self.get_project_dir()
         if not base_dir: return False, "Progetto non salvato", []
         
-        data_dir = os.path.join(base_dir, "it_lcz_data")
+        data_dir = os.path.join(base_dir, self.get_data_dir_name())
         unified_dir = os.path.join(data_dir, "unified")
         if not os.path.exists(unified_dir): os.makedirs(unified_dir)
         
@@ -158,7 +167,7 @@ class DataManager:
         # Keep loading logic here as it interacts closely with QGIS Project
         base_dir = self.get_project_dir()
         if not base_dir: return []
-        unified_dir = os.path.join(base_dir, "it_lcz_data", "unified")
+        unified_dir = os.path.join(base_dir, self.get_data_dir_name(), "unified")
         
         from qgis.core import QgsRasterLayer, QgsVectorLayer
         layers = []
@@ -187,7 +196,15 @@ class DataManager:
         # Check if already loaded
         existing = QgsProject.instance().mapLayersByName(layer_name)
         if existing:
-            return existing[0]
+            # Check if source matches
+            for lyr in existing:
+                # Normalize paths for comparison
+                norm_existing = os.path.normpath(lyr.source())
+                norm_new = os.path.normpath(grid_path)
+                if norm_existing == norm_new:
+                    return lyr
+            # If we are here, layers with the same name exist but point elsewhere.
+            # We don't return them to avoid using stale data from other folders.
 
         from qgis.core import QgsVectorLayer
         layer = QgsVectorLayer(grid_path, layer_name, "ogr")
