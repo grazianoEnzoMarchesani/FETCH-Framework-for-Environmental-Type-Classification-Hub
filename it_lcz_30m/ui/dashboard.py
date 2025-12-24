@@ -282,7 +282,7 @@ class ITLCZDashboard(QDockWidget):
         self.cell_size_layout.addWidget(QLabel("Dimensione:"))
         self.cell_size_combo = QComboBox()
         self.cell_size_combo.addItems(["30m", "50m", "100m"])
-        self.cell_size_combo.setCurrentIndex(2)
+        self.cell_size_combo.setCurrentIndex(0)
         self.cell_size_layout.addWidget(self.cell_size_combo)
         self.grid_layout.addLayout(self.cell_size_layout)
         
