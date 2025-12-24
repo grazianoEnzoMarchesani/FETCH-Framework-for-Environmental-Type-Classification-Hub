@@ -94,6 +94,13 @@ QPushButton:hover {
     padding: 5px;
     color: #57606f;
 }
+#PrimaryButton:disabled, #DarkButton:disabled, #AccentButton:disabled, #SuccessButton:disabled {
+    background-color: #e0e0e0;
+    color: #a0a0a0;
+}
+QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled {
+    color: #b2bec3;
+}
 """
 
 class ITLCZDashboard(QDockWidget):
