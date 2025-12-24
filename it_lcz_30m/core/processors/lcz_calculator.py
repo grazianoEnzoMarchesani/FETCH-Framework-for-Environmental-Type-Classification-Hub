@@ -9,7 +9,7 @@ from qgis.core import (
     QgsField, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
     QgsGeometry, QgsFeatureRequest
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QVariant, QMetaType
 
 class LCZCalculator:
     def __init__(self, data_manager):
@@ -145,7 +145,7 @@ class LCZCalculator:
             'svf_mean', 'building_frac', 'impervious_frac', 'pervious_frac', 'albedo',
             'aspect_ratio', 'z_h', 'terrain_rough', 'admittance', 'anthro_heat'
         ]
-        missing = [QgsField(f, QVariant.Double) for f in REQUIRED if layer.fields().indexFromName(f) == -1]
+        missing = [QgsField(f, QMetaType.Double) for f in REQUIRED if layer.fields().indexFromName(f) == -1]
         if missing:
             layer.dataProvider().addAttributes(missing)
             layer.updateFields()
@@ -224,7 +224,7 @@ class LCZCalculator:
         """Ensure the layer has a unique _link_id field for robust joining."""
         idx = layer.fields().indexFromName('_link_id')
         if idx == -1:
-            layer.dataProvider().addAttributes([QgsField('_link_id', QVariant.Int)])
+            layer.dataProvider().addAttributes([QgsField('_link_id', QMetaType.Int)])
             layer.updateFields()
             idx = layer.fields().indexFromName('_link_id')
             layer.startEditing()

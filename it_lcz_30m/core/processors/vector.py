@@ -79,19 +79,19 @@ class VectorProcessor:
         
         # Add required LCZ fields
         from qgis.core import QgsField
-        from qgis.PyQt.QtCore import QVariant
+        from qgis.PyQt.QtCore import QVariant, QMetaType
         fields = [
-            QgsField("lcz_class", QVariant.Int),
-            QgsField("svf_mean", QVariant.Double),
-            QgsField("building_frac", QVariant.Double),
-            QgsField("impervious_frac", QVariant.Double),
-            QgsField("pervious_frac", QVariant.Double),
-            QgsField("aspect_ratio", QVariant.Double),
-            QgsField("z_h", QVariant.Double),
-            QgsField("terrain_rough", QVariant.Int),
-            QgsField("admittance", QVariant.Double),
-            QgsField("anthro_heat", QVariant.Double),
-            QgsField("albedo", QVariant.Double)
+            QgsField("lcz_class", QMetaType.Int),
+            QgsField("svf_mean", QMetaType.Double),
+            QgsField("building_frac", QMetaType.Double),
+            QgsField("impervious_frac", QMetaType.Double),
+            QgsField("pervious_frac", QMetaType.Double),
+            QgsField("aspect_ratio", QMetaType.Double),
+            QgsField("z_h", QMetaType.Double),
+            QgsField("terrain_rough", QMetaType.Int),
+            QgsField("admittance", QMetaType.Double),
+            QgsField("anthro_heat", QMetaType.Double),
+            QgsField("albedo", QMetaType.Double)
         ]
         grid_layer.dataProvider().addAttributes(fields)
         grid_layer.updateFields()
