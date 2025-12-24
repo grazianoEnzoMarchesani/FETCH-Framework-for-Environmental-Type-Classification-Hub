@@ -321,20 +321,21 @@ class ITLCZDashboard(QDockWidget):
         self.param_buttons = {}
         
         params = [
-            ('sky_view_factor', 'SVF Mean'),
-            ('aspect_ratio', 'Aspect Ratio'),
-            ('surface_fractions', 'Surface Frac.'),
-            ('roughness_elements_height', 'Roughness H'),
-            ('terrain_roughness_class', 'Terrain Rough.'),
-            ('surface_admittance', 'S. Admittance'),
-            ('surface_albedo', 'S. Albedo'),
-            ('anthropogenic_heat_output', 'Anthro. Heat')
+            ('sky_view_factor', 'SVF Mean', 'Rapporto tra la porzione di volta celeste visibile dal suolo e una semisfera non ostruita.'),
+            ('aspect_ratio', 'Aspect Ratio', 'Rapporto medio altezza-larghezza dei canyon stradali (LCZ 1–7), spaziatura tra edifici (8–10) e alberi (A–G).'),
+            ('surface_fractions', 'Surface Frac.', 'Frazioni di copertura: edifici (BSF), superfici impermeabili (ISF) e permeabili (PSF).'),
+            ('roughness_elements_height', 'Roughness H', 'Media geometrica dell\'altezza degli edifici (LCZ 1–10) e degli elementi vegetali (LCZ A–F) [m].'),
+            ('terrain_roughness_class', 'Terrain Rough.', 'Classificazione della rugosità del terreno (Davenport et al., 2000) per contesti urbani e rurali.'),
+            ('surface_admittance', 'S. Admittance', 'Capacità della superficie di assorbire o rilasciare calore [J m⁻² s⁻¹/² K⁻¹].'),
+            ('surface_albedo', 'S. Albedo', 'Rapporto tra la radiazione solare riflessa da una superficie e quella ricevuta.'),
+            ('anthropogenic_heat_output', 'Anthro. Heat', 'Densità media del flusso di calore annuo da combustione e attività umana [W m⁻²].')
         ]
         
-        for i, (pid, name) in enumerate(params):
+        for i, (pid, name, tip) in enumerate(params):
             btn = QPushButton(name)
             btn.setObjectName("AccentButton")
             btn.setStyleSheet("font-size: 10px; padding: 5px;")
+            btn.setToolTip(tip)
             btn.clicked.connect(lambda checked, p=pid: self.run_specific_lcz_param(p))
             self.params_grid.addWidget(btn, i // 2, i % 2)
             self.param_buttons[pid] = btn
