@@ -1,127 +1,102 @@
-# FETCH: Framework for Environmental Type Classification Hub - LCZ Classifier
+![FETCH Logo](assets/fetch_logo.png)
 
-LCZ Classifier is a project that automates the classification of Local Climate Zones (LCZ) using geospatial data. The process begins with satellite data acquisition through the Google Solar API and continues with a series of QGIS processing steps for LCZ classification.
+# FETCH: Framework for Environmental Type Classification Hub
 
-## Features
+**FETCH** is an advanced geospatial framework designed to automate the classification and analysis of **Local Climate Zones (LCZ)**. Originally developed as a collection of processing scripts, FETCH has evolved into a modular **QGIS Plugin** that streamlines the entire workflow: from multi-source data acquisition to the calculation of complex urban climate parameters.
 
-- **Data Acquisition**: Web interface for downloading DSM, RGB and MASK tiles via Google Solar API
-- **Automated Processing**: Series of Python scripts for QGIS that process data sequentially
-- **LCZ Parameter Calculation**: Analysis of:
-  - Sky View Factor
-  - Aspect Ratio
-  - Building Surface Fraction
-  - Impervious/Pervious Surface Fraction
-  - Height of Roughness Elements
-  - Terrain Roughness Class
-  - Surface Admittance
-  - Surface Albedo
-  - Anthropogenic Heat Output
+---
 
-## Prerequisites
+## Technical Vision: From Scripts to Framework
 
-- QGIS 3.x
-- Python 3.x
-- Google API Key for Google Solar API
-- Python Libraries:
-  - NumPy
-  - Statsmodels
-  - PyQt5
+The project is currently transitioning from a series of standalone scripts to a fully integrated QGIS Plugin environment. This evolution improves:
+- **Modularity**: Specialized "Downloaders" and "Processors".
+- **Reproducibility**: Standardized workflows for LCZ mapping.
+- **Usability**: A modern Dashboard UI to manage the entire pipeline.
 
-## Installation
+---
 
-1. Clone the repository
-2. Open index.html in browser for the data download interface
-3. Import Python scripts into QGIS
+## Key Features
 
-## Usage
+### Automated Data Acquisition
+Integrated downloaders for high-resolution global and regional datasets:
+- **ESA WorldCover (10m)**: Land cover classification.
+- **ETH Global Canopy Height (10m)**: Vegetation height data.
+- **Meta HRSL**: High-resolution population density.
+- **TINitaly**: High-precision DEM for the Italian territory.
+- **TUM Building Height**: Building morphological data.
+- **Sentinel-2 Albedo**: Automated calculation of surface albedo using Copernicus data.
 
-### 1. Data Acquisition
-- Open index.html
-- Draw an area on the map
-- Enter your Google API Key
-- Generate API links and download tiles
+### LCZ Parameter Calculation
+Automated calculation of core LCZ physical properties:
+- **Sky View Factor (SVF)**: Including tree canopy transparency.
+- **Building Surface Fraction (BSF)**
+- **Impervious/Pervious Surface Fraction**
+- **Height of Roughness Elements**
+- **Surface Albedo** (Integrated Sentinel-2 pipeline)
+- *In Progress*: Aspect Ratio, Terrain Roughness Class, and Surface Admittance.
 
-### 2. QGIS Processing
-Execute the scripts in the following order:
-1. `01_merge_fetch_files.py`: Merges downloaded files
-2. `02_import_raster_files.py`: Imports raster files into the project
-3. `03_make_grid.py`: Creates analysis grid
-4. `04_make_buildings.py`: Extracts buildings
-5. `05_make_pervius_1.py`: Pervious surfaces analysis (part 1)
-6. `06_make_pervius_2.py`: Pervious surfaces analysis (part 2)
-7. `07_make_dtm.py`: Generates digital terrain model
-8. `08_make_dist.py`: Calculates distances
-9. `09_median_distance.py`: Calculates median distances
-10. `10_mediana_altezze.py`: Calculates median heights
-11. `11_make_h.py`: Calculates height of roughness elements
-12. `12_aspect_ratio.py`: Calculates aspect ratio
-13. `13_refine_albedo.py`: Refines albedo values
-14. `14_rmsep.py`: Calculates and classifies LCZs
+### Integrated Dashboard
+A centralized UI within QGIS to select the Area of Interest (AOI), manage credentials, and trigger processing tasks asynchronously (using `QgsTask` to avoid UI freezing).
 
-## Project Structure
+---
 
-- `index.html`: Web interface for data download
-- `scripts/`: Directory containing numbered Python scripts
-- `docs/`: Additional documentation
+## Installation (Developer/Early Alpha)
+
+> [!CAUTION]
+> The plugin is currently in active development. Features may change rapidly.
+
+1.  **Clone the Repository**:
+    ```bash
+    git clone https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub.git
+    ```
+2.  **Plugin Setup**:
+    - Link the `it_lcz_30m` folder to your QGIS plugins directory.
+    - Restart QGIS and enable the **FETCH** plugin in the Plugin Manager.
+3.  **Dependencies**:
+    - QGIS 3.34+ (LTS recommended)
+    - Python libraries: `numpy`, `eodag`, `rasterio`, `requests`, `pyproj`.
+
+---
+
+## Project Roadmap
+
+### Phase 1: Foundation (Completed)
+- [x] Modular architecture refactoring.
+- [x] Basic Data Manager and Downloader structure.
+- [x] Implementation of core geometry processors (Vector/Raster).
+
+### Phase 2: Core Parameters & Albedo (In Progress)
+- [x] Sentinel-2 Albedo integration.
+- [/] Optimization of Sky View Factor with transparency.
+- [/] Refactor of building height calculation logic (Synthetic DSM).
+- [ ] Full UI integration for parameter weights and thresholds.
+
+### Phase 3: Advanced Analytics & UX (Planned)
+- [ ] **Automated Validation**: Compare LCZ results with ground truth or existing maps.
+- [ ] **Morphological Reports**: Generate PDF/Markdown summaries for each AOI.
+- [ ] **External API Expansion**: Support for custom STAC catalogs and Google Solar API (legacy integration).
+- [ ] **Multi-temporal Analysis**: Track LCZ changes over time using historical satellite series.
+
+---
 
 ## Contributing
 
-Contributions are welcome! Please:
+We welcome contributions from the geospatial and urban climate community!
+1. Check the [current issues](https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub/issues).
+2. Follow the modular structure in `core/downloaders` and `core/processors` when adding features.
+3. Open a Pull Request with a clear description of your changes.
 
-1. Fork the repository
-2. Create a branch for your changes
-3. Submit a pull request
+---
 
 ## License
 
-This project is distributed under the MIT license. See the `LICENSE` file for details.
+Distributed under the **GNU General Public License v3.0**. See `LICENSE` for details.
 
+---
 
 ## Acknowledgements
 
-- Google Solar API
-- QGIS Development Team
-- Leaflet.js and contributors
+- **Copernicus ecosystem** for Sentinel data.
+- **ESA, ETH, and TUM** for providing essential global datasets.
+- The **QGIS community** for the incredible open-source GIS engine.
 
-## Data Acquisition Interface Details
-
-### Features
-- Interactive map interface using Leaflet.js
-- Automatic grid generation (195m x 195m tiles)
-- Batch download functionality for DSM, RGB, and mask files
-- Progress tracking for downloads
-- Automatic ZIP file creation
-- Built-in geocoding for location search
-
-### Technical Requirements
-- Modern web browser with JavaScript enabled
-- Active internet connection
-- Google Cloud Platform account with:
-  - Solar API enabled
-  - Valid API key with billing configured
-  - Sufficient quota for Solar API requests
-
-### Download Process
-1. The interface automatically divides the selected area into 195m x 195m tiles
-2. For each tile, three files are downloaded:
-   - DSM (Digital Surface Model)
-   - RGB (Aerial imagery)
-   - Mask (Building footprints)
-3. Files are named using the format:
-   - `dsm_[latitude]_[longitude].tif`
-   - `rgb_[latitude]_[longitude].tif`
-   - `mask_[latitude]_[longitude].tif`
-4. All files are automatically compressed into a single `tiles.zip` file
-
-### Browser Compatibility
-- Chrome (recommended)
-- Firefox
-- Safari
-- Edge
-
-### Data Usage Notes
-- Each tile requires 3 API calls
-- Approximate file sizes:
-  - DSM: ~2-3 MB per tile
-  - RGB: ~1-2 MB per tile
-  - Mask: ~0.5-1 MB per tile
