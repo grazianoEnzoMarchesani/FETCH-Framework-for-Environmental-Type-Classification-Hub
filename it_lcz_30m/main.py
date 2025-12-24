@@ -1,12 +1,29 @@
 # -*- coding: utf-8 -*-
 
+import sys
+import multiprocessing
+import os.path
+
+# MacOS Multiprocessing Fix for QGIS (prevents opening extra GUI instances)
+if sys.platform == 'darwin':
+    exe_dir = os.path.dirname(sys.executable)
+    for p in [os.path.join(exe_dir, "bin", "python3"), 
+              os.path.join(exe_dir, "python3"), 
+              os.path.join(os.path.dirname(exe_dir), "bin", "python3")]:
+        if os.path.exists(p):
+            try:
+                multiprocessing.set_executable(p)
+                break
+            except: pass
+    try:
+        if multiprocessing.get_start_method(allow_none=True) != 'spawn':
+            multiprocessing.set_start_method('spawn', force=True)
+    except: pass
+
+
 from qgis.PyQt.QtCore import QCoreApplication, Qt
 from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtGui import QIcon
-import os.path
-
-# Initialize Qt resources from file resources.py
-# import resources
 
 from .ui.dashboard import ITLCZDashboard
 
@@ -15,11 +32,11 @@ class ITLCZ30m:
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
         self.actions = []
-        self.menu = 'IT-LCZ 30m'
+        self.menu = 'FETCH'
         self.dock_widget = None
 
     def tr(self, message):
-        return QCoreApplication.translate('ITLCZ30m', message)
+        return QCoreApplication.translate('FETCH', message)
 
     def add_action(
         self,
@@ -55,7 +72,7 @@ class ITLCZ30m:
         icon_path = os.path.join(self.plugin_dir, 'icon.png')
         self.add_action(
             icon_path,
-            text=self.tr('IT-LCZ 30m Dashboard'),
+            text=self.tr('FETCH Dashboard'),
             callback=self.run,
             parent=self.iface.mainWindow()
         )

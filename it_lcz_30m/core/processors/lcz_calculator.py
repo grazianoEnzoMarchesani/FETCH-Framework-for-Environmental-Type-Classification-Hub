@@ -32,7 +32,7 @@ class LCZCalculator:
         self.anthro_proc = AnthropogenicHeatProcessor(data_manager)
 
     def log(self, msg, level=Qgis.Info):
-        QgsMessageLog.logMessage(msg, "IT-LCZ", level)
+        QgsMessageLog.logMessage(msg, "FETCH", level)
 
     def calculate_svf(self, log_callback=None, search_radius=100, num_sectors=16, canopy_opacity=0.7):
         """Calculates Sky View Factor (SVF) raster - delegated to specialized module."""

@@ -10,7 +10,7 @@ class BaseDownloader:
         self.iface = data_manager.iface
         
     def log(self, msg, level=Qgis.Info):
-        QgsMessageLog.logMessage(msg, "IT-LCZ", level)
+        QgsMessageLog.logMessage(msg, "FETCH", level)
 
     def _download_file(self, url, local_path, auth=None):
         """Delegates download to the unified SSL-aware downloader in DataManager."""

@@ -15,7 +15,7 @@ class RasterProcessor:
         self.dm = data_manager
 
     def log(self, msg, level=Qgis.Info):
-        QgsMessageLog.logMessage(msg, "IT-LCZ", level)
+        QgsMessageLog.logMessage(msg, "FETCH", level)
 
     def process_dataset(self, folder_path, config, output_path, target_crs, target_extent):
         """Process and merge raster files, then reproject and clip."""

@@ -108,7 +108,7 @@ class DataManager:
             output_dir=output_dir, 
             username=username, 
             password=password, 
-            log_callback=lambda m: QgsMessageLog.logMessage(m, "IT-LCZ")
+            log_callback=lambda m: QgsMessageLog.logMessage(m, "FETCH")
         )
         return success, msg
 

@@ -108,7 +108,7 @@ class ITLCZDashboard(QDockWidget):
         super(ITLCZDashboard, self).__init__(parent)
         self.iface = iface
         self.data_manager = DataManager(iface)
-        self.setWindowTitle("IT-LCZ 30m Dashboard")
+        self.setWindowTitle("FETCH Dashboard")
         self.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
 
         self.root = QWidget()
@@ -530,7 +530,7 @@ class ITLCZDashboard(QDockWidget):
             if success:
                 self.status_label.setText("Processo di download completato.")
                 if task.error_count == 0:
-                    self.iface.messageBar().pushMessage("IT-LCZ", "Tutti i download completati con successo!", level=3)
+                    self.iface.messageBar().pushMessage("FETCH", "Griglia LCZ creata con successo!", level=3)
                 else:
                     self.iface.messageBar().pushMessage("IT-LCZ", f"Download completato con {task.error_count} errori. Controlla il log.", level=2)
             else:

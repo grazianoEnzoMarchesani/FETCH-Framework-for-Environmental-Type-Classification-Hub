@@ -33,17 +33,25 @@ import sys
 import os
 
 if sys.platform == 'darwin':  # macOS
-    # 1. Point to the actual python executable inside the QGIS bundle
+    # Point to the actual python executable inside the QGIS bundle
     # This prevents 'spawn' from launching the QGIS GUI binary
-    # sys.executable on macOS QGIS usually points to /Applications/QGIS.app/Contents/MacOS/QGIS
-    python_exe = sys.executable.replace("MacOS/QGIS", "MacOS/bin/python3")
-    if os.path.exists(python_exe):
-        try:
-            multiprocessing.set_executable(python_exe)
-        except:
-            pass
+    exe_dir = os.path.dirname(sys.executable)
+    # Common locations for Python in QGIS bundle
+    possible_pythons = [
+        os.path.join(exe_dir, "bin", "python3"),
+        os.path.join(exe_dir, "python3"),
+        os.path.join(os.path.dirname(exe_dir), "bin", "python3")
+    ]
+    
+    for p in possible_pythons:
+        if os.path.exists(p):
+            try:
+                multiprocessing.set_executable(p)
+                break
+            except:
+                pass
             
-    # 2. Set start method to 'spawn' but safely
+    # Always ensure start method is 'spawn' on macOS inside QGIS
     try:
         if multiprocessing.get_start_method(allow_none=True) != 'spawn':
             multiprocessing.set_start_method('spawn', force=True)

@@ -79,7 +79,7 @@ def download_file_generic(url, local_path, auth=None):
         is_ssl_issue = any(phrase in error_msg for phrase in ["SSL", "certificate", "verify", "handshake", "connection"])
         
         if is_ssl_issue:
-            QgsMessageLog.logMessage(f"Possible SSL/Connection issue for {url}. Retrying without verification...", "IT-LCZ", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Possible SSL/Connection issue for {url}. Retrying without verification...", "FETCH", Qgis.Warning)
             try:
                 import urllib3
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
