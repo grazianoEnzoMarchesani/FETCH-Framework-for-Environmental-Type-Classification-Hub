@@ -28,11 +28,25 @@ from typing import Optional, Tuple, Dict, List
 from datetime import datetime
 
 # Fix multiprocessing issues on macOS with QGIS
-# This must be done BEFORE importing libraries that use multiprocessing
 import multiprocessing
+import sys
+import os
+
 if sys.platform == 'darwin':  # macOS
+    # 1. Point to the actual python executable inside the QGIS bundle
+    # This prevents 'spawn' from launching the QGIS GUI binary
+    # sys.executable on macOS QGIS usually points to /Applications/QGIS.app/Contents/MacOS/QGIS
+    python_exe = sys.executable.replace("MacOS/QGIS", "MacOS/bin/python3")
+    if os.path.exists(python_exe):
+        try:
+            multiprocessing.set_executable(python_exe)
+        except:
+            pass
+            
+    # 2. Set start method to 'spawn' but safely
     try:
-        multiprocessing.set_start_method('spawn', force=True)
+        if multiprocessing.get_start_method(allow_none=True) != 'spawn':
+            multiprocessing.set_start_method('spawn', force=True)
     except RuntimeError:
         pass  # Already set
 
