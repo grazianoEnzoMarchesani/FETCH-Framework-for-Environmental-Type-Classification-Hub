@@ -7,19 +7,26 @@ import os.path
 # MacOS Multiprocessing Fix for QGIS (prevents opening extra GUI instances)
 if sys.platform == 'darwin':
     exe_dir = os.path.dirname(sys.executable)
-    for p in [os.path.join(exe_dir, "bin", "python3"), 
-              os.path.join(exe_dir, "python3"), 
-              os.path.join(os.path.dirname(exe_dir), "bin", "python3")]:
-        if os.path.exists(p):
-            try:
-                # Force sys.executable to the real python interpreter
-                # This is critical for resource_tracker on macOS
-                if not hasattr(sys, '_qgis_executable'):
-                    sys._qgis_executable = sys.executable
-                sys.executable = p
-                multiprocessing.set_executable(p)
+    # Search for versioned python (e.g., python3.12) as priority
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    candidate_names = [f"python{py_ver}", "python3", "Python"]
+    
+    found_p = None
+    for folder in [exe_dir, os.path.join(exe_dir, "bin")]:
+        for name in candidate_names:
+            p = os.path.join(folder, name)
+            if os.path.exists(p):
+                found_p = p
                 break
-            except: pass
+        if found_p: break
+        
+    if found_p:
+        try:
+            if not hasattr(sys, '_qgis_executable'):
+                sys._qgis_executable = sys.executable
+            sys.executable = found_p
+            multiprocessing.set_executable(found_p)
+        except: pass
     try:
         if multiprocessing.get_start_method(allow_none=True) != 'spawn':
             multiprocessing.set_start_method('spawn', force=True)
