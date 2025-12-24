@@ -46,6 +46,11 @@ if sys.platform == 'darwin':  # macOS
     for p in possible_pythons:
         if os.path.exists(p):
             try:
+                # Force sys.executable to the real python interpreter
+                # This is critical for resource_tracker on macOS
+                if not hasattr(sys, '_qgis_executable'):
+                    sys._qgis_executable = sys.executable
+                sys.executable = p
                 multiprocessing.set_executable(p)
                 break
             except:
