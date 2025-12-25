@@ -109,7 +109,7 @@ class LCZCalculator:
             processed = self.terrain_proc.process(layer, log_callback)
 
         elif parameter_id == 'surface_admittance':
-            processed = self.admittance_proc.process(layer, log_callback)
+            processed = self.admittance_proc.process(layer, target_path, log_callback)
 
         elif parameter_id == 'anthropogenic_heat_output':
             processed = self.anthro_proc.process(layer, log_callback)
