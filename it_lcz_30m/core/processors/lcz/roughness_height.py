@@ -1,62 +1,119 @@
 # -*- coding: utf-8 -*-
 
 import os
-from qgis.core import Qgis
+import math
 import processing
+from qgis.core import (
+    QgsRasterLayer, QgsFeatureRequest, Qgis,
+    QgsProject, QgsGeometry, QgsField
+)
 from .base import LCZBaseProcessor
 
 class RoughnessHeightProcessor(LCZBaseProcessor):
     def process(self, layer, target_path, log_callback=None):
-        """Calcolo geometric mean height of roughness elements (z_H)."""
+        """
+        Calcolo Geometric Mean Height of roughness elements (z_H).
+        Segue standard Stewart & Oke (2012).
+        """
+        import traceback
         def log_local(msg, level=Qgis.Info):
             if log_callback: log_callback(msg)
             self.log(msg, level)
 
-        base_dir = self.dm.get_project_dir()
-        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
-        dsm_path = os.path.join(unified_dir, "dsm_10m.tif")
-        dtm_path = os.path.join(unified_dir, "dtm_10m.tif")
+        try:
+            base_dir = self.dm.get_project_dir()
+            unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
+            dsm_path = os.path.join(unified_dir, "dsm_10m.tif")
+            dtm_path = os.path.join(unified_dir, "dtm_10m.tif")
 
-        if not os.path.exists(dsm_path) or not os.path.exists(dtm_path):
-            log_local("DSM o DTM mancante", Qgis.Warning); return 0
-        
-        idx_link = self._ensure_link_id(layer)
-        
-        # We need Mean(DSM) - Mean(DTM) for each cell
-        log_local("Fase 1: Analisi DTM...")
-        self._calc_zonal_mean(layer, target_path, dtm_path, 'z_h', 'dtm', log_callback) # Temporarily store DTM mean in z_h
-        
-        log_local("Fase 2: Analisi DSM...")
-        res = processing.run("native:zonalstatisticsfb", {
-            'INPUT': layer, 'INPUT_RASTER': dsm_path, 'COLUMN_PREFIX': '_tmp_dsm_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
-        })
-        temp_layer = res['OUTPUT']
-        idx_dst = layer.fields().indexFromName('z_h')
-        idx_dsm = temp_layer.fields().indexFromName('_tmp_dsm_mean')
-        idx_temp_link = temp_layer.fields().indexFromName('_link_id')
-        
-        dsm_map = {}
-        for feat in temp_layer.getFeatures():
-            lk = feat.attribute(idx_temp_link)
-            val = feat.attribute(idx_dsm)
-            if lk is not None and val is not None: dsm_map[lk] = val
+            if not os.path.exists(dsm_path) or not os.path.exists(dtm_path):
+                log_local("DSM o DTM mancante", Qgis.Warning); return 0
+            
+            idx_link = self._ensure_link_id(layer)
+            idx_zh = layer.fields().indexFromName('z_h')
 
-        layer.startEditing()
-        processed = 0
-        for feat in layer.getFeatures():
-            fid = feat.id()
-            lk = feat.attribute(idx_link)
-            if lk not in dsm_map: continue
+            # 1. Creiamo nDSM temporaneo (DSM - DTM)
+            log_local("Fase 1: Analisi altezze differenziali (nDSM)...")
             
-            dtm_mean = feat.attribute('z_h')
-            dsm_mean = dsm_map[lk]
+            # Use gdal:rastercalculator with Float32 (RTYPE 5)
+            # A-B is height. We filter between 2.0 and 150.0 meters.
+            res_ndsm = processing.run("gdal:rastercalculator", {
+                'INPUT_A': dsm_path, 'BAND_A': 1,
+                'INPUT_B': dtm_path, 'BAND_B': 1,
+                'FORMULA': 'A - B',
+                'RTYPE': 5,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            ndsm_path = res_ndsm['OUTPUT']
+
+            # 2. Calcolo Media Geometrica (elementi validi: 2m < h < 150m)
+            log_local("Fase 2: Calcolo Media Geometrica (esclusione outlier)...")
             
-            if dtm_mean is not None and dsm_mean is not None:
-                try:
-                    z_h = max(0, float(dsm_mean) - float(dtm_mean))
-                    layer.changeAttributeValue(fid, idx_dst, round(z_h, 2))
+            # Formula robusta: 
+            # log(A) solo se 2.0 < A < 150.0
+            # Altrimenti restituiamo 0.0 (che log(1) farebbe 0, ma qui usiamo zero per la somma)
+            # Nota: GDAL log è naturale (ln)
+            res_log = processing.run("gdal:rastercalculator", {
+                'INPUT_A': ndsm_path, 'BAND_A': 1,
+                'FORMULA': 'log(numpy.where((A>2.0) & (A<150.0), A, 1.0))',
+                'RTYPE': 5,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            log_ndsm_path = res_log['OUTPUT']
+
+            # Estraiamo la somma dei log
+            stats_sum = processing.run("native:zonalstatisticsfb", {
+                'INPUT': layer, 'INPUT_RASTER': log_ndsm_path, 'COLUMN_PREFIX': '_logsum_', 'STATISTICS': [1], 'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            
+            # Contiamo i pixel validi (2m < h < 150m)
+            res_mask = processing.run("gdal:rastercalculator", {
+                'INPUT_A': ndsm_path, 'BAND_A': 1,
+                'FORMULA': '(A>2.0) & (A<150.0)',
+                'RTYPE': 5,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            mask_ndsm_path = res_mask['OUTPUT']
+            
+            stats_count = processing.run("native:zonalstatisticsfb", {
+                'INPUT': stats_sum['OUTPUT'], 'INPUT_RASTER': mask_ndsm_path, 'COLUMN_PREFIX': '_cnt_', 'STATISTICS': [1], 'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+
+            temp_layer = stats_count['OUTPUT']
+            idx_logsum = temp_layer.fields().indexFromName('_logsum_sum')
+            idx_cnt = temp_layer.fields().indexFromName('_cnt_sum')
+            idx_temp_link = temp_layer.fields().indexFromName('_link_id')
+
+            zh_map = {}
+            for feat in temp_layer.getFeatures():
+                lk = feat.attribute(idx_temp_link)
+                lsum = feat.attribute(idx_logsum)
+                cnt = feat.attribute(idx_cnt)
+                
+                # Applichiamo la formula della media geometrica: exp(media(log))
+                if lsum is not None and cnt is not None and cnt > 0:
+                    try:
+                        g_mean = math.exp(float(lsum) / float(cnt))
+                        # Se il valore è assurdo (es. errore floating point), lo cappiamo a 150
+                        zh_map[lk] = min(150.0, round(g_mean, 2))
+                    except:
+                        zh_map[lk] = 0.0
+                else:
+                    zh_map[lk] = 0.0
+
+            layer.startEditing()
+            processed = 0
+            for feat in layer.getFeatures():
+                lk = feat.attribute(idx_link)
+                if lk in zh_map:
+                    layer.changeAttributeValue(feat.id(), idx_zh, zh_map[lk])
                     processed += 1
-                except: pass
-        
-        layer.commitChanges()
-        return processed
+            
+            layer.commitChanges()
+            log_local(f"Completato: {processed} celle aggiornate con Media Geometrica raffinata.")
+            return processed
+
+        except Exception as e:
+            err = traceback.format_exc()
+            log_local(f"Errore critico in zH: {str(e)}\n{err}", Qgis.Critical)
+            return 0
