@@ -79,7 +79,8 @@ class LCZCalculator:
             ('aspect_ratio', QMetaType.Double), 
             ('z_h', QMetaType.Double), 
             ('terrain_rough', QMetaType.Double), 
-            ('admittance', QMetaType.Double), 
+            ('admittance', QMetaType.Double),
+            ('z0_value', QMetaType.Double),
             ('anthro_heat', QMetaType.Double)
         ]
         
