@@ -9,6 +9,10 @@ from .downloaders.tum import TUMDownloader
 from .downloaders.eth import ETHDownloader
 from .downloaders.esa import ESADownloader
 from .downloaders.meta import MetaDownloader
+from .downloaders.osm import OSMDownloader
+from .downloaders.anas import ANASDownloader
+from .downloaders.hrl import HRLDownloader
+from .downloaders.industry import IndustryDownloader
 from .processors.raster import RasterProcessor
 from .processors.vector import VectorProcessor
 from .processors.lcz_calculator import LCZCalculator
@@ -28,6 +32,10 @@ class DataManager:
         self.eth = ETHDownloader(self)
         self.esa = ESADownloader(self)
         self.meta = MetaDownloader(self)
+        self.osm = OSMDownloader(self)
+        self.anas = ANASDownloader(self)
+        self.hrl = HRLDownloader(self)
+        self.industry = IndustryDownloader(self)
         
         self.raster_proc = RasterProcessor(self)
         self.vector_proc = VectorProcessor(self)
@@ -93,6 +101,18 @@ class DataManager:
     def fetch_meta_hrsl(self, extent, crs_auth_id):
         return self.meta.fetch_hrsl(extent, crs_auth_id)
 
+    def fetch_osm_roads(self, extent, crs_auth_id, log_callback=None):
+        return self.osm.fetch_roads(extent, crs_auth_id, log_callback=log_callback)
+
+    def fetch_anas_traffic(self, extent, crs_auth_id, log_callback=None):
+        return self.anas.fetch_traffic(extent, crs_auth_id, log_callback=log_callback)
+
+    def fetch_copernicus_hrl(self, extent, crs_auth_id, log_callback=None):
+        return self.hrl.fetch_imperviousness(extent, crs_auth_id, log_callback=log_callback)
+
+    def fetch_eprtr_industrial(self, extent, crs_auth_id, log_callback=None):
+        return self.industry.fetch_eprtr(extent, crs_auth_id, log_callback=log_callback)
+
     def fetch_sentinel2_albedo(self, extent, crs_auth_id, username=None, password=None):
         # Keep original logic for albedo as it's already in its own file
         from .sentinel2_albedo import fetch_albedo_for_aoi
@@ -147,6 +167,10 @@ class DataManager:
             "esa_worldcover": {"pattern": "*.tif", "output_name": "landuse_10m.tif", "merge": True},
             "meta_hrsl": {"pattern": "meta_hrsl_aoi.tif", "output_name": "population_10m.tif", "merge": False},
             "sentinel2_albedo": {"pattern": "*_albedo_10m.tif", "output_name": "albedo_10m.tif", "merge": False},
+            "osm_roads": {"pattern": "roads.geojson", "output_name": "roads.gpkg", "type": "vector"},
+            "anas_traffic": {"pattern": "traffic_points.json", "output_name": "traffic_points.gpkg", "type": "vector"},
+            "copernicus_hrl": {"pattern": "*.tif", "output_name": "imperviousness_10m.tif", "merge": True},
+            "eprtr_industry": {"pattern": "industrial_sites.json", "output_name": "industry_points.gpkg", "type": "vector"},
         }
         
         output_paths = []
@@ -175,6 +199,8 @@ class DataManager:
             "dtm_10m.tif": "DTM Tinitaly (10m)", "buildings_lod1.gpkg": "Edifici TUM LoD1",
             "canopy_height_10m.tif": "Altezza Alberi ETH (10m)", "landuse_10m.tif": "Land Use ESA (10m)",
             "population_10m.tif": "Popolazione Meta HRSL", "albedo_10m.tif": "Albedo Sentinel-2 (10m)",
+            "roads.gpkg": "Reti Stradali OSM", "traffic_points.gpkg": "Punti Traffico ANAS",
+            "imperviousness_10m.tif": "Impermeabilità Copernicus (10m)", "industry_points.gpkg": "Punti Industriali E-PRTR",
         }
         for fname, dname in mapping.items():
             path = os.path.join(unified_dir, fname)

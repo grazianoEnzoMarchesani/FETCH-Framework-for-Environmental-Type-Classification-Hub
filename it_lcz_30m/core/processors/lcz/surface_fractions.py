@@ -20,6 +20,7 @@ class SurfaceFractionsProcessor(LCZBaseProcessor):
         unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
         buildings_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
         landuse_path = os.path.join(unified_dir, "landuse_10m.tif")
+        hrl_path = os.path.join(unified_dir, "imperviousness_10m.tif")
 
         idx_link = self._ensure_link_id(layer)
         
@@ -68,6 +69,20 @@ class SurfaceFractionsProcessor(LCZBaseProcessor):
             'INPUT_VECTOR': layer, 'INPUT_RASTER': landuse_path, 'RASTER_BAND': 1, 'COLUMN_PREFIX': 'h_', 'OUTPUT': 'TEMPORARY_OUTPUT'
         })
         temp_layer = res['OUTPUT']
+
+        # 3. Optional: High-Res Imperviousness (Copernicus HRL)
+        hrl_data = {}
+        if os.path.exists(hrl_path):
+            log_local("Fase 3: Integrazione Impermeabilità Alta Risoluzione (Copernicus HRL)...")
+            res_hrl = processing.run("native:zonalstatisticsfb", {
+                'INPUT': layer, 'INPUT_RASTER': hrl_path, 'COLUMN_PREFIX': '_hrl_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            idx_hrl = res_hrl['OUTPUT'].fields().indexFromName('_hrl_mean')
+            idx_temp_link = res_hrl['OUTPUT'].fields().indexFromName('_link_id')
+            for f in res_hrl['OUTPUT'].getFeatures():
+                lk = f.attribute(idx_temp_link)
+                v = f.attribute(idx_hrl)
+                if lk is not None: hrl_data[lk] = v
         
         idx_imp = layer.fields().indexFromName('impervious_frac')
         idx_per = layer.fields().indexFromName('pervious_frac')
@@ -95,7 +110,14 @@ class SurfaceFractionsProcessor(LCZBaseProcessor):
             b_frac = bsf_data.get(lk, 0.0)
             imp_f, per_f = 0.0, 100.0 - b_frac
             
-            if p_tot > 0:
+            # Use HRL if available, otherwise fallback to ESA WorldCover
+            if lk in hrl_data:
+                hrl_val = float(hrl_data[lk] or 0)
+                # HRL typically includes buildings, so we subtract BSF to get strictly ISF 
+                # (unless BSF is also from a source that is already accounted for)
+                imp_f = max(0, hrl_val - b_frac)
+                per_f = max(0, 100.0 - b_frac - imp_f)
+            elif p_tot > 0:
                 esa_imp_f = (p_imp / p_tot) * 100
                 imp_f = max(0, esa_imp_f - b_frac)
                 per_f = max(0, 100.0 - b_frac - imp_f)

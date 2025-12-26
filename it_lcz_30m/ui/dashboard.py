@@ -190,7 +190,9 @@ class ITLCZDashboard(QDockWidget):
         self.sources = [
             "Tinitaly (DTM 10m)", "TUM (Edifici H 10m)",
             "ETH (Alberi H 10m)", "ESA WorldCover (Land Use)",
-            "Meta HRSL (Popolazione)", "S2GM (Albedo Sentinel-2)"
+            "Meta HRSL (Popolazione)", "S2GM (Albedo Sentinel-2)",
+            "OSM Roads (Vettoriale)", "Traffic ANAS (Italia)",
+            "Copernicus HRL (10m)", "Industrial Points (E-PRTR)"
         ]
         self.checks = {}
         for i, src in enumerate(self.sources):
@@ -960,6 +962,38 @@ class DownloadTask(QgsTask):
                     if not success:
                         task_log(f"Fallimento Albedo: {msg}", Qgis.Critical)
                         self.error_count += 1
+                self.setProgress(int(current_step / total_steps * 100))
+
+            # 7. OSM Roads
+            if self.selected_checks.get("OSM Roads (Vettoriale)"):
+                current_step += 1
+                if self.isCanceled(): return False
+                task_log("Acquisizione Reti Stradali OSM...")
+                self.data_manager.fetch_osm_roads(self.extent, self.crs, log_callback=task_log)
+                self.setProgress(int(current_step / total_steps * 100))
+
+            # 8. Traffic ANAS
+            if self.selected_checks.get("Traffic ANAS (Italia)"):
+                current_step += 1
+                if self.isCanceled(): return False
+                task_log("Acquisizione Dati Traffico ANAS...")
+                self.data_manager.fetch_anas_traffic(self.extent, self.crs, log_callback=task_log)
+                self.setProgress(int(current_step / total_steps * 100))
+
+            # 9. Copernicus HRL
+            if self.selected_checks.get("Copernicus HRL (10m)"):
+                current_step += 1
+                if self.isCanceled(): return False
+                task_log("Acquisizione Copernicus HRL Imperviousness...")
+                self.data_manager.fetch_copernicus_hrl(self.extent, self.crs, log_callback=task_log)
+                self.setProgress(int(current_step / total_steps * 100))
+
+            # 10. E-PRTR Industrial Points
+            if self.selected_checks.get("Industrial Points (E-PRTR)"):
+                current_step += 1
+                if self.isCanceled(): return False
+                task_log("Acquisizione Punti Industriali E-PRTR...")
+                self.data_manager.fetch_eprtr_industrial(self.extent, self.crs, log_callback=task_log)
                 self.setProgress(int(current_step / total_steps * 100))
 
             self.success = True
