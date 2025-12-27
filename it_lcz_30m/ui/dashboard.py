@@ -355,6 +355,7 @@ class ITLCZDashboard(QDockWidget):
         self.btn_classify.setObjectName("SuccessButton")
         self.btn_classify.setIcon(QgsApplication.getThemeIcon("mActionCheckHtml.svg"))
         self.btn_classify.setMinimumHeight(40)
+        self.btn_classify.clicked.connect(self.run_classification)
         self.scroll_layout.addWidget(self.btn_classify)
         
         # Progress & Log
@@ -862,6 +863,79 @@ class ITLCZDashboard(QDockWidget):
         
         QgsApplication.taskManager().addTask(task)
 
+    def run_classification(self):
+        """Run final LCZ classification based on calculated parameters."""
+        project_path = QgsProject.instance().fileName()
+        if not project_path:
+            self.iface.messageBar().pushMessage(
+                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
+            )
+            return
+        
+        # Find valid grid layers (same logic as run_specific_lcz_param)
+        grid_layer_names = [
+            "Griglia LCZ (30m) - Parametri", "Griglia LCZ (50m) - Parametri", 
+            "Griglia LCZ (100m) - Parametri", "Griglia LCZ (custom) - Parametri",
+            "Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", "Griglia LCZ (custom)"
+        ]
+        
+        found_layers = []
+        data_dir = os.path.join(self.data_manager.get_project_dir(), self.data_manager.get_data_dir_name())
+        
+        for name in grid_layer_names:
+            layers = QgsProject.instance().mapLayersByName(name)
+            for lyr in layers:
+                if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir)):
+                    found_layers.append(lyr)
+        
+        if not found_layers:
+            self.iface.messageBar().pushMessage("Errore", "Nessuna griglia LCZ trovata. Calcola prima i parametri.", level=2)
+            return
+
+        # Prefer " - Parametri" layers
+        param_layers = [l for l in found_layers if l.name().endswith(" - Parametri")]
+        if param_layers:
+            found_layers = param_layers
+        
+        if len(found_layers) == 1:
+            selected_layer = found_layers[0]
+        else:
+            items = [layer.name() for layer in found_layers]
+            item, ok = QInputDialog.getItem(self, "Selezione Griglia", "Scegli la griglia:", items, 0, False)
+            if ok and item:
+                for layer in found_layers:
+                    if layer.name() == item: selected_layer = layer; break
+            else: return
+
+        grid_path = selected_layer.source()
+        
+        self.set_dashboard_enabled(False)
+        self.status_label.setText("Avvio classificazione LCZ finale...")
+        self.progress.setMaximum(0)
+        
+        task = ClassificationTask(self.data_manager, grid_path)
+        
+        def on_finished(success):
+            self.set_dashboard_enabled(True)
+            self.progress.setMaximum(100)
+            self.progress.setValue(100 if success else 0)
+            
+            if success and task.output_path:
+                self.status_label.setText("Classificazione LCZ completata!")
+                # Refresh layer
+                for lyr in QgsProject.instance().mapLayersByName(selected_layer.name()):
+                    lyr.triggerRepaint()
+                    if hasattr(lyr, 'dataProvider'): lyr.dataProvider().reloadData()
+                self.iface.messageBar().pushMessage("FETCH", "Classificazione LCZ completata! Campo LCZ_Class aggiunto.", level=3)
+            else:
+                self.status_label.setText(f"Errore: {task.message}")
+                self.iface.messageBar().pushMessage("FETCH", f"Errore: {task.message}", level=2)
+
+        task.taskCompleted.connect(lambda: on_finished(True))
+        task.taskTerminated.connect(lambda: on_finished(False))
+        
+        QgsApplication.taskManager().addTask(task)
+
     def closeEvent(self, event):
         self.closingPlugin.emit()
         event.accept()
@@ -1116,6 +1190,30 @@ class LCZParameterTask(QgsTask):
             self.success, self.message, self.output_path = self.data_manager.calculate_lcz_parameters(
                 grid_path=self.grid_path,
                 parameter_id=self.parameter_id,
+                log_callback=task_log
+            )
+            return self.success
+        except Exception as e:
+            self.message = str(e)
+            return False
+
+class ClassificationTask(QgsTask):
+    """Task for running final LCZ classification in the background."""
+    def __init__(self, data_manager, grid_path):
+        super().__init__("Classificazione LCZ Finale", QgsTask.CanCancel)
+        self.data_manager = data_manager
+        self.grid_path = grid_path
+        self.success = False
+        self.message = ""
+        self.output_path = ""
+
+    def run(self):
+        def task_log(msg):
+            QgsMessageLog.logMessage(msg, "FETCH", Qgis.Info)
+
+        try:
+            self.success, self.message, self.output_path = self.data_manager.run_lcz_classification(
+                grid_path=self.grid_path,
                 log_callback=task_log
             )
             return self.success

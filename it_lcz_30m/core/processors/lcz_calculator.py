@@ -16,6 +16,7 @@ from .lcz.roughness_height import RoughnessHeightProcessor
 from .lcz.terrain_roughness import TerrainRoughnessProcessor
 from .lcz.surface_admittance import SurfaceAdmittanceProcessor
 from .lcz.anthropogenic_heat import AnthropogenicHeatProcessor
+from .lcz.classification import LCZClassificationProcessor
 
 class LCZCalculator:
     def __init__(self, data_manager):
@@ -30,6 +31,7 @@ class LCZCalculator:
         self.terrain_proc = TerrainRoughnessProcessor(data_manager)
         self.admittance_proc = SurfaceAdmittanceProcessor(data_manager)
         self.anthro_proc = AnthropogenicHeatProcessor(data_manager)
+        self.classification_proc = LCZClassificationProcessor(data_manager)
 
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "FETCH", level)
@@ -115,3 +117,25 @@ class LCZCalculator:
             processed = self.anthro_proc.process(layer, log_callback)
 
         return True, f"Calcolo completato ({processed} celle)", target_path
+
+    def classify_lcz(self, grid_path, log_callback=None):
+        """Classifies grid cells into LCZ classes based on calculated parameters."""
+        def log_local(msg, level=Qgis.Info):
+            if log_callback: log_callback(msg)
+            self.log(msg, level)
+
+        # Use params file if exists, otherwise original grid
+        target_path = grid_path
+        if not grid_path.endswith("_lcz_params.gpkg"):
+            params_path = grid_path.replace(".gpkg", "_lcz_params.gpkg")
+            if os.path.exists(params_path):
+                target_path = params_path
+
+        layer = QgsVectorLayer(target_path, "lcz_grid", "ogr")
+        if not layer.isValid():
+            return False, "Griglia non valida", None
+
+        log_local(f"Avvio classificazione LCZ su {target_path}")
+        processed = self.classification_proc.process(layer, log_callback)
+
+        return True, f"Classificazione completata ({processed} celle)", target_path
