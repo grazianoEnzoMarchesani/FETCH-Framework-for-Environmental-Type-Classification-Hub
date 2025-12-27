@@ -234,24 +234,23 @@ class LCZClassificationProcessor:
         landuse_path = os.path.join(unified_dir, "landuse_10m.tif")
         return landuse_path if os.path.exists(landuse_path) else None
     
-    def _get_dominant_esa_class(self, geometry, raster_path):
+    def _get_dominant_esa_class(self, geometry, raster_provider):
         """
         Get the dominant ESA class within a polygon geometry.
         Uses centroid sampling for speed - sufficient for grid cells.
+        
+        Args:
+            geometry: QgsGeometry of the cell
+            raster_provider: QgsRasterDataProvider (reused across features)
         """
-        from qgis.core import QgsPointXY, QgsRasterLayer
+        from qgis.core import QgsPointXY
         
         try:
             # Use centroid sampling - efficient for grid cells
             centroid = geometry.centroid().asPoint()
             
-            # Load raster and sample
-            raster = QgsRasterLayer(raster_path, "esa_sample")
-            if not raster.isValid():
-                return None
-            
             # Sample the raster value at centroid
-            value, success = raster.dataProvider().sample(
+            value, success = raster_provider.sample(
                 QgsPointXY(centroid.x(), centroid.y()), 1  # band 1
             )
             
@@ -324,33 +323,70 @@ class LCZClassificationProcessor:
                 log_callback(msg)
             self.log(msg, level)
         
-        # Ensure LCZ_Class field exists
-        field_name = 'LCZ_Class'
+        # Ensure output field exists with correct type (QString for LCZ codes like "3", "A", etc.)
+        # IMPORTANT: Never delete existing fields to avoid schema corruption during editing
+        field_name = 'lcz_class'
         idx = layer.fields().indexFromName(field_name)
+        
+        # Check if field exists
+        if idx != -1:
+            field = layer.fields().at(idx)
+            # QMetaType.QString is type 10, QVariant.String is type 10
+            is_string_type = field.type() == QMetaType.QString or field.type() == 10
+            if not is_string_type:
+                # Field exists with wrong type - use alternative field name instead of deleting
+                log_local(f"Campo {field_name} esiste con tipo {field.typeName()} (non QString). Uso campo alternativo.", Qgis.Warning)
+                field_name = 'LCZ_Type'  # Alternative field name
+                idx = layer.fields().indexFromName(field_name)
+        
+        # Create field if it doesn't exist
         if idx == -1:
             layer.dataProvider().addAttributes([QgsField(field_name, QMetaType.QString, len=10)])
             layer.updateFields()
             idx = layer.fields().indexFromName(field_name)
+            log_local(f"Campo {field_name} creato come QString")
         
-        # Try to load ESA landuse raster for correction
+        # Try to load ESA landuse raster for correction (load ONCE, reuse provider)
         landuse_path = self._get_landuse_raster_path()
         use_esa_correction = False
+        landuse_provider = None
         
         if landuse_path and os.path.exists(landuse_path):
-            use_esa_correction = True
-            log_local(f"Correzione ESA WorldCover attiva: {os.path.basename(landuse_path)}")
+            landuse_raster = QgsRasterLayer(landuse_path, "esa_landuse")
+            if landuse_raster.isValid():
+                landuse_provider = landuse_raster.dataProvider()
+                use_esa_correction = True
+                log_local(f"Correzione ESA WorldCover attiva: {os.path.basename(landuse_path)}")
+            else:
+                log_local("Layer ESA non valido, correzione disabilitata", Qgis.Warning)
         else:
             log_local("Raster ESA WorldCover non trovato, classificazione senza correzione")
         
         log_local(f"Avvio classificazione LCZ per {layer.featureCount()} celle...")
         
+        # Diagnostic: log available fields
+        available_fields = [f.name() for f in layer.fields()]
+        log_local(f"Campi disponibili nel layer: {available_fields}")
+        
+        # Check which expected fields exist
+        expected_fields = list(LCZClassifier.FIELD_MAPPING.keys())
+        missing = [f for f in expected_fields if f not in available_fields]
+        found = [f for f in expected_fields if f in available_fields]
+        log_local(f"Campi LCZ trovati: {found}")
+        if missing:
+            log_local(f"Campi LCZ mancanti: {missing}", Qgis.Warning)
+        
         layer.startEditing()
         processed_count = 0
         corrected_count = 0
         error_count = 0
+        null_count = 0  # Track features with all NULL params
         
         # Get impervious field index for E/F distinction
         impervious_idx = layer.fields().indexFromName('impervious_frac')
+        
+        # Diagnostic: check first feature's values
+        first_feature_logged = False
         
         for feature in layer.getFeatures():
             feat_id = feature.id()
@@ -368,6 +404,15 @@ class LCZClassificationProcessor:
                             parameters[param_name] = None
                     else:
                         parameters[param_name] = None
+            
+            # Log first feature's parameters for debugging
+            if not first_feature_logged:
+                param_summary = {k: v for k, v in parameters.items() if v is not None}
+                if param_summary:
+                    log_local(f"Prima feature - parametri trovati: {list(param_summary.keys())}")
+                else:
+                    log_local(f"Prima feature - NESSUN parametro valido trovato!", Qgis.Warning)
+                first_feature_logged = True
             
             # Get impervious fraction for E/F correction
             impervious_frac = None
@@ -387,10 +432,11 @@ class LCZClassificationProcessor:
                     lcz_class = result['lcz_class']
                 else:
                     lcz_class = 'N/D'
+                    null_count += 1
                 
                 # Apply ESA correction for natural classes
                 if use_esa_correction and lcz_class not in ['N/D', 'ERRORE']:
-                    esa_class = self._get_dominant_esa_class(feature.geometry(), landuse_path)
+                    esa_class = self._get_dominant_esa_class(feature.geometry(), landuse_provider)
                     original_class = lcz_class
                     lcz_class = self._apply_esa_correction(lcz_class, esa_class, impervious_frac)
                     if lcz_class != original_class:
@@ -407,9 +453,9 @@ class LCZClassificationProcessor:
         layer.commitChanges()
         
         if use_esa_correction:
-            log_local(f"Classificazione completata: {processed_count} celle, {corrected_count} corrette con ESA, {error_count} errori")
+            log_local(f"Classificazione completata: {processed_count} celle, {corrected_count} corrette con ESA, {null_count} N/D, {error_count} errori")
         else:
-            log_local(f"Classificazione completata: {processed_count} celle classificate, {error_count} errori")
+            log_local(f"Classificazione completata: {processed_count} celle, {null_count} N/D (senza parametri), {error_count} errori")
         
         return processed_count
 

@@ -81,7 +81,7 @@ class VectorProcessor:
         from qgis.core import QgsField
         from qgis.PyQt.QtCore import QVariant, QMetaType
         fields = [
-            QgsField("lcz_class", QMetaType.Int),
+            QgsField("lcz_class", QMetaType.QString, len=10),  # String for LCZ codes: "1"-"10", "A"-"G"
             QgsField("svf_mean", QMetaType.Double),
             QgsField("building_frac", QMetaType.Double),
             QgsField("impervious_frac", QMetaType.Double),
