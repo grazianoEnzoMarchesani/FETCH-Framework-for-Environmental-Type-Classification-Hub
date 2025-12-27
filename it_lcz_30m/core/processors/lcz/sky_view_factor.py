@@ -93,19 +93,6 @@ class SkyViewFactorProcessor(LCZBaseProcessor):
         return True, "Calcolo SVF completato", output_path
 
     def process(self, layer, target_path, log_callback=None):
-        def log_local(msg):
-            if log_callback: log_callback(msg)
-            self.log(msg)
-
         base_dir = self.dm.get_project_dir()
         svf_path = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified", "svf_10m.tif")
-        
-        # Atomicity: if raster is missing, calculate it now
-        if not os.path.exists(svf_path):
-            log_local("Raster SVF (10m) mancante. Avvio calcolo automatico...")
-            success, msg, _ = self.calculate_raster(log_callback)
-            if not success:
-                log_local(f"Impossibile generare SVF rastery: {msg}", Qgis.Warning)
-                return 0
-
         return self._calc_zonal_mean(layer, target_path, svf_path, 'svf_mean', 'svf', log_callback)

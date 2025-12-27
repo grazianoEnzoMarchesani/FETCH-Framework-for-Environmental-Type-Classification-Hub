@@ -15,10 +15,13 @@ class TerrainRoughnessProcessor(LCZBaseProcessor):
             if log_callback: log_callback(msg)
             self.log(msg)
 
-        idx_bld = self._ensure_field(layer, 'building_frac')
-        idx_zh = self._ensure_field(layer, 'z_h')
-        idx_dst = self._ensure_field(layer, 'terrain_rough')
-        idx_z0 = self._ensure_field(layer, 'z0_value')
+        idx_bld = layer.fields().indexFromName('building_frac')
+        idx_zh = layer.fields().indexFromName('z_h')
+        
+        # Output fields
+        from qgis.PyQt.QtCore import QVariant
+        idx_dst = self._ensure_field(layer, 'terrain_rough', QVariant.Int) # Classification is Int
+        idx_z0 = self._ensure_field(layer, 'z0_value', QVariant.Double)
 
         # 1. Pre-fetch data if missing
         base_dir = self.dm.get_project_dir()

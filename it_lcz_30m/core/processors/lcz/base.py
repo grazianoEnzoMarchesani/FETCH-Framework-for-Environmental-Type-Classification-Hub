@@ -13,6 +13,15 @@ class LCZBaseProcessor:
     def __init__(self, data_manager):
         self.dm = data_manager
 
+    def _ensure_field(self, layer, field_name, field_type=QVariant.Double):
+        """Ensures a field exists in the layer, creating it if necessary."""
+        idx = layer.fields().indexFromName(field_name)
+        if idx == -1:
+            layer.dataProvider().addAttributes([QgsField(field_name, field_type)])
+            layer.updateFields()
+            idx = layer.fields().indexFromName(field_name)
+        return idx
+
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "IT-LCZ", level)
 
@@ -29,39 +38,28 @@ class LCZBaseProcessor:
             layer.commitChanges()
         return idx
 
-    def _ensure_field(self, layer, field_name, type_name="Double"):
-        """Ensures a field exists in the layer, creating it if necessary."""
-        from qgis.PyQt.QtCore import QVariant
-        idx = layer.fields().indexFromName(field_name)
-        if idx == -1:
-            q_type = QVariant.Double
-            if type_name == "Int": q_type = QVariant.Int
-            elif type_name == "String": q_type = QVariant.String
-            
-            layer.dataProvider().addAttributes([QgsField(field_name, q_type)])
-            layer.updateFields()
-            idx = layer.fields().indexFromName(field_name)
-        return idx
-
     def _calc_zonal_mean(self, layer, target_path, raster_path, field_name, prefix, log_callback=None):
         """Helper to calculate zonal mean for a specific raster."""
         def log_local(msg, level=Qgis.Info):
             if log_callback: log_callback(msg)
             self.log(msg, level)
 
+        # Ensure destination field exists
+        self._ensure_field(layer, field_name)
+
         if not os.path.exists(raster_path):
             log_local(f"Raster mancante: {os.path.basename(raster_path)}", Qgis.Warning)
             return 0
         
-        # Ensure robust field existence
+        # Ensure robust linking ID
         idx_link = self._ensure_link_id(layer)
-        idx_dst = self._ensure_field(layer, field_name)
         
         log_local(f"Calcolo statistiche zonali per {field_name}...")
         res = processing.run("native:zonalstatisticsfb", {
             'INPUT': layer, 'INPUT_RASTER': raster_path, 'COLUMN_PREFIX': f'_tmp_{prefix}_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
         })
         temp_layer = res['OUTPUT']
+        idx_dst = layer.fields().indexFromName(field_name)
         idx_src = temp_layer.fields().indexFromName(f'_tmp_{prefix}_mean')
         idx_temp_link = temp_layer.fields().indexFromName('_link_id')
         

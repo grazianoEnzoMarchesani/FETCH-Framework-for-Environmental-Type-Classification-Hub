@@ -53,8 +53,11 @@ class SurfaceAdmittanceProcessor(LCZBaseProcessor):
         })
         temp_layer = res['OUTPUT']
         
+        temp_layer = res['OUTPUT']
+        
         idx_dst = self._ensure_field(layer, 'admittance')
-        idx_link = self._ensure_link_id(layer)
+        idx_link = layer.fields().indexFromName('_link_id')
+        if idx_link == -1: idx_link = self._ensure_link_id(layer)
         
         idx_temp_link = temp_layer.fields().indexFromName('_link_id')
         

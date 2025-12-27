@@ -16,9 +16,16 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
             if log_callback: log_callback(msg)
             self.log(msg, level)
 
-        idx_bld = layer.fields().indexFromName('building_frac')
-        idx_imp = layer.fields().indexFromName('impervious_frac')
-        idx_dst = layer.fields().indexFromName('anthro_heat')
+        # Critical: Ensure _link_id exists BEFORE any other operation
+        # This prevents crashes in helper methods like _ensure_fractions
+        idx_link = self._ensure_link_id(layer)
+
+        # Ensure input fields exist (Fix for KeyError: -1)
+        idx_bld = self._ensure_field(layer, 'building_frac')
+        idx_imp = self._ensure_field(layer, 'impervious_frac')
+        
+        # Ensure output field exists (Fix for independent run)
+        idx_dst = self._ensure_field(layer, 'anthro_heat')
 
         # Ensure we have the necessary Morphological Fractions (Atomicity)
         bsf_dynamic, isf_dynamic = self._ensure_fractions(layer, log_callback)
@@ -239,9 +246,10 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
             if log_callback: log_callback(msg)
             self.log(msg)
 
-        idx_bld = layer.fields().indexFromName('building_frac')
-        idx_imp = layer.fields().indexFromName('impervious_frac')
-        idx_link = layer.fields().indexFromName('_link_id')
+        idx_bld = self._ensure_field(layer, 'building_frac')
+        idx_imp = self._ensure_field(layer, 'impervious_frac')
+        # Robustly get link id
+        idx_link = self._ensure_link_id(layer)
 
         # Sample check: are values mostly zeros/NULL?
         needs_bld = True

@@ -23,9 +23,9 @@ class SurfaceFractionsProcessor(LCZBaseProcessor):
         hrl_path = os.path.join(unified_dir, "imperviousness_10m.tif")
 
         idx_link = self._ensure_link_id(layer)
-        idx_bld = self._ensure_field(layer, 'building_frac')
         idx_imp = self._ensure_field(layer, 'impervious_frac')
         idx_per = self._ensure_field(layer, 'pervious_frac')
+        idx_bld = self._ensure_field(layer, 'building_frac')
         
         # 1. BSF from vectors
         log_local("Fase 1: Calcolo Building Fraction dai vettori...")
