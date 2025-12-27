@@ -1,143 +1,38 @@
 # -*- coding: utf-8 -*-
+"""
+FETCH Dashboard - Main UI Module
+
+This module contains the main ITLCZDashboard class for the FETCH QGIS plugin.
+The UI is composed of modular section widgets and mixins for better maintainability.
+"""
 
 import os
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QPushButton, QCheckBox, QProgressBar, 
-    QGroupBox, QScrollArea, QFileDialog, QComboBox,
-    QRadioButton, QLineEdit, QInputDialog, QGridLayout
+    QDockWidget, QWidget, QVBoxLayout, QScrollArea
 )
-from qgis.core import (
-    QgsProject, QgsMapLayer, QgsWkbTypes, QgsMapLayerProxyModel, 
-    QgsRectangle, QgsMessageLog, Qgis, QgsCoordinateReferenceSystem, 
-    QgsCoordinateTransform, QgsGeometry, QgsTask, QgsApplication
-)
-from qgis.gui import QgsMapLayerComboBox, QgsFileWidget, QgsCollapsibleGroupBox
-from ..core.utils import is_within_italy
+from qgis.core import QgsProject, QgsMessageLog, Qgis, QgsApplication
+
+# Local modular imports
 from ..core.data_manager import DataManager
+from .styles import STYLESHEET
+from .constants import PARAM_VISUALIZATION
+from .tasks import (
+    DownloadTask, UnifyTask, DSMTask, SVFTask, 
+    GridTask, LCZParameterTask, ClassificationTask
+)
+from .sections import (
+    ProjectSetupSection, DataAcquisitionSection, ProcessingSection,
+    GridDefinitionSection, ParametersSection, ProgressInfoSection
+)
+from .mixins import LayerMixin, StyleMixin
 
-STYLESHEET = """
-QWidget#DashboardRoot {
-    background-color: #f5f6f7;
-}
-QGroupBox {
-    font-weight: bold;
-    border: 1px solid #dcdde1;
-    border-radius: 6px;
-    margin-top: 20px;
-    padding: 15px 10px 10px 10px;
-    background-color: #ffffff;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    left: 10px;
-    padding: 0 5px;
-    color: #2c3e50;
-}
-QPushButton {
-    border: none;
-    border-radius: 4px;
-    padding: 8px 15px;
-    font-size: 12px;
-    min-height: 20px;
-}
-QPushButton:hover {
-    background-color: rgba(0,0,0,0.1);
-}
-#PrimaryButton {
-    background-color: #3498db;
-    color: white;
-    font-weight: bold;
-}
-#PrimaryButton:hover {
-    background-color: #2980b9;
-}
-#DarkButton {
-    background-color: #2c3e50;
-    color: white;
-    font-weight: bold;
-}
-#DarkButton:hover {
-    background-color: #1a252f;
-}
-#AccentButton {
-    background-color: #9b59b6;
-    color: white;
-}
-#AccentButton:hover {
-    background-color: #8e44ad;
-}
-#SuccessButton {
-    background-color: #27ae60;
-    color: white;
-    font-weight: bold;
-}
-#SuccessButton:hover {
-    background-color: #219150;
-}
-#WarningLabel {
-    color: #d35400; 
-    font-weight: bold; 
-    background-color: #fff3e0; 
-    border: 1px solid #ffe0b2; 
-    border-radius: 4px; 
-    padding: 8px;
-}
-#ExtentLabel {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 11px;
-    background-color: #f1f2f6;
-    border: 1px solid #dfe4ea;
-    border-radius: 3px;
-    padding: 5px;
-    color: #57606f;
-}
-#PrimaryButton:disabled, #DarkButton:disabled, #AccentButton:disabled, #SuccessButton:disabled {
-    background-color: #e0e0e0;
-    color: #a0a0a0;
-}
-QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled {
-    color: #b2bec3;
-}
-#IndicatorButton {
-    background-color: #bdc3c7;
-    border: none;
-    border-radius: 8px;
-    min-width: 16px;
-    max-width: 16px;
-    min-height: 16px;
-    max-height: 16px;
-    padding: 0;
-    margin: 0 2px;
-}
-#IndicatorButton:enabled {
-    background-color: #27ae60;
-}
-#IndicatorButton:enabled:hover {
-    background-color: #2ecc71;
-}
-#IndicatorButton:disabled {
-    background-color: #bdc3c7;
-}
-"""
 
-# Mapping of parameters to their visualization settings
-PARAM_VISUALIZATION = {
-    'svf_mean': {'field': 'svf_mean', 'label': 'SVF', 'ramp': 'Viridis', 'min': 0, 'max': 1},
-    'aspect_ratio': {'field': 'aspect_ratio', 'label': 'H/W', 'ramp': 'Plasma', 'min': 0, 'max': 3},
-    'building_frac': {'field': 'building_frac', 'label': 'BSF', 'ramp': 'Reds', 'min': 0, 'max': 100},
-    'impervious_frac': {'field': 'impervious_frac', 'label': 'ISF', 'ramp': 'Greys', 'min': 0, 'max': 100},
-    'pervious_frac': {'field': 'pervious_frac', 'label': 'PSF', 'ramp': 'Greens', 'min': 0, 'max': 100},
-    'z_h': {'field': 'z_h', 'label': 'zH', 'ramp': 'YlOrBr', 'min': 0, 'max': 50},
-    'terrain_rough': {'field': 'terrain_rough', 'label': 'TRC', 'ramp': 'PuBu', 'min': 1, 'max': 8},
-    'admittance': {'field': 'admittance', 'label': 'μ', 'ramp': 'OrRd', 'min': 500, 'max': 2500},
-    'albedo': {'field': 'albedo', 'label': 'α', 'ramp': 'RdYlGn', 'min': 0, 'max': 0.5},
-    'anthro_heat': {'field': 'anthro_heat', 'label': 'QF', 'ramp': 'Inferno', 'min': 0, 'max': 100},
-}
-
-class ITLCZDashboard(QDockWidget):
+class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
+    """Main FETCH Dashboard dock widget."""
+    
+    closingPlugin = pyqtSignal()
+    
     def __init__(self, iface, parent=None):
         super(ITLCZDashboard, self).__init__(parent)
         self.iface = iface
@@ -145,6 +40,7 @@ class ITLCZDashboard(QDockWidget):
         self.setWindowTitle("FETCH Dashboard")
         self.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
 
+        # Root widget
         self.root = QWidget()
         self.root.setObjectName("DashboardRoot")
         self.root.setStyleSheet(STYLESHEET)
@@ -152,370 +48,88 @@ class ITLCZDashboard(QDockWidget):
         self.layout.setContentsMargins(5, 5, 5, 5)
         self.layout.setSpacing(0)
         
-        self.extent_val = None
-        self.extent_crs = None
-        
         # Scroll Area
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll_content = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll.setWidget(self.scroll_content)
-        
         self.layout.addWidget(self.scroll)
         
-        # 1. Project Setup
-        self.setup_group = QgsCollapsibleGroupBox("1. Project Setup")
-        self.setup_layout = QVBoxLayout(self.setup_group)
+        # =====================================================
+        # Create Section Widgets
+        # =====================================================
         
-        # AOI Selection Grid
-        self.aoi_grid = QGridLayout()
-        self.aoi_grid.setContentsMargins(0, 5, 0, 5)
+        # Section 1: Project Setup
+        self.setup_section = ProjectSetupSection(iface, self)
+        self.scroll_layout.addWidget(self.setup_section)
         
-        self.aoi_layer_radio = QRadioButton("Use Vector Layer")
-        self.aoi_layer_radio.setChecked(True)
-        self.aoi_grid.addWidget(self.aoi_layer_radio, 0, 0)
+        # Section 2: Data Acquisition
+        self.data_section = DataAcquisitionSection(self)
+        self.scroll_layout.addWidget(self.data_section)
         
-        self.aoi_combo = QgsMapLayerComboBox()
-        self.aoi_combo.setFilters(QgsMapLayerProxyModel.VectorLayer)
-        self.aoi_grid.addWidget(self.aoi_combo, 0, 1)
+        # Section 3: Processing
+        self.proc_section = ProcessingSection(self)
+        self.scroll_layout.addWidget(self.proc_section)
         
-        self.aoi_extent_radio = QRadioButton("Use Map Canvas Extent")
-        self.aoi_grid.addWidget(self.aoi_extent_radio, 1, 0)
+        # Section 4: Grid Definition
+        self.grid_section = GridDefinitionSection(self)
+        self.scroll_layout.addWidget(self.grid_section)
         
-        self.btn_current_extent = QPushButton("Capture Extent")
-        self.btn_current_extent.setObjectName("PrimaryButton")
-        self.btn_current_extent.setIcon(QgsApplication.getThemeIcon("mActionSelectExtent.svg"))
-        self.btn_current_extent.setEnabled(False)
-        self.aoi_grid.addWidget(self.btn_current_extent, 1, 1)
+        # Section 5: Parameters
+        self.params_section = ParametersSection(self)
+        self.scroll_layout.addWidget(self.params_section)
         
-        self.setup_layout.addLayout(self.aoi_grid)
-        
-        self.extent_label = QLabel("No extent captured")
-        self.extent_label.setObjectName("ExtentLabel")
-        self.extent_label.setAlignment(Qt.AlignCenter)
-        self.setup_layout.addWidget(self.extent_label)
-        
-        # Italy Validation Warning
-        self.warning_label = QLabel("⚠ Area fuori dall'Italia. Alcuni dati potrebbero mancare.")
-        self.warning_label.setObjectName("WarningLabel")
-        self.warning_label.setWordWrap(True)
-        self.warning_label.hide()
-        self.setup_layout.addWidget(self.warning_label)
-        
-        # Toggle logic
-        self.aoi_layer_radio.toggled.connect(self.toggle_aoi_mode)
-        self.btn_current_extent.clicked.connect(self.capture_extent)
-        self.aoi_combo.layerChanged.connect(self.validate_aoi_layer)
-        
-        # Output info
-        self.project_label = QLabel("Output: Saving to project directory")
-        self.project_label.setStyleSheet("font-size: 11px; color: #7f8c8d; margin-top: 5px;")
-        self.setup_layout.addWidget(self.project_label)
-        
-        self.scroll_layout.addWidget(self.setup_group)
-        
-        # 2. Data Acquisition
-        self.data_group = QgsCollapsibleGroupBox("2. Data Acquisition")
-        self.data_layout = QVBoxLayout(self.data_group)
-        
-        # Sources Grid
-        self.sources_grid = QGridLayout()
-        self.sources = [
-            "Tinitaly (DTM 10m)", "TUM (Edifici H 10m)",
-            "ETH (Alberi H 10m)", "ESA WorldCover (Land Use)",
-            "Meta HRSL (Popolazione)", "S2GM (Albedo Sentinel-2)",
-            "OSM Roads (Vettoriale)", "Traffic ANAS (Italia)",
-            "Copernicus HRL (10m)", "Industrial Points (E-PRTR)"
-        ]
-        self.checks = {}
-        for i, src in enumerate(self.sources):
-            cb = QCheckBox(src)
-            cb.setChecked(True)
-            self.sources_grid.addWidget(cb, i // 2, i % 2)
-            self.checks[src] = cb
-        self.data_layout.addLayout(self.sources_grid)
-        
-        # CDSE Credentials
-        self.creds_group = QWidget()
-        self.creds_layout = QGridLayout(self.creds_group)
-        self.creds_layout.setContentsMargins(0, 10, 0, 5)
-        
-        # Help label with registration link
-        self.cdse_help = QLabel('Richiede account <a href="https://dataspace.copernicus.eu">Copernicus Data Space</a>')
-        self.cdse_help.setOpenExternalLinks(True)
-        self.cdse_help.setStyleSheet("font-size: 10px; color: #34495e;")
-        self.creds_layout.addWidget(self.cdse_help, 0, 0, 1, 2)
-        
-        self.creds_layout.addWidget(QLabel("Email CDSE:"), 1, 0)
-        self.cdse_username = QLineEdit()
-        self.cdse_username.setPlaceholderText("email@copernicus.eu")
-        self.creds_layout.addWidget(self.cdse_username, 1, 1)
-        
-        self.creds_layout.addWidget(QLabel("Password CDSE:"), 2, 0)
-        self.cdse_password = QLineEdit()
-        self.cdse_password.setEchoMode(QLineEdit.Password)
-        self.cdse_password.setPlaceholderText("••••••••")
-        self.creds_layout.addWidget(self.cdse_password, 2, 1)
-        
-        self.data_layout.addWidget(self.creds_group)
-        
-        # Link S2GM checkbox to credentials visibility
-        self.checks["S2GM (Albedo Sentinel-2)"].toggled.connect(self.creds_group.setVisible)
-        # Initial state based on checkbox
-        self.creds_group.setVisible(self.checks["S2GM (Albedo Sentinel-2)"].isChecked())
-            
-        self.btn_download = QPushButton(" Esegui Download Selezione")
-        self.btn_download.setObjectName("DarkButton")
-        self.btn_download.setIcon(QgsApplication.getThemeIcon("mActionArrowDown.svg"))
-        self.btn_download.clicked.connect(self.run_downloads)
-        self.data_layout.addWidget(self.btn_download)
-        
-        self.scroll_layout.addWidget(self.data_group)
-        
-        # 3. Processing
-        self.proc_group = QgsCollapsibleGroupBox("3. Elaborazione Sequenziale")
-        self.proc_layout = QVBoxLayout(self.proc_group)
-        self.proc_layout.setSpacing(2)
-        
-        self.btn_unify = QPushButton(" 1. Unifica e Ritaglia Dati")
-        self.btn_unify.setObjectName("PrimaryButton")
-        self.btn_unify.setIcon(QgsApplication.getThemeIcon("mActionRelationAdd.svg"))
-        self.btn_unify.setToolTip("FASE 1: Riproietta tutti i dati in UTM e ritaglia sull'AOI")
-        self.btn_unify.clicked.connect(self.run_unification)
-        self.proc_layout.addWidget(self.btn_unify)
-        
-        self.arrow1 = QLabel("▼")
-        self.arrow1.setAlignment(Qt.AlignCenter)
-        self.arrow1.setStyleSheet("color: #bdc3c7; font-size: 10px; margin: 2px 0;")
-        self.proc_layout.addWidget(self.arrow1)
-        
-        self.btn_dsm = QPushButton(" 2. Genera DSM Sintetico")
-        self.btn_dsm.setObjectName("PrimaryButton")
-        self.btn_dsm.setIcon(QgsApplication.getThemeIcon("mActionHillshade.svg"))
-        self.btn_dsm.setToolTip("FASE 2: Crea DSM = DTM + Altezze Edifici + Altezze Alberi")
-        self.btn_dsm.clicked.connect(self.run_dsm_generation)
-        self.proc_layout.addWidget(self.btn_dsm)
-        
-        self.arrow2 = QLabel("▼")
-        self.arrow2.setAlignment(Qt.AlignCenter)
-        self.arrow2.setStyleSheet("color: #bdc3c7; font-size: 10px; margin: 2px 0;")
-        self.proc_layout.addWidget(self.arrow2)
-        
-        self.btn_svf = QPushButton(" 3. Calcola Sky View Factor")
-        self.btn_svf.setObjectName("PrimaryButton")
-        self.btn_svf.setIcon(QgsApplication.getThemeIcon("mActionAlgorithm.svg"))
-        self.btn_svf.setToolTip("FASE 3: Calcola SVF dal DSM usando SAGA GIS")
-        self.btn_svf.clicked.connect(self.run_svf_calculation)
-        self.proc_layout.addWidget(self.btn_svf)
-        
-        self.scroll_layout.addWidget(self.proc_group)
-        
-        # 4. Grid Definition
-        self.grid_group = QgsCollapsibleGroupBox("4. Definizione Griglia LCZ")
-        self.grid_layout = QVBoxLayout(self.grid_group)
-        
-        self.grid_auto_radio = QRadioButton("Genera griglia automatica")
-        self.grid_auto_radio.setChecked(True)
-        self.grid_layout.addWidget(self.grid_auto_radio)
-        
-        self.cell_size_layout = QHBoxLayout()
-        self.cell_size_layout.addWidget(QLabel("Dimensione:"))
-        self.cell_size_combo = QComboBox()
-        self.cell_size_combo.addItems(["30m", "50m", "100m"])
-        self.cell_size_combo.setCurrentText("30m")
-        self.cell_size_layout.addWidget(self.cell_size_combo)
-        self.grid_layout.addLayout(self.cell_size_layout)
-        
-        self.grid_info_label = QLabel("(Seleziona area per calcolare celle)")
-        self.grid_info_label.setStyleSheet("font-size: 10px; color: #95a5a6; font-style: italic;")
-        self.grid_layout.addWidget(self.grid_info_label)
-        
-        self.grid_layer_radio = QRadioButton("Usa layer esistente")
-        self.grid_layout.addWidget(self.grid_layer_radio)
-        
-        self.grid_layer_combo = QgsMapLayerComboBox()
-        self.grid_layer_combo.setFilters(QgsMapLayerProxyModel.PolygonLayer)
-        self.grid_layer_combo.setEnabled(False)
-        self.grid_layout.addWidget(self.grid_layer_combo)
-        
-        self.grid_auto_radio.toggled.connect(self.toggle_grid_mode)
-        
-        self.btn_grid = QPushButton(" Genera/Applica Griglia")
-        self.btn_grid.setObjectName("DarkButton")
-        self.btn_grid.setIcon(QgsApplication.getThemeIcon("mActionRectangle.svg"))
-        self.btn_grid.clicked.connect(self.run_grid_creation)
-        self.grid_layout.addWidget(self.btn_grid)
-        
-        self.scroll_layout.addWidget(self.grid_group)
-        
-        # 5. LCZ Parameters Calculation
-        self.params_group = QgsCollapsibleGroupBox("5. Calcolo Parametri LCZ")
-        self.params_layout = QVBoxLayout(self.params_group)
-        
-        self.params_info_label = QLabel("Calcola parametri LCZ per ogni cella:")
-        self.params_info_label.setStyleSheet("font-size: 11px; color: #7f8c8d; font-style: italic;")
-        self.params_layout.addWidget(self.params_info_label)
-        
-        # Grid of parameter buttons with indicator dots
-        self.params_grid = QGridLayout()
-        self.params_grid.setHorizontalSpacing(4)
-        self.param_buttons = {}
-        self.indicator_buttons = {}  # Store indicator buttons for status updates
-        
-        # Parameter definitions: (pid, name, tooltip, indicator_fields)
-        # indicator_fields: list of field names this button produces
-        params = [
-            ('sky_view_factor', 'SVF Mean', 'Rapporto tra la porzione di volta celeste visibile dal suolo e una semisfera non ostruita.', ['svf_mean']),
-            ('aspect_ratio', 'Aspect Ratio', 'Rapporto medio altezza-larghezza dei canyon stradali (LCZ 1–7), spaziatura tra edifici (8–10) e alberi (A–G).', ['aspect_ratio']),
-            ('surface_fractions', 'Surface Frac.', 'Frazioni di copertura: edifici (BSF), superfici impermeabili (ISF) e permeabili (PSF).', ['building_frac', 'impervious_frac', 'pervious_frac']),
-            ('roughness_elements_height', 'Roughness H', 'Media geometrica dell\'altezza degli edifici (LCZ 1–10) e degli elementi vegetali (LCZ A–F) [m].', ['z_h']),
-            ('terrain_roughness_class', 'Terrain Rough.', 'Classificazione della rugosità del terreno (Davenport et al., 2000) per contesti urbani e rurali.', ['terrain_rough']),
-            ('surface_admittance', 'S. Admittance', 'Capacità della superficie di assorbire o rilasciare calore [J m⁻² s⁻¹/² K⁻¹].', ['admittance']),
-            ('surface_albedo', 'S. Albedo', 'Rapporto tra la radiazione solare riflessa da una superficie e quella ricevuta.', ['albedo']),
-            ('anthropogenic_heat_output', 'Anthro. Heat', 'Densità media del flusso di calore annuo da combustione e attività umana [W m⁻²].', ['anthro_heat'])
-        ]
-        
-        row = 0
-        for i, (pid, name, tip, fields) in enumerate(params):
-            col = (i % 2) * 3  # Each param takes 3 columns: button + indicators
-            if i > 0 and i % 2 == 0:
-                row += 1
-            
-            # Main parameter button
-            btn = QPushButton(name)
-            btn.setObjectName("AccentButton")
-            btn.setStyleSheet("font-size: 10px; padding: 5px;")
-            btn.setToolTip(tip)
-            btn.clicked.connect(lambda checked, p=pid: self.run_specific_lcz_param(p))
-            self.params_grid.addWidget(btn, row, col)
-            self.param_buttons[pid] = btn
-            
-            # Indicator buttons container
-            indicators_widget = QWidget()
-            indicators_layout = QHBoxLayout(indicators_widget)
-            indicators_layout.setContentsMargins(0, 0, 0, 0)
-            indicators_layout.setSpacing(2)
-            
-            for field in fields:
-                indicator = QPushButton()
-                indicator.setObjectName("IndicatorButton")
-                indicator.setEnabled(False)  # Start disabled
-                indicator.setToolTip(f"Visualizza {PARAM_VISUALIZATION.get(field, {}).get('label', field)} sulla mappa")
-                indicator.clicked.connect(lambda checked, f=field: self.apply_param_style(f))
-                indicators_layout.addWidget(indicator)
-                self.indicator_buttons[field] = indicator
-            
-            indicators_layout.addStretch()
-            self.params_grid.addWidget(indicators_widget, row, col + 1)
-            
-        self.params_layout.addLayout(self.params_grid)
-        self.scroll_layout.addWidget(self.params_group)
-        
-        # 6. Final Classification
-        self.btn_classify = QPushButton(" Esegui Classificazione Finale")
-        self.btn_classify.setObjectName("SuccessButton")
-        self.btn_classify.setIcon(QgsApplication.getThemeIcon("mActionCheckHtml.svg"))
-        self.btn_classify.setMinimumHeight(40)
-        self.btn_classify.clicked.connect(self.run_classification)
-        self.scroll_layout.addWidget(self.btn_classify)
-        
-        # Progress & Log
-        self.info_group = QWidget()
-        self.info_layout = QVBoxLayout(self.info_group)
-        self.info_layout.setContentsMargins(10, 10, 10, 10)
-        
-        self.status_label = QLabel("Pronto")
-        self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        self.info_layout.addWidget(self.status_label)
-        
-        self.progress = QProgressBar()
-        self.progress.setTextVisible(True)
-        self.progress.setFormat("%p%")
-        self.progress.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #dcdde1;
-                border-radius: 4px;
-                text-align: center;
-                background-color: #f1f2f6;
-            }
-            QProgressBar::chunk {
-                background-color: #3498db;
-                border-radius: 3px;
-            }
-        """)
-        self.info_layout.addWidget(self.progress)
-        
+        # Progress & Status
+        self.progress_section = ProgressInfoSection(self)
         self.scroll_layout.addStretch()
-        self.layout.addWidget(self.info_group)
+        self.layout.addWidget(self.progress_section)
         
         self.setWidget(self.root)
         
-        # Connect to project signals for dynamic UI gating
+        # =====================================================
+        # Connect Section Signals
+        # =====================================================
+        
+        # Data Acquisition
+        self.data_section.download_requested.connect(self.run_downloads)
+        
+        # Processing
+        self.proc_section.unify_requested.connect(self.run_unification)
+        self.proc_section.dsm_requested.connect(self.run_dsm_generation)
+        self.proc_section.svf_requested.connect(self.run_svf_calculation)
+        
+        # Grid
+        self.grid_section.grid_requested.connect(self.run_grid_creation)
+        
+        # Parameters
+        self.params_section.parameter_requested.connect(self.run_specific_lcz_param)
+        self.params_section.visualization_requested.connect(self.apply_param_style)
+        self.params_section.classify_requested.connect(self.run_classification)
+        
+        # Project signals for dynamic UI gating
         QgsProject.instance().layersAdded.connect(self.check_layers_and_update_ui)
         QgsProject.instance().layersRemoved.connect(self.check_layers_and_update_ui)
         
-        # Initial validation and gating
-        self.validate_aoi_layer()
+        # Initial state
         self.check_layers_and_update_ui()
 
-    def toggle_aoi_mode(self, checked):
-        self.aoi_combo.setEnabled(checked)
-        self.btn_current_extent.setEnabled(not checked)
-        if checked:
-            self.validate_aoi_layer()
-        else:
-            self.warning_label.hide()
-
-    def validate_aoi_layer(self):
-        layer = self.aoi_combo.currentLayer()
-        if layer:
-            within = is_within_italy(layer.extent(), layer.crs().authid())
-            self.warning_label.setVisible(not within)
-        else:
-            self.warning_label.hide()
-
-    def capture_extent(self):
-        canvas = self.iface.mapCanvas()
-        extent = canvas.extent()
-        crs = canvas.mapSettings().destinationCrs().authid()
-        self.extent_val = extent
-        self.extent_crs = crs
-        self.extent_label.setText(f"Captured: {extent.toString(2)} ({crs})")
-        within = is_within_italy(extent, crs)
-        self.warning_label.setVisible(not within)
-
+    # =========================================================================
+    # UI State Management
+    # =========================================================================
+    
     def set_dashboard_enabled(self, enabled):
         """Enable or disable the entire plugin UI during background tasks."""
-        self.btn_download.setEnabled(enabled)
-        self.btn_unify.setEnabled(enabled)
-        self.btn_dsm.setEnabled(enabled)
-        self.btn_svf.setEnabled(enabled)
-        self.btn_grid.setEnabled(enabled)
-        self.btn_classify.setEnabled(enabled)
-        
-        # Disable parameter buttons
-        for btn in self.param_buttons.values():
-            btn.setEnabled(enabled)
-        
-        # Disable indicator buttons during operations
-        if not enabled:
-            for btn in self.indicator_buttons.values():
-                btn.setEnabled(False)
-            
-        # Disable settings sections
-        self.setup_group.setEnabled(enabled)
-        self.data_group.setEnabled(enabled)
-        self.grid_group.setEnabled(enabled)
+        self.data_section.set_enabled(enabled)
+        self.proc_section.set_all_enabled(enabled)
+        self.grid_section.set_enabled(enabled)
+        self.params_section.set_enabled(enabled)
+        self.setup_section.setEnabled(enabled)
         
         if not enabled:
-            self.status_label.setText("⚠ Operazione in corso... Attendere")
-            self.status_label.setStyleSheet("font-weight: bold; color: #c0392b;")
+            self.progress_section.set_status("⚠ Operazione in corso... Attendere", is_busy=True)
         else:
-            self.status_label.setText("Pronto")
-            self.status_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
-            # Always check gating state when re-enabling
+            self.progress_section.reset()
             self.check_layers_and_update_ui()
 
     def check_layers_and_update_ui(self, *args):
@@ -534,11 +148,11 @@ class ITLCZDashboard(QDockWidget):
         has_dsm = has_valid_layer("DSM Sintetico (10m)")
         has_svf = has_valid_layer("Sky View Factor (10m)")
         
-        self.btn_dsm.setEnabled(has_dtm)
-        self.btn_svf.setEnabled(has_dsm)
+        self.proc_section.set_dsm_enabled(has_dtm)
+        self.proc_section.set_svf_enabled(has_dsm)
         
         # 2. Section 4 (Grid) needs SVF (end of sequential process)
-        self.grid_group.setEnabled(has_svf)
+        self.grid_section.setEnabled(has_svf)
         
         # 3. Section 5 needs a Grid layer
         grid_names = ["Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", 
@@ -546,222 +160,67 @@ class ITLCZDashboard(QDockWidget):
                       "Griglia LCZ (50m) - Parametri", "Griglia LCZ (100m) - Parametri", 
                       "Griglia LCZ (custom) - Parametri"]
         
-        has_grid = False
-        for name in grid_names:
-            if has_valid_layer(name):
-                has_grid = True
-                break
+        has_grid = any(has_valid_layer(name) for name in grid_names)
         
         # Section 5 is enabled if Section 3 is done AND a grid exists
-        self.params_group.setEnabled(has_svf and has_grid)
+        self.params_section.setEnabled(has_svf and has_grid)
         
         # Update indicator buttons based on available data
         if has_grid:
             self.update_param_indicators()
         
         # Classification enabled if grid exists
-        self.btn_classify.setEnabled(has_grid)
+        self.params_section.set_classify_enabled(has_grid)
 
-    def find_valid_grid_layer(self):
-        """Find the current valid grid layer in the project."""
-        data_dir = os.path.join(self.data_manager.get_project_dir() or "", self.data_manager.get_data_dir_name())
-        
-        grid_names = [
-            "Griglia LCZ (30m) - Parametri", "Griglia LCZ (50m) - Parametri",
-            "Griglia LCZ (100m) - Parametri", "Griglia LCZ (custom) - Parametri",
-            "Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", "Griglia LCZ (custom)"
-        ]
-        
-        for name in grid_names:
-            layers = QgsProject.instance().mapLayersByName(name)
-            for lyr in layers:
-                if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir)):
-                    return lyr
-        return None
-
-    def _field_has_values(self, layer, field_name):
-        """Check if at least one feature has a non-NULL value in the specified field."""
-        idx = layer.fields().indexFromName(field_name)
-        if idx == -1:
-            return False
-        
-        # Check first 100 features for efficiency
-        count = 0
-        for feat in layer.getFeatures():
-            val = feat.attribute(idx)
-            if val is not None and str(val) not in ('NULL', ''):
-                try:
-                    if float(val) != 0:
-                        return True
-                except (ValueError, TypeError):
-                    pass
-            count += 1
-            if count > 100:
-                break
-        return False
-
-    def update_param_indicators(self):
-        """Update indicator button states based on data availability in grid."""
-        grid_layer = self.find_valid_grid_layer()
-        
-        if not grid_layer:
-            # Disable all indicators
-            for btn in self.indicator_buttons.values():
-                btn.setEnabled(False)
-            return
-        
-        for param_id, config in PARAM_VISUALIZATION.items():
-            if param_id in self.indicator_buttons:
-                field_name = config['field']
-                has_data = self._field_has_values(grid_layer, field_name)
-                self.indicator_buttons[param_id].setEnabled(has_data)
-
-    def apply_param_style(self, field_name):
-        """Apply graduated color style to the grid layer for the specified parameter using quantile classification."""
-        from qgis.core import (
-            QgsGraduatedSymbolRenderer, QgsRendererRange, 
-            QgsFillSymbol, QgsStyle, QgsClassificationQuantile
-        )
-        
-        grid_layer = self.find_valid_grid_layer()
-        if not grid_layer:
-            self.iface.messageBar().pushMessage("Errore", "Nessuna griglia trovata.", level=2)
-            return
-        
-        # Get visualization config
-        config = PARAM_VISUALIZATION.get(field_name)
-        if not config:
-            self.iface.messageBar().pushMessage("Errore", f"Configurazione non trovata per {field_name}.", level=2)
-            return
-        
-        field_idx = grid_layer.fields().indexFromName(config['field'])
-        if field_idx == -1:
-            self.iface.messageBar().pushMessage("Errore", f"Campo {config['field']} non trovato nella griglia.", level=2)
-            return
-        
-        try:
-            # Get color ramp from QGIS styles
-            style = QgsStyle.defaultStyle()
-            ramp_name = config['ramp']
-            color_ramp = style.colorRamp(ramp_name)
-            
-            if not color_ramp:
-                color_ramp = style.colorRamp('Spectral')
-            
-            if not color_ramp:
-                self.iface.messageBar().pushMessage("Errore", "Nessuna rampa colore disponibile.", level=2)
-                return
-            
-            # Collect actual values from the layer
-            values = []
-            for feat in grid_layer.getFeatures():
-                val = feat.attribute(field_idx)
-                if val is not None and str(val) not in ('NULL', ''):
-                    try:
-                        values.append(float(val))
-                    except (ValueError, TypeError):
-                        pass
-            
-            if not values:
-                self.iface.messageBar().pushMessage("Errore", f"Nessun valore valido nel campo {config['field']}.", level=2)
-                return
-            
-            # Use quantile classification
-            num_classes = 10
-            classifier = QgsClassificationQuantile()
-            classes = classifier.classes(values, num_classes)
-            
-            ranges = []
-            for i, cls in enumerate(classes):
-                # Get color from ramp
-                color = color_ramp.color(i / (len(classes) - 1) if len(classes) > 1 else 0.5)
-                
-                symbol = QgsFillSymbol.createSimple({
-                    'color': color.name(),
-                    'outline_style': 'no'
-                })
-                
-                label = f"{cls.lowerBound():.2f} - {cls.upperBound():.2f}"
-                range_item = QgsRendererRange(cls.lowerBound(), cls.upperBound(), symbol, label)
-                ranges.append(range_item)
-            
-            # Create renderer with ranges
-            renderer = QgsGraduatedSymbolRenderer(config['field'], ranges)
-            
-            grid_layer.setRenderer(renderer)
-            grid_layer.triggerRepaint()
-            
-            self.iface.messageBar().pushMessage(
-                "FETCH", 
-                f"Stile '{config['label']}' (quantile) applicato alla griglia.", 
-                level=3, 
-                duration=3
-            )
-            
-        except Exception as e:
-            self.iface.messageBar().pushMessage("Errore", f"Impossibile applicare stile: {str(e)}", level=2)
+    # =========================================================================
+    # Task Execution Methods
+    # =========================================================================
 
     def run_downloads(self):
+        """Execute data downloads based on user selection."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
             self.iface.messageBar().pushMessage(
                 "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
             )
-            self.status_label.setText("⚠ Salva il progetto prima di continuare")
-            self.project_label.setText("Output: PROGETTO NON SALVATO")
-            self.project_label.setStyleSheet("font-style: italic; color: #c0392b; font-weight: bold;")
+            self.progress_section.set_status("⚠ Salva il progetto prima di continuare", is_error=True)
+            self.setup_section.set_project_path_status(False)
             return
             
-        # Get AOI extent and CRS
-        if self.aoi_layer_radio.isChecked():
-            layer = self.aoi_combo.currentLayer()
-            if not layer:
+        extent, crs = self.setup_section.get_extent_and_crs()
+        if extent is None:
+            if self.setup_section.is_layer_mode():
                 self.iface.messageBar().pushMessage("Errore", "Nessun layer AOI selezionato.", level=2)
-                return
-            extent = layer.extent()
-            crs = layer.crs().authid()
-        else:
-            if not self.extent_val:
+            else:
                 self.iface.messageBar().pushMessage("Errore", "Cattura l'estensione della mappa prima di procedere.", level=2)
-                return
-            extent = self.extent_val
-            crs = self.extent_crs
+            return
 
-        # Prepare parameters for task
-        selected_checks = {name: cb.isChecked() for name, cb in self.checks.items()}
-        cdse_user = self.cdse_username.text().strip()
-        cdse_pass = self.cdse_password.text()
+        selected_checks = self.data_section.get_selected_sources()
+        cdse_user, cdse_pass = self.data_section.get_cdse_credentials()
+        tiles = self.data_manager.calculate_tinitaly_tiles(extent, crs) if selected_checks.get("Tinitaly (DTM 10m)") else []
         
-        # Calculate tiles for Tinitaly early to show feedback
-        tiles = self.data_manager.calculate_tinitaly_tiles(extent, crs) if selected_checks["Tinitaly (DTM 10m)"] else []
-        
-        # Disable dashboard
         self.set_dashboard_enabled(False)
-        self.status_label.setText("Avvio acquisizione dati in background...")
-        self.progress.setValue(0)
-        self.progress.setMaximum(100)
+        self.progress_section.set_status("Avvio acquisizione dati in background...")
+        self.progress_section.set_progress(0)
         
-        # Create and start task
         task = DownloadTask(self.data_manager, selected_checks, extent, crs, cdse_user, cdse_pass, tiles)
         
         def on_progress_update(step_name, step_num, total_steps, percent):
-            """Update UI with detailed progress info from background task."""
-            self.status_label.setText(f"[{step_num}/{total_steps}] {step_name} ({percent}%)")
-            self.progress.setValue(percent)
+            self.progress_section.set_status(f"[{step_num}/{total_steps}] {step_name} ({percent}%)")
+            self.progress_section.set_progress(percent)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
-            self.progress.setMaximum(100)
-            self.progress.setValue(100 if success else 0)
+            self.progress_section.set_progress(100 if success else 0)
             
             if success:
-                self.status_label.setText("✓ Acquisizione dati completata.")
+                self.progress_section.set_status("✓ Acquisizione dati completata.")
                 if task.error_count == 0:
                     self.iface.messageBar().pushMessage("FETCH", "Download dati completato con successo!", level=3)
                 else:
                     self.iface.messageBar().pushMessage("IT-LCZ", f"Download completato con {task.error_count} errori. Controlla il log.", level=2)
             else:
-                self.status_label.setText(f"✗ Download interrotto: {task.message}")
+                self.progress_section.set_status(f"✗ Download interrotto: {task.message}", is_error=True)
         
         task.taskCompleted.connect(lambda: on_finished(True))
         task.taskTerminated.connect(lambda: on_finished(False))
@@ -770,704 +229,274 @@ class ITLCZDashboard(QDockWidget):
         QgsApplication.taskManager().addTask(task)
 
     def run_unification(self):
-        """Unifica tutti i dati scaricati in proiezione UTM e ritaglia sull'AOI."""
+        """Unify and clip all downloaded data."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
-            self.iface.messageBar().pushMessage(
-                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
-            )
+            self.iface.messageBar().pushMessage("Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5)
             return
         
-        # Get AOI extent and CRS
-        if self.aoi_layer_radio.isChecked():
-            layer = self.aoi_combo.currentLayer()
-            if not layer:
+        extent, crs = self.setup_section.get_extent_and_crs()
+        if extent is None:
+            if self.setup_section.is_layer_mode():
                 self.iface.messageBar().pushMessage("Errore", "Nessun layer AOI selezionato.", level=2)
-                return
-            extent = layer.extent()
-            crs = layer.crs().authid()
-        else:
-            if not self.extent_val:
+            else:
                 self.iface.messageBar().pushMessage("Errore", "Cattura l'estensione della mappa prima di procedere.", level=2)
-                return
-            extent = self.extent_val
-            crs = self.extent_crs
+            return
         
         self.set_dashboard_enabled(False)
-        self.status_label.setText("Avvio unificazione dati in corso...")
-        self.progress.setMaximum(0)
+        self.progress_section.set_status("Avvio unificazione dati in corso...")
+        self.progress_section.set_indeterminate(True)
         
         task = UnifyTask(self.data_manager, extent, crs)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
-            self.progress.setMaximum(100)
-            self.progress.setValue(100 if success else 0)
+            self.progress_section.set_indeterminate(False)
+            self.progress_section.set_progress(100 if success else 0)
             
             if success:
-                self.status_label.setText("Caricamento layer nel progetto...")
-                loaded = self.data_manager.load_unified_layers()
-                self.status_label.setText(f"Completato: {len(task.output_paths)} dataset unificati, {len(loaded)} layer caricati.")
-                self.iface.messageBar().pushMessage("IT-LCZ", "Dati unificati e caricati con successo!", level=3)
+                self.progress_section.set_status("✓ Unificazione completata.")
+                self.iface.messageBar().pushMessage("FETCH", "Dati unificati con successo!", level=3)
+                # Load all unified layers
+                self.data_manager.load_unified_layers()
             else:
-                self.status_label.setText(f"Errore unificazione: {task.message}")
+                self.progress_section.set_status(f"✗ Unificazione fallita: {task.message}", is_error=True)
         
         task.taskCompleted.connect(lambda: on_finished(True))
         task.taskTerminated.connect(lambda: on_finished(False))
+        
         QgsApplication.taskManager().addTask(task)
 
     def run_dsm_generation(self):
-        """Genera il DSM sintetico combinando DTM, altezze edifici e altezze alberi."""
+        """Generate synthetic DSM."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
-            self.iface.messageBar().pushMessage(
-                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
-            )
+            self.iface.messageBar().pushMessage("Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5)
             return
-        
+            
         self.set_dashboard_enabled(False)
-        self.status_label.setText("Avvio generazione DSM sintetico...")
-        self.progress.setMaximum(0)
+        self.progress_section.set_status("Avvio generazione DSM...")
+        self.progress_section.set_indeterminate(True)
+        
+        data_dir = os.path.join(self.data_manager.get_project_dir(), self.data_manager.get_data_dir_name())
         
         task = DSMTask(self.data_manager)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
-            self.progress.setMaximum(100)
-            self.progress.setValue(100 if success else 0)
+            self.progress_section.set_indeterminate(False)
+            self.progress_section.set_progress(100 if success else 0)
             
-            data_dir = os.path.join(self.data_manager.get_project_dir() or "", self.data_manager.get_data_dir_name())
-            
-            if success and task.output_path:
-                self.status_label.setText("Caricamento DSM nel progetto...")
-                from qgis.core import QgsRasterLayer
-                layer_name = "DSM Sintetico (10m)"
-                existing = QgsProject.instance().mapLayersByName(layer_name)
-                valid_existing = [lyr for lyr in existing if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir))]
-                
-                if not valid_existing:
-                    layer = QgsRasterLayer(task.output_path, layer_name)
-                    if layer.isValid():
-                        QgsProject.instance().addMapLayer(layer)
-                        self.status_label.setText("DSM sintetico creato e caricato.")
-                        self.iface.messageBar().pushMessage("IT-LCZ", "DSM sintetico generato con successo!", level=3)
-                    else:
-                        self.status_label.setText("DSM creato ma layer non valido.")
-                else:
-                    self.status_label.setText("DSM aggiornato.")
-                    self.iface.messageBar().pushMessage("IT-LCZ", "DSM generato con successo!", level=3)
+            if success:
+                self.progress_section.set_status("✓ DSM generato con successo.")
+                self.iface.messageBar().pushMessage("FETCH", "DSM sintetico generato!", level=3)
+                if task.output_path:
+                    self._load_raster_layer(task.output_path, "DSM Sintetico (10m)")
+                    # Create grid if extent available
+                    extent, crs = self.setup_section.get_extent_and_crs()
+                    if extent:
+                        grid_path = os.path.join(data_dir, "griglia_lcz.gpkg")
+                        if not os.path.exists(grid_path):
+                            self.data_manager.create_lcz_grid(extent, crs, log_callback=lambda m: None)
             else:
-                self.status_label.setText(f"Errore DSM: {task.message}")
+                self.progress_section.set_status(f"✗ Generazione DSM fallita: {task.message}", is_error=True)
         
         task.taskCompleted.connect(lambda: on_finished(True))
         task.taskTerminated.connect(lambda: on_finished(False))
+        
         QgsApplication.taskManager().addTask(task)
 
     def run_svf_calculation(self):
-        """Calcola il Sky View Factor dal DSM usando SAGA GIS."""
+        """Calculate Sky View Factor from DSM."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
-            self.iface.messageBar().pushMessage(
-                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
-            )
+            self.iface.messageBar().pushMessage("Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5)
             return
-        
+            
         self.set_dashboard_enabled(False)
-        self.status_label.setText("Avvio calcolo Sky View Factor...")
-        self.progress.setMaximum(0)
+        self.progress_section.set_status("Avvio calcolo SVF... (può richiedere tempo)")
+        self.progress_section.set_indeterminate(True)
+        
+        data_dir = os.path.join(self.data_manager.get_project_dir(), self.data_manager.get_data_dir_name())
         
         task = SVFTask(self.data_manager)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
-            self.progress.setMaximum(100)
-            self.progress.setValue(100 if success else 0)
+            self.progress_section.set_indeterminate(False)
+            self.progress_section.set_progress(100 if success else 0)
             
-            data_dir = os.path.join(self.data_manager.get_project_dir() or "", self.data_manager.get_data_dir_name())
-            
-            if success and task.output_path:
-                self.status_label.setText("Caricamento SVF nel progetto...")
-                from qgis.core import QgsRasterLayer
-                layer_name = "Sky View Factor (10m)"
-                
-                existing = QgsProject.instance().mapLayersByName(layer_name)
-                valid_existing = [lyr for lyr in existing if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir))]
-                
-                for lyr in valid_existing:
-                    QgsProject.instance().removeMapLayer(lyr.id())
-                
-                layer = QgsRasterLayer(task.output_path, layer_name)
-                if layer.isValid():
-                    QgsProject.instance().addMapLayer(layer)
-                    self.status_label.setText("Sky View Factor calcolato e caricato.")
-                    self.iface.messageBar().pushMessage("IT-LCZ", "SVF calcolato con successo!", level=3)
-                else:
-                    self.status_label.setText("SVF calcolato ma layer non valido.")
+            if success:
+                self.progress_section.set_status("✓ SVF calcolato con successo.")
+                self.iface.messageBar().pushMessage("FETCH", "Sky View Factor calcolato!", level=3)
+                if task.output_path:
+                    self._load_raster_layer(task.output_path, "Sky View Factor (10m)")
+                    # Create grid if extent available
+                    extent, crs = self.setup_section.get_extent_and_crs()
+                    if extent:
+                        grid_path = os.path.join(data_dir, "griglia_lcz.gpkg")
+                        if not os.path.exists(grid_path):
+                            self.data_manager.create_lcz_grid(extent, crs, log_callback=lambda m: None)
             else:
-                self.status_label.setText(f"Errore SVF: {task.message}")
+                self.progress_section.set_status(f"✗ Calcolo SVF fallito: {task.message}", is_error=True)
         
         task.taskCompleted.connect(lambda: on_finished(True))
         task.taskTerminated.connect(lambda: on_finished(False))
+        
         QgsApplication.taskManager().addTask(task)
 
-    def toggle_grid_mode(self, auto_checked):
-        """Toggle between automatic grid and existing layer mode."""
-        self.cell_size_combo.setEnabled(auto_checked)
-        self.grid_layer_combo.setEnabled(not auto_checked)
-        
-        if auto_checked:
-            self.btn_grid.setText("Genera Griglia Automatica")
-        else:
-            self.btn_grid.setText("Applica Layer Esistente")
-
     def run_grid_creation(self):
-        """Create or apply the LCZ grid based on user selection."""
+        """Create or apply the LCZ grid."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
-            self.iface.messageBar().pushMessage(
-                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
-            )
+            self.iface.messageBar().pushMessage("Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5)
             return
         
-        # Get AOI extent and CRS
-        if self.aoi_layer_radio.isChecked():
-            layer = self.aoi_combo.currentLayer()
-            if not layer:
+        extent, crs = self.setup_section.get_extent_and_crs()
+        if extent is None:
+            if self.setup_section.is_layer_mode():
                 self.iface.messageBar().pushMessage("Errore", "Nessun layer AOI selezionato.", level=2)
-                return
-            extent = layer.extent()
-            crs = layer.crs().authid()
-        else:
-            if not self.extent_val:
+            else:
                 self.iface.messageBar().pushMessage("Errore", "Cattura l'estensione della mappa prima di procedere.", level=2)
-                return
-            extent = self.extent_val
-            crs = self.extent_crs
+            return
         
-        # Prepare parameters
-        cell_size = None
-        existing_layer = None
-        if self.grid_auto_radio.isChecked():
-            cell_size_text = self.cell_size_combo.currentText()
-            cell_size = int(cell_size_text.replace("m", ""))
-        else:
-            existing_layer = self.grid_layer_combo.currentLayer()
-            if not existing_layer:
-                self.iface.messageBar().pushMessage("Errore", "Nessun layer griglia selezionato.", level=2)
-                return
-
         self.set_dashboard_enabled(False)
-        self.status_label.setText("Inizializzazione creazione griglia...")
-        self.progress.setMaximum(0)
+        self.progress_section.set_status("Creazione griglia LCZ...")
+        self.progress_section.set_indeterminate(True)
         
-        task = GridTask(self.data_manager, extent, crs, cell_size, existing_layer)
+        data_dir = os.path.join(self.data_manager.get_project_dir(), self.data_manager.get_data_dir_name())
+        
+        if self.grid_section.is_auto_mode():
+            cell_size = self.grid_section.get_cell_size()
+            task = GridTask(self.data_manager, extent, crs, cell_size=cell_size)
+        else:
+            existing_layer = self.grid_section.get_existing_layer()
+            if not existing_layer:
+                self.iface.messageBar().pushMessage("Errore", "Seleziona un layer esistente.", level=2)
+                self.set_dashboard_enabled(True)
+                return
+            task = GridTask(self.data_manager, extent, crs, existing_layer=existing_layer)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
-            self.progress.setMaximum(100)
-            self.progress.setValue(100 if success else 0)
+            self.progress_section.set_indeterminate(False)
+            self.progress_section.set_progress(100 if success else 0)
             
-            if success and task.output_path:
-                # Determine layer name
-                if cell_size:
-                    layer_name = f"Griglia LCZ ({cell_size}m)"
-                else:
-                    layer_name = "Griglia LCZ (custom)"
-                    
-                loaded_layer = self.data_manager.load_grid_layer(task.output_path, layer_name=layer_name)
-                
-                if loaded_layer:
-                    self.status_label.setText(f"Griglia creata: {loaded_layer.featureCount()} celle")
-                    self.iface.messageBar().pushMessage("IT-LCZ", "Griglia LCZ creata con successo!", level=3)
-                else:
-                    self.status_label.setText("Griglia creata ma non caricata.")
+            if success:
+                self.progress_section.set_status("✓ Griglia creata con successo.")
+                self.iface.messageBar().pushMessage("FETCH", "Griglia LCZ creata!", level=3)
+                if task.output_path:
+                    if self.grid_section.is_auto_mode():
+                        cell_size = self.grid_section.get_cell_size()
+                        layer_name = f"Griglia LCZ ({cell_size}m)"
+                    else:
+                        layer_name = "Griglia LCZ (custom)"
+                    self.data_manager.load_grid_layer(task.output_path, layer_name)
             else:
-                self.status_label.setText(f"Errore griglia: {task.message}")
+                self.progress_section.set_status(f"✗ Creazione griglia fallita: {task.message}", is_error=True)
         
         task.taskCompleted.connect(lambda: on_finished(True))
         task.taskTerminated.connect(lambda: on_finished(False))
+        
         QgsApplication.taskManager().addTask(task)
 
-    def run_specific_lcz_param(self, parameter_id=None):
-        """Calculate a specific LCZ parameter for each grid cell in background."""
+    def run_specific_lcz_param(self, parameter_id):
+        """Calculate a specific LCZ parameter."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
-            self.iface.messageBar().pushMessage(
-                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
-            )
+            self.iface.messageBar().pushMessage("Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5)
             return
         
-        # 1. Scan for valid grid layers
-        grid_layer_names = [
-            "Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", "Griglia LCZ (custom)",
-            "Griglia LCZ (30m) - Parametri", "Griglia LCZ (50m) - Parametri", 
-            "Griglia LCZ (100m) - Parametri", "Griglia LCZ (custom) - Parametri"
-        ]
-        
-        found_layers = []
         data_dir = os.path.join(self.data_manager.get_project_dir(), self.data_manager.get_data_dir_name())
         
-        for name in grid_layer_names:
-            layers = QgsProject.instance().mapLayersByName(name)
-            for lyr in layers:
-                # Basic check: is the file inside the project's data folder?
-                if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir)):
-                    found_layers.append(lyr)
-        
-        if not found_layers:
-            self.iface.messageBar().pushMessage("Errore", f"Nessuna griglia LCZ trovata nella cartella {self.data_manager.get_data_dir_name()}.", level=2)
+        grid_layer = self.find_valid_grid_layer()
+        if not grid_layer:
+            self.iface.messageBar().pushMessage("Errore", "Nessuna griglia LCZ trovata. Creane una prima.", level=2)
             return
-
-        # Priority Selection: if there are any " - Parametri" layers, stick to those
-        param_layers = [l for l in found_layers if l.name().endswith(" - Parametri")]
-        if param_layers:
-            found_layers = param_layers
+            
+        grid_path = grid_layer.source()
         
-        if len(found_layers) == 1:
-            selected_layer = found_layers[0]
-        else:
-            items = [layer.name() for layer in found_layers]
-            item, ok = QInputDialog.getItem(self, "Selezione Griglia", "Scegli la griglia:", items, 0, False)
-            if ok and item:
-                for layer in found_layers:
-                    if layer.name() == item: selected_layer = layer; break
-            else: return
-
-        grid_path = selected_layer.source()
-        
-        # Disable dashboard
         self.set_dashboard_enabled(False)
-        self.status_label.setText(f"Avvio calcolo {parameter_id}...")
-        self.progress.setMaximum(0)
+        self.progress_section.set_status(f"Calcolo parametro {parameter_id}...")
+        self.progress_section.set_indeterminate(True)
         
-        # Create and start task
         task = LCZParameterTask(self.data_manager, grid_path, parameter_id)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
-            self.progress.setMaximum(100)
-            self.progress.setValue(100 if success else 0)
+            self.progress_section.set_indeterminate(False)
+            self.progress_section.set_progress(100 if success else 0)
             
-            data_dir = os.path.join(self.data_manager.get_project_dir() or "", self.data_manager.get_data_dir_name())
-            
-            if success and task.output_path:
-                self.status_label.setText(f"Calcolo {parameter_id} completato.")
-                # Update layer
-                source_name = selected_layer.name().replace(" - Parametri", "")
-                layer_name = f"{source_name} - Parametri"
-                existing = QgsProject.instance().mapLayersByName(layer_name)
-                valid_existing = [lyr for lyr in existing if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir))]
+            if success:
+                self.progress_section.set_status(f"✓ Parametro {parameter_id} calcolato.")
+                self.iface.messageBar().pushMessage("FETCH", f"Parametro {parameter_id} calcolato!", level=3)
                 
-                if not valid_existing:
-                    from qgis.core import QgsVectorLayer
-                    layer = QgsVectorLayer(task.output_path, layer_name, "ogr")
-                    if layer.isValid(): QgsProject.instance().addMapLayer(layer)
-                else:
-                    for lyr in valid_existing:
-                        lyr.triggerRepaint()
-                        if hasattr(lyr, 'dataProvider'): lyr.dataProvider().reloadData()
-                
-                self.iface.messageBar().pushMessage("IT-LCZ", f"Parametro {parameter_id} calcolato!", level=3)
+                if task.output_path:
+                    # Determine layer name based on current grid
+                    suffix = grid_layer.name().replace("Griglia LCZ ", "").replace(" - Parametri", "")
+                    new_name = f"Griglia LCZ {suffix} - Parametri"
+                    
+                    old_layers = QgsProject.instance().mapLayersByName(grid_layer.name())
+                    for old in old_layers:
+                        if os.path.normpath(old.source()).startswith(os.path.normpath(data_dir)):
+                            QgsProject.instance().removeMapLayer(old.id())
+                    
+                    self.data_manager.load_grid_layer(task.output_path, new_name)
+                    self.update_param_indicators()
             else:
-                self.status_label.setText(f"Errore: {task.message}")
-                self.iface.messageBar().pushMessage("IT-LCZ", f"Errore: {task.message}", level=2)
-
+                self.progress_section.set_status(f"✗ Calcolo fallito: {task.message}", is_error=True)
+                for msg in task.log_msgs:
+                    QgsMessageLog.logMessage(msg, "FETCH", Qgis.Info)
+        
         task.taskCompleted.connect(lambda: on_finished(True))
         task.taskTerminated.connect(lambda: on_finished(False))
         
         QgsApplication.taskManager().addTask(task)
 
     def run_classification(self):
-        """Run final LCZ classification based on calculated parameters."""
+        """Run final LCZ classification."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
-            self.iface.messageBar().pushMessage(
-                "Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5
-            )
+            self.iface.messageBar().pushMessage("Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5)
             return
         
-        # Find valid grid layers (same logic as run_specific_lcz_param)
-        grid_layer_names = [
-            "Griglia LCZ (30m) - Parametri", "Griglia LCZ (50m) - Parametri", 
-            "Griglia LCZ (100m) - Parametri", "Griglia LCZ (custom) - Parametri",
-            "Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", "Griglia LCZ (custom)"
-        ]
-        
-        found_layers = []
         data_dir = os.path.join(self.data_manager.get_project_dir(), self.data_manager.get_data_dir_name())
         
-        for name in grid_layer_names:
-            layers = QgsProject.instance().mapLayersByName(name)
-            for lyr in layers:
-                if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir)):
-                    found_layers.append(lyr)
-        
-        if not found_layers:
-            self.iface.messageBar().pushMessage("Errore", "Nessuna griglia LCZ trovata. Calcola prima i parametri.", level=2)
+        grid_layer = self.find_valid_grid_layer()
+        if not grid_layer:
+            self.iface.messageBar().pushMessage("Errore", "Nessuna griglia LCZ trovata.", level=2)
             return
-
-        # Prefer " - Parametri" layers
-        param_layers = [l for l in found_layers if l.name().endswith(" - Parametri")]
-        if param_layers:
-            found_layers = param_layers
-        
-        if len(found_layers) == 1:
-            selected_layer = found_layers[0]
-        else:
-            items = [layer.name() for layer in found_layers]
-            item, ok = QInputDialog.getItem(self, "Selezione Griglia", "Scegli la griglia:", items, 0, False)
-            if ok and item:
-                for layer in found_layers:
-                    if layer.name() == item: selected_layer = layer; break
-            else: return
-
-        grid_path = selected_layer.source()
+            
+        grid_path = grid_layer.source()
         
         self.set_dashboard_enabled(False)
-        self.status_label.setText("Avvio classificazione LCZ finale...")
-        self.progress.setMaximum(0)
+        self.progress_section.set_status("Avvio classificazione LCZ finale...")
+        self.progress_section.set_indeterminate(True)
         
         task = ClassificationTask(self.data_manager, grid_path)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
-            self.progress.setMaximum(100)
-            self.progress.setValue(100 if success else 0)
+            self.progress_section.set_indeterminate(False)
+            self.progress_section.set_progress(100 if success else 0)
             
-            if success and task.output_path:
-                self.status_label.setText("Classificazione LCZ completata!")
-                # Refresh layer
-                for lyr in QgsProject.instance().mapLayersByName(selected_layer.name()):
-                    lyr.triggerRepaint()
-                    if hasattr(lyr, 'dataProvider'): lyr.dataProvider().reloadData()
-                self.iface.messageBar().pushMessage("FETCH", "Classificazione LCZ completata! Campo LCZ_Class aggiunto.", level=3)
+            if success:
+                self.progress_section.set_status("✓ Classificazione LCZ completata!")
+                self.iface.messageBar().pushMessage("FETCH", "Classificazione LCZ completata con successo!", level=3)
+                
+                # Just refresh the existing layer - classification modifies it in place
+                grid_layer.triggerRepaint()
+                self.iface.mapCanvas().refresh()
+                self.update_param_indicators()
             else:
-                self.status_label.setText(f"Errore: {task.message}")
-                self.iface.messageBar().pushMessage("FETCH", f"Errore: {task.message}", level=2)
-
+                self.progress_section.set_status(f"✗ Classificazione fallita: {task.message}", is_error=True)
+        
         task.taskCompleted.connect(lambda: on_finished(True))
         task.taskTerminated.connect(lambda: on_finished(False))
         
         QgsApplication.taskManager().addTask(task)
 
     def closeEvent(self, event):
+        """Handle close event."""
         self.closingPlugin.emit()
         event.accept()
-
-    closingPlugin = pyqtSignal()
-
-class DownloadTask(QgsTask):
-    """Task for running all data downloads in the background."""
-    
-    # Signal to update UI with detailed progress: (step_name, step_num, total_steps, percent)
-    progressUpdated = pyqtSignal(str, int, int, int)
-    
-    # Mapping from checkbox names to human-readable step names
-    STEP_NAMES = {
-        "Tinitaly (DTM 10m)": "Download DTM Tinitaly",
-        "TUM (Edifici H 10m)": "Download Edifici TUM",
-        "ETH (Alberi H 10m)": "Download Altezze Alberi ETH",
-        "ESA WorldCover (Land Use)": "Download Land Cover ESA",
-        "Meta HRSL (Popolazione)": "Download Popolazione Meta HRSL",
-        "S2GM (Albedo Sentinel-2)": "Download Albedo Sentinel-2",
-        "OSM Roads (Vettoriale)": "Download Strade OSM",
-        "Traffic ANAS (Italia)": "Download Traffico ANAS",
-        "Copernicus HRL (10m)": "Download Impermeabilità HRL",
-        "Industrial Points (E-PRTR)": "Download Industrie E-PRTR"
-    }
-    
-    def __init__(self, data_manager, selected_checks, extent, crs, cdse_user, cdse_pass, tiles):
-        super().__init__("Download Dati FETCH", QgsTask.CanCancel)
-        self.data_manager = data_manager
-        self.selected_checks = selected_checks
-        self.extent = extent
-        self.crs = crs
-        self.cdse_user = cdse_user
-        self.cdse_pass = cdse_pass
-        self.tiles = tiles
-        self.success = False
-        self.message = ""
-        self.error_count = 0
-    
-    def emit_progress(self, check_name, step_num, total_steps):
-        """Emit progress signal with calculated percentage."""
-        step_name = self.STEP_NAMES.get(check_name, check_name)
-        percent = int((step_num / total_steps) * 100)
-        self.progressUpdated.emit(step_name, step_num, total_steps, percent)
-
-    def run(self):
-        def task_log(msg, level=Qgis.Info):
-            QgsMessageLog.logMessage(msg, "IT-LCZ", level)
-
-        try:
-            total_steps = sum(1 for val in self.selected_checks.values() if val)
-            current_step = 0
-            
-            # 1. Tinitaly
-            if self.selected_checks.get("Tinitaly (DTM 10m)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("Tinitaly (DTM 10m)", current_step, total_steps)
-                
-                for i, tile in enumerate(self.tiles):
-                    if self.isCanceled(): return False
-                    task_log(f"Download Tinitaly {i+1}/{len(self.tiles)}: {tile}")
-                    # Update with sub-progress for tiles
-                    sub_percent = int(((current_step - 1) + (i+1)/len(self.tiles)) / total_steps * 100)
-                    self.progressUpdated.emit(f"Download DTM Tinitaly (tile {i+1}/{len(self.tiles)})", current_step, total_steps, sub_percent)
-                    success, msg = self.data_manager.download_tinitaly_tile(tile)
-                    if not success:
-                        task_log(f"Fallimento Tinitaly {tile}: {msg}", Qgis.Critical)
-                        self.error_count += 1
-                    self.setProgress(sub_percent)
-
-            # 2. TUM Building Heights
-            if self.selected_checks.get("TUM (Edifici H 10m)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("TUM (Edifici H 10m)", current_step, total_steps)
-                
-                source_crs = QgsCoordinateReferenceSystem(self.crs)
-                wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
-                transform = QgsCoordinateTransform(source_crs, wgs84_crs, QgsProject.instance())
-                aoi_geom = QgsGeometry.fromRect(self.extent)
-                aoi_geom.transform(transform)
-
-                for category in self.data_manager.tum_categories:
-                    if self.isCanceled(): return False
-                    task_log(f"Acquisizione TUM {category}...")
-                    self.data_manager.download_tum_data(category=category, aoi_geometry=aoi_geom)
-                self.setProgress(int(current_step / total_steps * 100))
-
-            # 3. ETH Canopy Height
-            if self.selected_checks.get("ETH (Alberi H 10m)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("ETH (Alberi H 10m)", current_step, total_steps)
-                task_log("Acquisizione ETH Global Canopy Height...")
-                self.data_manager.fetch_eth_canopy(self.extent, self.crs)
-                self.setProgress(int(current_step / total_steps * 100))
-
-            # 4. ESA WorldCover
-            if self.selected_checks.get("ESA WorldCover (Land Use)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("ESA WorldCover (Land Use)", current_step, total_steps)
-                task_log("Acquisizione ESA WorldCover...")
-                self.data_manager.fetch_esa_worldcover(self.extent, self.crs)
-                self.setProgress(int(current_step / total_steps * 100))
-
-            # 5. Meta HRSL Population
-            if self.selected_checks.get("Meta HRSL (Popolazione)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("Meta HRSL (Popolazione)", current_step, total_steps)
-                task_log("Acquisizione Meta HRSL Population...")
-                self.data_manager.fetch_meta_hrsl(self.extent, self.crs)
-                self.setProgress(int(current_step / total_steps * 100))
-
-            # 6. Sentinel-2 Albedo
-            if self.selected_checks.get("S2GM (Albedo Sentinel-2)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("S2GM (Albedo Sentinel-2)", current_step, total_steps)
-                
-                if not self.cdse_user or not self.cdse_pass:
-                    task_log("Credenziali CDSE mancanti per Albedo.", Qgis.Warning)
-                    self.error_count += 1
-                else:
-                    task_log("Acquisizione Sentinel-2 Albedo (richiede tempo)...")
-                    success, msg = self.data_manager.fetch_sentinel2_albedo(
-                        self.extent, self.crs, self.cdse_user, self.cdse_pass
-                    )
-                    if not success:
-                        task_log(f"Fallimento Albedo: {msg}", Qgis.Critical)
-                        self.error_count += 1
-                self.setProgress(int(current_step / total_steps * 100))
-
-            # 7. OSM Roads
-            if self.selected_checks.get("OSM Roads (Vettoriale)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("OSM Roads (Vettoriale)", current_step, total_steps)
-                task_log("Acquisizione Reti Stradali OSM...")
-                self.data_manager.fetch_osm_roads(self.extent, self.crs, log_callback=task_log)
-                self.setProgress(int(current_step / total_steps * 100))
-
-            # 8. Traffic ANAS
-            if self.selected_checks.get("Traffic ANAS (Italia)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("Traffic ANAS (Italia)", current_step, total_steps)
-                task_log("Acquisizione Dati Traffico ANAS...")
-                self.data_manager.fetch_anas_traffic(self.extent, self.crs, log_callback=task_log)
-                self.setProgress(int(current_step / total_steps * 100))
-
-            # 9. Copernicus HRL
-            if self.selected_checks.get("Copernicus HRL (10m)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("Copernicus HRL (10m)", current_step, total_steps)
-                task_log("Acquisizione Copernicus HRL Imperviousness...")
-                self.data_manager.fetch_copernicus_hrl(self.extent, self.crs, log_callback=task_log)
-                self.setProgress(int(current_step / total_steps * 100))
-
-            # 10. E-PRTR Industrial Points
-            if self.selected_checks.get("Industrial Points (E-PRTR)"):
-                current_step += 1
-                if self.isCanceled(): return False
-                self.emit_progress("Industrial Points (E-PRTR)", current_step, total_steps)
-                task_log("Acquisizione Punti Industriali E-PRTR...")
-                self.data_manager.fetch_eprtr_industrial(self.extent, self.crs, log_callback=task_log)
-                self.setProgress(int(current_step / total_steps * 100))
-
-            self.success = True
-            return True
-        except Exception as e:
-            self.message = str(e)
-            task_log(f"Errore critico durante il download: {self.message}", Qgis.Critical)
-            return False
-
-class UnifyTask(QgsTask):
-    """Task for unifying and clipping data in the background."""
-    def __init__(self, data_manager, extent, crs):
-        super().__init__("Unificazione Dati FETCH", QgsTask.CanCancel)
-        self.data_manager = data_manager
-        self.extent = extent
-        self.crs = crs
-        self.success = False
-        self.message = ""
-        self.output_paths = []
-
-    def run(self):
-        def task_log(msg): QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
-        try:
-            self.success, self.message, self.output_paths = self.data_manager.unify_and_clip_data(
-                self.extent, self.crs, log_callback=task_log
-            )
-            return self.success
-        except Exception as e:
-            self.message = str(e)
-            return False
-
-class DSMTask(QgsTask):
-    """Task for generating synthetic DSM in the background."""
-    def __init__(self, data_manager):
-        super().__init__("Generazione DSM FETCH", QgsTask.CanCancel)
-        self.data_manager = data_manager
-        self.success = False
-        self.message = ""
-        self.output_path = ""
-
-    def run(self):
-        def task_log(msg): QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
-        try:
-            self.success, self.message, self.output_path = self.data_manager.create_synthetic_dsm(
-                log_callback=task_log, overwrite=True
-            )
-            return self.success
-        except Exception as e:
-            self.message = str(e)
-            return False
-
-class SVFTask(QgsTask):
-    """Task for calculating Sky View Factor in the background."""
-    def __init__(self, data_manager):
-        super().__init__("Calcolo SVF FETCH", QgsTask.CanCancel)
-        self.data_manager = data_manager
-        self.success = False
-        self.message = ""
-        self.output_path = ""
-
-    def run(self):
-        def task_log(msg): QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
-        try:
-            # Default params for SVF
-            self.success, self.message, self.output_path = self.data_manager.calculate_svf(
-                log_callback=task_log, search_radius=100, num_sectors=16
-            )
-            return self.success
-        except Exception as e:
-            self.message = str(e)
-            return False
-
-class GridTask(QgsTask):
-    """Task for creating the LCZ grid in the background."""
-    def __init__(self, data_manager, extent, crs, cell_size=None, existing_layer=None):
-        super().__init__("Creazione Griglia FETCH", QgsTask.CanCancel)
-        self.data_manager = data_manager
-        self.extent = extent
-        self.crs = crs
-        self.cell_size = cell_size
-        self.existing_layer = existing_layer
-        self.success = False
-        self.message = ""
-        self.output_path = ""
-
-    def run(self):
-        def task_log(msg): QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
-        try:
-            if self.cell_size:
-                self.success, self.message, self.output_path = self.data_manager.create_lcz_grid(
-                    self.extent, self.crs, cell_size=self.cell_size, log_callback=task_log
-                )
-            elif self.existing_layer:
-                self.success, self.message, self.output_path = self.data_manager.use_existing_grid(
-                    self.existing_layer, self.extent, self.crs, log_callback=task_log
-                )
-            return self.success
-        except Exception as e:
-            self.message = str(e)
-            return False
-
-class LCZParameterTask(QgsTask):
-    """Task for running LCZ parameter calculation in the background."""
-    def __init__(self, data_manager, grid_path, parameter_id):
-        super().__init__(f"Calcolo LCZ: {parameter_id}", QgsTask.CanCancel)
-        self.data_manager = data_manager
-        self.grid_path = grid_path
-        self.parameter_id = parameter_id
-        self.success = False
-        self.message = ""
-        self.output_path = ""
-        self.log_msgs = []
-
-    def run(self):
-        def task_log(msg):
-            self.log_msgs.append(msg)
-            QgsMessageLog.logMessage(msg, "IT-LCZ", Qgis.Info)
-
-        try:
-            self.success, self.message, self.output_path = self.data_manager.calculate_lcz_parameters(
-                grid_path=self.grid_path,
-                parameter_id=self.parameter_id,
-                log_callback=task_log
-            )
-            return self.success
-        except Exception as e:
-            self.message = str(e)
-            return False
-
-class ClassificationTask(QgsTask):
-    """Task for running final LCZ classification in the background."""
-    def __init__(self, data_manager, grid_path):
-        super().__init__("Classificazione LCZ Finale", QgsTask.CanCancel)
-        self.data_manager = data_manager
-        self.grid_path = grid_path
-        self.success = False
-        self.message = ""
-        self.output_path = ""
-
-    def run(self):
-        def task_log(msg):
-            QgsMessageLog.logMessage(msg, "FETCH", Qgis.Info)
-
-        try:
-            self.success, self.message, self.output_path = self.data_manager.run_lcz_classification(
-                grid_path=self.grid_path,
-                log_callback=task_log
-            )
-            return self.success
-        except Exception as e:
-            self.message = str(e)
-            return False

@@ -346,6 +346,33 @@ class LCZClassificationProcessor:
             idx = layer.fields().indexFromName(field_name)
             log_local(f"Campo {field_name} creato come QString")
         
+        # Create RMSEP field (Double) for storing the RMSEP value
+        rmsep_field_name = 'lcz_rmsep'
+        rmsep_idx = layer.fields().indexFromName(rmsep_field_name)
+        if rmsep_idx == -1:
+            layer.dataProvider().addAttributes([QgsField(rmsep_field_name, QMetaType.Double)])
+            layer.updateFields()
+            rmsep_idx = layer.fields().indexFromName(rmsep_field_name)
+            log_local(f"Campo {rmsep_field_name} creato come Double")
+        
+        # Create Perfect Matches field (Integer) for storing the number of perfect matches
+        matches_field_name = 'lcz_matches'
+        matches_idx = layer.fields().indexFromName(matches_field_name)
+        if matches_idx == -1:
+            layer.dataProvider().addAttributes([QgsField(matches_field_name, QMetaType.Int)])
+            layer.updateFields()
+            matches_idx = layer.fields().indexFromName(matches_field_name)
+            log_local(f"Campo {matches_field_name} creato come Integer")
+        
+        # Create ESA correction flag field (String) for tracking if ESA WorldCover corrected the class
+        esa_fix_field_name = 'lcz_esa_fix'
+        esa_fix_idx = layer.fields().indexFromName(esa_fix_field_name)
+        if esa_fix_idx == -1:
+            layer.dataProvider().addAttributes([QgsField(esa_fix_field_name, QMetaType.QString, len=12)])
+            layer.updateFields()
+            esa_fix_idx = layer.fields().indexFromName(esa_fix_field_name)
+            log_local(f"Campo {esa_fix_field_name} creato come QString")
+        
         # Try to load ESA landuse raster for correction (load ONCE, reuse provider)
         landuse_path = self._get_landuse_raster_path()
         use_esa_correction = False
@@ -426,10 +453,18 @@ class LCZClassificationProcessor:
             
             # Classify
             try:
+                rmsep_value = None
+                perfect_matches = 0
+                esa_fix_status = '-'  # Default: no correction
+                
                 if any(v is not None for v in parameters.values()):
                     classifier = LCZClassifier(parameters)
                     result = classifier.classify()
                     lcz_class = result['lcz_class']
+                    # Store RMSEP: None only if inf, otherwise store the actual value (including 0)
+                    raw_rmsep = result['rmsep']
+                    rmsep_value = None if (raw_rmsep == float('inf') or raw_rmsep != raw_rmsep) else float(raw_rmsep)
+                    perfect_matches = result['perfect_matches']
                 else:
                     lcz_class = 'N/D'
                     null_count += 1
@@ -441,13 +476,21 @@ class LCZClassificationProcessor:
                     lcz_class = self._apply_esa_correction(lcz_class, esa_class, impervious_frac)
                     if lcz_class != original_class:
                         corrected_count += 1
+                        # Show explicit transition: "original → new" (e.g., "C → D")
+                        esa_fix_status = f"{original_class} → {lcz_class}"
                 
                 layer.changeAttributeValue(feat_id, idx, lcz_class)
+                layer.changeAttributeValue(feat_id, rmsep_idx, rmsep_value)
+                layer.changeAttributeValue(feat_id, matches_idx, perfect_matches)
+                layer.changeAttributeValue(feat_id, esa_fix_idx, esa_fix_status)
                 processed_count += 1
                 
             except Exception as e:
                 log_local(f"Errore classificazione feature {feat_id}: {e}", Qgis.Warning)
                 layer.changeAttributeValue(feat_id, idx, 'ERRORE')
+                layer.changeAttributeValue(feat_id, rmsep_idx, None)
+                layer.changeAttributeValue(feat_id, matches_idx, None)
+                layer.changeAttributeValue(feat_id, esa_fix_idx, 'ERRORE')
                 error_count += 1
         
         layer.commitChanges()
