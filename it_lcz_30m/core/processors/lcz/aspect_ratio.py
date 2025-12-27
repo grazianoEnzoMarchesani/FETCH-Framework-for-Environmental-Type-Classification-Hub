@@ -6,7 +6,7 @@ import traceback
 from qgis.core import (
     Qgis, QgsProject, QgsSpatialIndex, QgsFeatureRequest, 
     QgsCoordinateTransform, QgsVectorLayer, QgsGeometry,
-    QgsCoordinateReferenceSystem
+    QgsCoordinateReferenceSystem, NULL
 )
 from .base import LCZBaseProcessor
 
@@ -34,10 +34,22 @@ class AspectRatioProcessor(LCZBaseProcessor):
             # Cerchiamo building_frac solo come indicazione, non obbligatoria se z_h presente
             idx_bld = layer.fields().indexFromName('building_frac')
             
-            if idx_zh == -1:
-                log_local("z_h (altezza media) mancante. Calcolo automatizzato in corso...", Qgis.Info)
+            # ATOMICITÀ: Controlliamo se z_h è effettivamente popolato
+            is_zh_populated = False
+            if idx_zh != -1:
+                # Controlliamo un campione di feature per vedere se ci sono valori > 0
+                for feat in layer.getFeatures(QgsFeatureRequest().setLimit(50)):
+                    val = feat.attribute(idx_zh)
+                    if val is not None and val != NULL and float(val) > 0:
+                        is_zh_populated = True
+                        break
+            
+            if idx_zh == -1 or not is_zh_populated:
+                log_local("z_h (altezza media) mancante o non popolata. Calcolo automatico per atomicità...", Qgis.Info)
                 from .roughness_height import RoughnessHeightProcessor
                 RoughnessHeightProcessor(self.dm).process(layer, None, log_callback)
+                # Ricarichiamo gli indici dei campi post-calcolo
+                layer.updateFields()
                 idx_zh = layer.fields().indexFromName('z_h')
 
             # 2. Reperimento Layer Edifici
@@ -71,12 +83,20 @@ class AspectRatioProcessor(LCZBaseProcessor):
             spatial_index = QgsSpatialIndex()
             bld_geom_cache = {} # Cache per non ricalcolare trasformazioni
             
+            count_bld = 0
             for b_feat in bld_layer.getFeatures():
                 geom = b_feat.geometry()
-                try: geom.transform(bld_to_grid)
+                try: 
+                    geom.transform(bld_to_grid)
+                    # IMPORTANTE: Creiamo una copia della feature e impostiamo la geometria trasformata
+                    # affinché l'indice contenga la posizione corretta nel CRS target.
+                    b_feat.setGeometry(geom)
+                    spatial_index.addFeature(b_feat)
+                    bld_geom_cache[b_feat.id()] = QgsGeometry(geom)
+                    count_bld += 1
                 except: continue
-                spatial_index.addFeature(b_feat)
-                bld_geom_cache[b_feat.id()] = QgsGeometry(geom)
+            
+            log_local(f"Indice creato con {count_bld} edifici.")
 
             # 4. Elaborazione Celle
             layer.startEditing()

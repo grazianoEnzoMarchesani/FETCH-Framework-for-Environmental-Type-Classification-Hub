@@ -2,7 +2,10 @@
 
 import os
 import json
-from qgis.core import Qgis, QgsVectorLayer, QgsProject
+from qgis.core import (
+    Qgis, QgsVectorLayer, QgsProject, QgsFeatureRequest, 
+    QgsCoordinateTransform, QgsGeometry
+)
 import processing
 from .base import LCZBaseProcessor
 
@@ -16,6 +19,9 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
         idx_bld = layer.fields().indexFromName('building_frac')
         idx_imp = layer.fields().indexFromName('impervious_frac')
         idx_dst = layer.fields().indexFromName('anthro_heat')
+
+        # Ensure we have the necessary Morphological Fractions (Atomicity)
+        bsf_dynamic, isf_dynamic = self._ensure_fractions(layer, log_callback)
 
         if -1 in [idx_bld, idx_imp, idx_dst]:
             log_local("ERRORE: Campi building_frac, impervious_frac o anthro_heat non trovati nel layer.", Qgis.Critical)
@@ -170,8 +176,14 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
         try:
             for feat in layer.getFeatures():
                 lk = feat.attribute(idx_link)
+                
+                # Check if we use existing attributes or dynamic ones
                 bsf = float(feat.attribute(idx_bld) or 0)
                 isf = float(feat.attribute(idx_imp) or 0)
+                
+                # If layer values are 0/NULL but we have dynamic values, use them
+                if bsf == 0 and lk in bsf_dynamic: bsf = bsf_dynamic[lk]
+                if isf == 0 and lk in isf_dynamic: isf = isf_dynamic[lk]
                 
                 # 1. Base Built Component (BSF/ISF or Population)
                 # Metabolic + Domestic Heat Proxy
@@ -220,3 +232,75 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
 
         layer.commitChanges()
         return processed
+
+    def _ensure_fractions(self, layer, log_callback=None):
+        """Checks if BSF/ISF are present; if not, calculates them on-the-fly."""
+        def log_local(msg):
+            if log_callback: log_callback(msg)
+            self.log(msg)
+
+        idx_bld = layer.fields().indexFromName('building_frac')
+        idx_imp = layer.fields().indexFromName('impervious_frac')
+        idx_link = layer.fields().indexFromName('_link_id')
+
+        # Sample check: are values mostly zeros/NULL?
+        needs_bld = True
+        needs_imp = True
+        for f in layer.getFeatures(QgsFeatureRequest().setLimit(10)):
+            if f.attribute(idx_bld) is not None and float(f.attribute(idx_bld) or 0) > 0: needs_bld = False
+            if f.attribute(idx_imp) is not None and float(f.attribute(idx_imp) or 0) > 0: needs_imp = False
+        
+        bsf_map = {}
+        isf_map = {}
+
+        if not (needs_bld or needs_imp):
+            return bsf_map, isf_map
+
+        log_local("Atomicità: Alcune frazioni morfologiche mancano. Avvio calcolo on-the-fly...")
+        base_dir = self.dm.get_project_dir()
+        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
+        
+        # 1. Building Fraction (BSF)
+        if needs_bld:
+            bld_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
+            if os.path.exists(bld_path):
+                log_local("Calcolo BSF dinamico da buildings_lod1.gpkg...")
+                bld_layer = QgsVectorLayer(bld_path, "bld", "ogr")
+                if bld_layer.isValid():
+                    transform = QgsCoordinateTransform(bld_layer.crs(), layer.crs(), QgsProject.instance()) if bld_layer.crs() != layer.crs() else None
+                    for feat in layer.getFeatures():
+                        geom = feat.geometry()
+                        cell_area = geom.area()
+                        b_area = 0.0
+                        request_geom = QgsGeometry(geom)
+                        if transform:
+                            inv = QgsCoordinateTransform(layer.crs(), bld_layer.crs(), QgsProject.instance())
+                            request_geom.transform(inv)
+                        
+                        request = QgsFeatureRequest().setFilterRect(request_geom.boundingBox())
+                        for bldg in bld_layer.getFeatures(request):
+                            bg = bldg.geometry()
+                            if transform: bg.transform(transform)
+                            if bg.intersects(geom):
+                                inter = bg.intersection(geom)
+                                if inter: b_area += inter.area()
+                        bsf_map[feat.attribute(idx_link)] = min(100.0, (b_area / cell_area) * 100)
+
+        # 2. Impervious Fraction (ISF) - Using HRL
+        if needs_imp:
+            hrl_path = os.path.join(unified_dir, "imperviousness_10m.tif")
+            if os.path.exists(hrl_path):
+                log_local("Calcolo ISF dinamico da imperviousness_10m.tif (HRL)...")
+                res_hrl = processing.run("native:zonalstatisticsfb", {
+                    'INPUT': layer, 'INPUT_RASTER': hrl_path, 'COLUMN_PREFIX': '_dyn_hrl_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
+                })
+                idx_hrl = res_hrl['OUTPUT'].fields().indexFromName('_dyn_hrl_mean')
+                idx_temp_link = res_hrl['OUTPUT'].fields().indexFromName('_link_id')
+                for f in res_hrl['OUTPUT'].getFeatures():
+                    lk = f.attribute(idx_temp_link)
+                    raw_hrl = float(f.attribute(idx_hrl) or 0)
+                    b_f = bsf_map.get(lk, 0.0)
+                    # HRL includes buildings, so ISF = HRL - BSF (Avoid double counting)
+                    isf_map[lk] = max(0, raw_hrl - b_f)
+
+        return bsf_map, isf_map

@@ -31,6 +31,12 @@ class RoughnessHeightProcessor(LCZBaseProcessor):
             
             idx_link = self._ensure_link_id(layer)
             idx_zh = layer.fields().indexFromName('z_h')
+            if idx_zh == -1:
+                from qgis.core import QgsField
+                from qgis.PyQt.QtCore import QVariant
+                layer.dataProvider().addAttributes([QgsField('z_h', QVariant.Double)])
+                layer.updateFields()
+                idx_zh = layer.fields().indexFromName('z_h')
 
             # 1. Creiamo nDSM temporaneo (DSM - DTM)
             log_local("Fase 1: Analisi altezze differenziali (nDSM)...")

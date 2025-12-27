@@ -23,13 +23,15 @@ class SurfaceFractionsProcessor(LCZBaseProcessor):
         hrl_path = os.path.join(unified_dir, "imperviousness_10m.tif")
 
         idx_link = self._ensure_link_id(layer)
+        idx_imp = layer.fields().indexFromName('impervious_frac')
+        idx_per = layer.fields().indexFromName('pervious_frac')
+        idx_bld = layer.fields().indexFromName('building_frac')
         
         # 1. BSF from vectors
         log_local("Fase 1: Calcolo Building Fraction dai vettori...")
         bsf_data = {}
         bld_layer = QgsVectorLayer(buildings_path, "bld", "ogr")
         if bld_layer.isValid():
-            # CRS transform for spatial matching
             transform = None
             if bld_layer.crs() != layer.crs():
                 log_local(f"Riproiezione edifici {bld_layer.crs().authid()} -> {layer.crs().authid()}")
@@ -40,7 +42,6 @@ class SurfaceFractionsProcessor(LCZBaseProcessor):
                 geom = feature.geometry()
                 cell_area = geom.area()
                 b_area = 0.0
-                
                 query_geom = QgsGeometry(geom)
                 if transform:
                     try:
@@ -51,45 +52,39 @@ class SurfaceFractionsProcessor(LCZBaseProcessor):
                 request = QgsFeatureRequest().setFilterRect(query_geom.boundingBox())
                 for bldg in bld_layer.getFeatures(request):
                     bldg_geom = bldg.geometry()
-                    if transform:
-                        bldg_geom.transform(transform) # Bring building to grid CRS
-                    
+                    if transform: bldg_geom.transform(transform)
                     if bldg_geom.intersects(geom):
                         inter = bldg_geom.intersection(geom)
                         if inter: b_area += inter.area()
                 
                 if b_area > 0: found_bld += 1
                 bsf_data[feature.attribute(idx_link)] = min(100.0, (b_area / cell_area) * 100)
-            
             log_local(f"Edifici trovati in {found_bld} celle.")
-        
-        # 2. ISF/PSF from Zonal Histogram
-        log_local("Fase 2: Analisi Land Cover (ESA WorldCover)...")
-        res = processing.run("native:zonalhistogram", {
-            'INPUT_VECTOR': layer, 'INPUT_RASTER': landuse_path, 'RASTER_BAND': 1, 'COLUMN_PREFIX': 'h_', 'OUTPUT': 'TEMPORARY_OUTPUT'
-        })
-        temp_layer = res['OUTPUT']
 
-        # 3. Optional: High-Res Imperviousness (Copernicus HRL)
+        # 2. ISF/PSF calculation logic
+        has_hrl = os.path.exists(hrl_path)
         hrl_data = {}
-        if os.path.exists(hrl_path):
-            log_local("Fase 3: Integrazione Impermeabilità Alta Risoluzione (Copernicus HRL)...")
+        esa_layer = None
+
+        if has_hrl:
+            log_local("Fase 2: Utilizzo Impermeabilità Alta Risoluzione (Copernicus HRL)...")
             res_hrl = processing.run("native:zonalstatisticsfb", {
                 'INPUT': layer, 'INPUT_RASTER': hrl_path, 'COLUMN_PREFIX': '_hrl_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
             })
-            idx_hrl = res_hrl['OUTPUT'].fields().indexFromName('_hrl_mean')
+            idx_hrl_mean = res_hrl['OUTPUT'].fields().indexFromName('_hrl_mean')
             idx_temp_link = res_hrl['OUTPUT'].fields().indexFromName('_link_id')
             for f in res_hrl['OUTPUT'].getFeatures():
                 lk = f.attribute(idx_temp_link)
-                v = f.attribute(idx_hrl)
-                if lk is not None: hrl_data[lk] = v
-        
-        idx_imp = layer.fields().indexFromName('impervious_frac')
-        idx_per = layer.fields().indexFromName('pervious_frac')
-        idx_bld = layer.fields().indexFromName('building_frac')
-        idx_temp_link = temp_layer.fields().indexFromName('_link_id')
-        
-        def get_val(f, name):
+                v = f.attribute(idx_hrl_mean)
+                if lk is not None: hrl_data[lk] = float(v or 0)
+        else:
+            log_local("Fase 2: Analisi Land Cover (ESA WorldCover) - HRL non trovato...")
+            res_esa = processing.run("native:zonalhistogram", {
+                'INPUT_VECTOR': layer, 'INPUT_RASTER': landuse_path, 'RASTER_BAND': 1, 'COLUMN_PREFIX': 'h_', 'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            esa_layer = res_esa['OUTPUT']
+
+        def get_esa_val(f, name):
             idx = f.fields().indexFromName(name)
             if idx == -1: return 0
             v = f.attribute(idx)
@@ -97,43 +92,49 @@ class SurfaceFractionsProcessor(LCZBaseProcessor):
 
         layer.startEditing()
         processed = 0
-        fid_map = {f.attribute(idx_link): f.id() for f in layer.getFeatures()}
-        for feat in temp_layer.getFeatures():
-            lk = feat.attribute(idx_temp_link)
+        
+        # We iterate over the original layer features to apply the results
+        for feat in layer.getFeatures():
+            lk = feat.attribute(idx_link)
             if lk is None: continue
             
-            p_imp = get_val(feat, 'h_50')
-            p_per = sum(get_val(feat, f'h_{c}') for c in PERVIOUS)
-            p_exc = sum(get_val(feat, f'h_{c}') for c in EXCLUDED)
-            p_tot = p_imp + p_per + p_exc
-            
             b_frac = bsf_data.get(lk, 0.0)
-            imp_f, per_f = 0.0, 100.0 - b_frac
+            imp_f = 0.0
+            per_f = 100.0 - b_frac # Initial guess
             
-            # Use HRL if available, otherwise fallback to ESA WorldCover
-            if lk in hrl_data:
-                hrl_val = float(hrl_data[lk] or 0)
-                # HRL typically includes buildings, so we subtract BSF to get strictly ISF 
-                # (unless BSF is also from a source that is already accounted for)
+            if has_hrl:
+                hrl_val = hrl_data.get(lk, 0.0)
+                # HRL logic: HRL includes buildings. ISF = HRL - BSF. PSF = 100 - HRL.
+                # If HRL is 80 and Buildings is 30, then Impervious is 50 and Pervious is 20.
                 imp_f = max(0, hrl_val - b_frac)
-                per_f = max(0, 100.0 - b_frac - imp_f)
-            elif p_tot > 0:
-                esa_imp_f = (p_imp / p_tot) * 100
-                imp_f = max(0, esa_imp_f - b_frac)
-                per_f = max(0, 100.0 - b_frac - imp_f)
+                per_f = max(0, 100.0 - hrl_val)
+            elif esa_layer:
+                # Fallback to ESA logic
+                # Need to find the corresponding feature in esa_layer
+                # (Optimization: could create a map before, but layer is usually small enough or we use link_id)
+                request = QgsFeatureRequest().setFilterExpression(f"_link_id = {lk}")
+                esa_feat = next(esa_layer.getFeatures(request), None)
+                if esa_feat:
+                    p_imp = get_esa_val(esa_feat, 'h_50')
+                    p_per = sum(get_esa_val(esa_feat, f'h_{c}') for c in PERVIOUS)
+                    p_exc = sum(get_esa_val(esa_feat, f'h_{c}') for c in EXCLUDED)
+                    p_tot = p_imp + p_per + p_exc
+                    if p_tot > 0:
+                        esa_imp_f = (p_imp / p_tot) * 100
+                        imp_f = max(0, esa_imp_f - b_frac)
+                        per_f = max(0, 100.0 - b_frac - imp_f)
             
+            # Normalization to ensure 100%
             total = b_frac + imp_f + per_f
             if total > 0:
                 b_frac = (b_frac / total) * 100
                 imp_f = (imp_f / total) * 100
                 per_f = (per_f / total) * 100
             
-            target_fid = fid_map.get(lk)
-            if target_fid is not None:
-                layer.changeAttributeValue(target_fid, idx_bld, round(b_frac, 1))
-                layer.changeAttributeValue(target_fid, idx_imp, round(imp_f, 1))
-                layer.changeAttributeValue(target_fid, idx_per, round(per_f, 1))
-                processed += 1
+            layer.changeAttributeValue(feat.id(), idx_bld, round(b_frac, 1))
+            layer.changeAttributeValue(feat.id(), idx_imp, round(imp_f, 1))
+            layer.changeAttributeValue(feat.id(), idx_per, round(per_f, 1))
+            processed += 1
             
         layer.commitChanges()
         return processed
