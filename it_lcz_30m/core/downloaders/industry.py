@@ -51,7 +51,7 @@ class IndustryDownloader:
 
         try:
             log(f"Interrogazione REST EEA su area: {bbox_str}")
-            resp = requests.get(self.rest_url, params=params, timeout=20)
+            resp = requests.get(self.rest_url, params=params, timeout=60)
             resp.raise_for_status()
             
             data = resp.json()

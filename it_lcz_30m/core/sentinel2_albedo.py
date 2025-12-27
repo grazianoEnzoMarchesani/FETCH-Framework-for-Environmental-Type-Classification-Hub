@@ -848,11 +848,11 @@ def fetch_albedo_for_aoi(
     if not username or not password:
         return False, "Credenziali CDSE non configurate. Imposta CDSE_USERNAME e CDSE_PASSWORD.", None
     
-    # Default date range: last 3 months
+    # Default date range: last 12 months (1 year) - extended for better coverage
     if not end_date:
         end_date = datetime.now().strftime("%Y-%m-%d")
     if not start_date:
-        start_dt = datetime.now() - timedelta(days=90)
+        start_dt = datetime.now() - timedelta(days=365)
         start_date = start_dt.strftime("%Y-%m-%d")
     
     # Use temp directory for downloads if not specified

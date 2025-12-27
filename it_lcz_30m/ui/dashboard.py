@@ -529,10 +529,15 @@ class ITLCZDashboard(QDockWidget):
         self.set_dashboard_enabled(False)
         self.status_label.setText("Avvio acquisizione dati in background...")
         self.progress.setValue(0)
-        self.progress.setMaximum(0) # Indeterminate at start
+        self.progress.setMaximum(100)
         
         # Create and start task
         task = DownloadTask(self.data_manager, selected_checks, extent, crs, cdse_user, cdse_pass, tiles)
+        
+        def on_progress_update(step_name, step_num, total_steps, percent):
+            """Update UI with detailed progress info from background task."""
+            self.status_label.setText(f"[{step_num}/{total_steps}] {step_name} ({percent}%)")
+            self.progress.setValue(percent)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
@@ -540,18 +545,17 @@ class ITLCZDashboard(QDockWidget):
             self.progress.setValue(100 if success else 0)
             
             if success:
-                self.status_label.setText("Processo di download completato.")
+                self.status_label.setText("✓ Acquisizione dati completata.")
                 if task.error_count == 0:
-                    self.iface.messageBar().pushMessage("FETCH", "Griglia LCZ creata con successo!", level=3)
+                    self.iface.messageBar().pushMessage("FETCH", "Download dati completato con successo!", level=3)
                 else:
                     self.iface.messageBar().pushMessage("IT-LCZ", f"Download completato con {task.error_count} errori. Controlla il log.", level=2)
             else:
-                self.status_label.setText(f"Download interrotto o fallito: {task.message}")
+                self.status_label.setText(f"✗ Download interrotto: {task.message}")
         
         task.taskCompleted.connect(lambda: on_finished(True))
         task.taskTerminated.connect(lambda: on_finished(False))
-        # Update progress label via background task progress signal if needed, 
-        # but for simplicity we'll use the progress bar and status updates in task
+        task.progressUpdated.connect(on_progress_update)
         
         QgsApplication.taskManager().addTask(task)
 
@@ -944,6 +948,24 @@ class ITLCZDashboard(QDockWidget):
 
 class DownloadTask(QgsTask):
     """Task for running all data downloads in the background."""
+    
+    # Signal to update UI with detailed progress: (step_name, step_num, total_steps, percent)
+    progressUpdated = pyqtSignal(str, int, int, int)
+    
+    # Mapping from checkbox names to human-readable step names
+    STEP_NAMES = {
+        "Tinitaly (DTM 10m)": "Download DTM Tinitaly",
+        "TUM (Edifici H 10m)": "Download Edifici TUM",
+        "ETH (Alberi H 10m)": "Download Altezze Alberi ETH",
+        "ESA WorldCover (Land Use)": "Download Land Cover ESA",
+        "Meta HRSL (Popolazione)": "Download Popolazione Meta HRSL",
+        "S2GM (Albedo Sentinel-2)": "Download Albedo Sentinel-2",
+        "OSM Roads (Vettoriale)": "Download Strade OSM",
+        "Traffic ANAS (Italia)": "Download Traffico ANAS",
+        "Copernicus HRL (10m)": "Download Impermeabilità HRL",
+        "Industrial Points (E-PRTR)": "Download Industrie E-PRTR"
+    }
+    
     def __init__(self, data_manager, selected_checks, extent, crs, cdse_user, cdse_pass, tiles):
         super().__init__("Download Dati FETCH", QgsTask.CanCancel)
         self.data_manager = data_manager
@@ -956,6 +978,12 @@ class DownloadTask(QgsTask):
         self.success = False
         self.message = ""
         self.error_count = 0
+    
+    def emit_progress(self, check_name, step_num, total_steps):
+        """Emit progress signal with calculated percentage."""
+        step_name = self.STEP_NAMES.get(check_name, check_name)
+        percent = int((step_num / total_steps) * 100)
+        self.progressUpdated.emit(step_name, step_num, total_steps, percent)
 
     def run(self):
         def task_log(msg, level=Qgis.Info):
@@ -969,20 +997,25 @@ class DownloadTask(QgsTask):
             if self.selected_checks.get("Tinitaly (DTM 10m)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("Tinitaly (DTM 10m)", current_step, total_steps)
                 
                 for i, tile in enumerate(self.tiles):
                     if self.isCanceled(): return False
                     task_log(f"Download Tinitaly {i+1}/{len(self.tiles)}: {tile}")
+                    # Update with sub-progress for tiles
+                    sub_percent = int(((current_step - 1) + (i+1)/len(self.tiles)) / total_steps * 100)
+                    self.progressUpdated.emit(f"Download DTM Tinitaly (tile {i+1}/{len(self.tiles)})", current_step, total_steps, sub_percent)
                     success, msg = self.data_manager.download_tinitaly_tile(tile)
                     if not success:
                         task_log(f"Fallimento Tinitaly {tile}: {msg}", Qgis.Critical)
                         self.error_count += 1
-                    self.setProgress(int((current_step - 1 + (i+1)/len(self.tiles)) / total_steps * 100))
+                    self.setProgress(sub_percent)
 
             # 2. TUM Building Heights
             if self.selected_checks.get("TUM (Edifici H 10m)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("TUM (Edifici H 10m)", current_step, total_steps)
                 
                 source_crs = QgsCoordinateReferenceSystem(self.crs)
                 wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
@@ -1000,6 +1033,7 @@ class DownloadTask(QgsTask):
             if self.selected_checks.get("ETH (Alberi H 10m)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("ETH (Alberi H 10m)", current_step, total_steps)
                 task_log("Acquisizione ETH Global Canopy Height...")
                 self.data_manager.fetch_eth_canopy(self.extent, self.crs)
                 self.setProgress(int(current_step / total_steps * 100))
@@ -1008,6 +1042,7 @@ class DownloadTask(QgsTask):
             if self.selected_checks.get("ESA WorldCover (Land Use)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("ESA WorldCover (Land Use)", current_step, total_steps)
                 task_log("Acquisizione ESA WorldCover...")
                 self.data_manager.fetch_esa_worldcover(self.extent, self.crs)
                 self.setProgress(int(current_step / total_steps * 100))
@@ -1016,6 +1051,7 @@ class DownloadTask(QgsTask):
             if self.selected_checks.get("Meta HRSL (Popolazione)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("Meta HRSL (Popolazione)", current_step, total_steps)
                 task_log("Acquisizione Meta HRSL Population...")
                 self.data_manager.fetch_meta_hrsl(self.extent, self.crs)
                 self.setProgress(int(current_step / total_steps * 100))
@@ -1024,6 +1060,7 @@ class DownloadTask(QgsTask):
             if self.selected_checks.get("S2GM (Albedo Sentinel-2)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("S2GM (Albedo Sentinel-2)", current_step, total_steps)
                 
                 if not self.cdse_user or not self.cdse_pass:
                     task_log("Credenziali CDSE mancanti per Albedo.", Qgis.Warning)
@@ -1042,6 +1079,7 @@ class DownloadTask(QgsTask):
             if self.selected_checks.get("OSM Roads (Vettoriale)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("OSM Roads (Vettoriale)", current_step, total_steps)
                 task_log("Acquisizione Reti Stradali OSM...")
                 self.data_manager.fetch_osm_roads(self.extent, self.crs, log_callback=task_log)
                 self.setProgress(int(current_step / total_steps * 100))
@@ -1050,6 +1088,7 @@ class DownloadTask(QgsTask):
             if self.selected_checks.get("Traffic ANAS (Italia)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("Traffic ANAS (Italia)", current_step, total_steps)
                 task_log("Acquisizione Dati Traffico ANAS...")
                 self.data_manager.fetch_anas_traffic(self.extent, self.crs, log_callback=task_log)
                 self.setProgress(int(current_step / total_steps * 100))
@@ -1058,6 +1097,7 @@ class DownloadTask(QgsTask):
             if self.selected_checks.get("Copernicus HRL (10m)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("Copernicus HRL (10m)", current_step, total_steps)
                 task_log("Acquisizione Copernicus HRL Imperviousness...")
                 self.data_manager.fetch_copernicus_hrl(self.extent, self.crs, log_callback=task_log)
                 self.setProgress(int(current_step / total_steps * 100))
@@ -1066,6 +1106,7 @@ class DownloadTask(QgsTask):
             if self.selected_checks.get("Industrial Points (E-PRTR)"):
                 current_step += 1
                 if self.isCanceled(): return False
+                self.emit_progress("Industrial Points (E-PRTR)", current_step, total_steps)
                 task_log("Acquisizione Punti Industriali E-PRTR...")
                 self.data_manager.fetch_eprtr_industrial(self.extent, self.crs, log_callback=task_log)
                 self.setProgress(int(current_step / total_steps * 100))
