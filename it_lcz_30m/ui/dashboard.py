@@ -101,7 +101,41 @@ QPushButton:hover {
 QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled {
     color: #b2bec3;
 }
+#IndicatorButton {
+    background-color: #bdc3c7;
+    border: none;
+    border-radius: 8px;
+    min-width: 16px;
+    max-width: 16px;
+    min-height: 16px;
+    max-height: 16px;
+    padding: 0;
+    margin: 0 2px;
+}
+#IndicatorButton:enabled {
+    background-color: #27ae60;
+}
+#IndicatorButton:enabled:hover {
+    background-color: #2ecc71;
+}
+#IndicatorButton:disabled {
+    background-color: #bdc3c7;
+}
 """
+
+# Mapping of parameters to their visualization settings
+PARAM_VISUALIZATION = {
+    'svf_mean': {'field': 'svf_mean', 'label': 'SVF', 'ramp': 'Viridis', 'min': 0, 'max': 1},
+    'aspect_ratio': {'field': 'aspect_ratio', 'label': 'H/W', 'ramp': 'Plasma', 'min': 0, 'max': 3},
+    'building_frac': {'field': 'building_frac', 'label': 'BSF', 'ramp': 'Reds', 'min': 0, 'max': 100},
+    'impervious_frac': {'field': 'impervious_frac', 'label': 'ISF', 'ramp': 'Greys', 'min': 0, 'max': 100},
+    'pervious_frac': {'field': 'pervious_frac', 'label': 'PSF', 'ramp': 'Greens', 'min': 0, 'max': 100},
+    'z_h': {'field': 'z_h', 'label': 'zH', 'ramp': 'YlOrBr', 'min': 0, 'max': 50},
+    'terrain_rough': {'field': 'terrain_rough', 'label': 'TRC', 'ramp': 'PuBu', 'min': 1, 'max': 8},
+    'admittance': {'field': 'admittance', 'label': 'μ', 'ramp': 'OrRd', 'min': 500, 'max': 2500},
+    'albedo': {'field': 'albedo', 'label': 'α', 'ramp': 'RdYlGn', 'min': 0, 'max': 0.5},
+    'anthro_heat': {'field': 'anthro_heat', 'label': 'QF', 'ramp': 'Inferno', 'min': 0, 'max': 100},
+}
 
 class ITLCZDashboard(QDockWidget):
     def __init__(self, iface, parent=None):
@@ -323,29 +357,57 @@ class ITLCZDashboard(QDockWidget):
         self.params_info_label.setStyleSheet("font-size: 11px; color: #7f8c8d; font-style: italic;")
         self.params_layout.addWidget(self.params_info_label)
         
-        # Grid of 10 atomic buttons
+        # Grid of parameter buttons with indicator dots
         self.params_grid = QGridLayout()
+        self.params_grid.setHorizontalSpacing(4)
         self.param_buttons = {}
+        self.indicator_buttons = {}  # Store indicator buttons for status updates
         
+        # Parameter definitions: (pid, name, tooltip, indicator_fields)
+        # indicator_fields: list of field names this button produces
         params = [
-            ('sky_view_factor', 'SVF Mean', 'Rapporto tra la porzione di volta celeste visibile dal suolo e una semisfera non ostruita.'),
-            ('aspect_ratio', 'Aspect Ratio', 'Rapporto medio altezza-larghezza dei canyon stradali (LCZ 1–7), spaziatura tra edifici (8–10) e alberi (A–G).'),
-            ('surface_fractions', 'Surface Frac.', 'Frazioni di copertura: edifici (BSF), superfici impermeabili (ISF) e permeabili (PSF).'),
-            ('roughness_elements_height', 'Roughness H', 'Media geometrica dell\'altezza degli edifici (LCZ 1–10) e degli elementi vegetali (LCZ A–F) [m].'),
-            ('terrain_roughness_class', 'Terrain Rough.', 'Classificazione della rugosità del terreno (Davenport et al., 2000) per contesti urbani e rurali.'),
-            ('surface_admittance', 'S. Admittance', 'Capacità della superficie di assorbire o rilasciare calore [J m⁻² s⁻¹/² K⁻¹].'),
-            ('surface_albedo', 'S. Albedo', 'Rapporto tra la radiazione solare riflessa da una superficie e quella ricevuta.'),
-            ('anthropogenic_heat_output', 'Anthro. Heat', 'Densità media del flusso di calore annuo da combustione e attività umana [W m⁻²].')
+            ('sky_view_factor', 'SVF Mean', 'Rapporto tra la porzione di volta celeste visibile dal suolo e una semisfera non ostruita.', ['svf_mean']),
+            ('aspect_ratio', 'Aspect Ratio', 'Rapporto medio altezza-larghezza dei canyon stradali (LCZ 1–7), spaziatura tra edifici (8–10) e alberi (A–G).', ['aspect_ratio']),
+            ('surface_fractions', 'Surface Frac.', 'Frazioni di copertura: edifici (BSF), superfici impermeabili (ISF) e permeabili (PSF).', ['building_frac', 'impervious_frac', 'pervious_frac']),
+            ('roughness_elements_height', 'Roughness H', 'Media geometrica dell\'altezza degli edifici (LCZ 1–10) e degli elementi vegetali (LCZ A–F) [m].', ['z_h']),
+            ('terrain_roughness_class', 'Terrain Rough.', 'Classificazione della rugosità del terreno (Davenport et al., 2000) per contesti urbani e rurali.', ['terrain_rough']),
+            ('surface_admittance', 'S. Admittance', 'Capacità della superficie di assorbire o rilasciare calore [J m⁻² s⁻¹/² K⁻¹].', ['admittance']),
+            ('surface_albedo', 'S. Albedo', 'Rapporto tra la radiazione solare riflessa da una superficie e quella ricevuta.', ['albedo']),
+            ('anthropogenic_heat_output', 'Anthro. Heat', 'Densità media del flusso di calore annuo da combustione e attività umana [W m⁻²].', ['anthro_heat'])
         ]
         
-        for i, (pid, name, tip) in enumerate(params):
+        row = 0
+        for i, (pid, name, tip, fields) in enumerate(params):
+            col = (i % 2) * 3  # Each param takes 3 columns: button + indicators
+            if i > 0 and i % 2 == 0:
+                row += 1
+            
+            # Main parameter button
             btn = QPushButton(name)
             btn.setObjectName("AccentButton")
             btn.setStyleSheet("font-size: 10px; padding: 5px;")
             btn.setToolTip(tip)
             btn.clicked.connect(lambda checked, p=pid: self.run_specific_lcz_param(p))
-            self.params_grid.addWidget(btn, i // 2, i % 2)
+            self.params_grid.addWidget(btn, row, col)
             self.param_buttons[pid] = btn
+            
+            # Indicator buttons container
+            indicators_widget = QWidget()
+            indicators_layout = QHBoxLayout(indicators_widget)
+            indicators_layout.setContentsMargins(0, 0, 0, 0)
+            indicators_layout.setSpacing(2)
+            
+            for field in fields:
+                indicator = QPushButton()
+                indicator.setObjectName("IndicatorButton")
+                indicator.setEnabled(False)  # Start disabled
+                indicator.setToolTip(f"Visualizza {PARAM_VISUALIZATION.get(field, {}).get('label', field)} sulla mappa")
+                indicator.clicked.connect(lambda checked, f=field: self.apply_param_style(f))
+                indicators_layout.addWidget(indicator)
+                self.indicator_buttons[field] = indicator
+            
+            indicators_layout.addStretch()
+            self.params_grid.addWidget(indicators_widget, row, col + 1)
             
         self.params_layout.addLayout(self.params_grid)
         self.scroll_layout.addWidget(self.params_group)
@@ -436,6 +498,11 @@ class ITLCZDashboard(QDockWidget):
         # Disable parameter buttons
         for btn in self.param_buttons.values():
             btn.setEnabled(enabled)
+        
+        # Disable indicator buttons during operations
+        if not enabled:
+            for btn in self.indicator_buttons.values():
+                btn.setEnabled(False)
             
         # Disable settings sections
         self.setup_group.setEnabled(enabled)
@@ -488,8 +555,151 @@ class ITLCZDashboard(QDockWidget):
         # Section 5 is enabled if Section 3 is done AND a grid exists
         self.params_group.setEnabled(has_svf and has_grid)
         
+        # Update indicator buttons based on available data
+        if has_grid:
+            self.update_param_indicators()
+        
         # Classification enabled if grid exists
         self.btn_classify.setEnabled(has_grid)
+
+    def find_valid_grid_layer(self):
+        """Find the current valid grid layer in the project."""
+        data_dir = os.path.join(self.data_manager.get_project_dir() or "", self.data_manager.get_data_dir_name())
+        
+        grid_names = [
+            "Griglia LCZ (30m) - Parametri", "Griglia LCZ (50m) - Parametri",
+            "Griglia LCZ (100m) - Parametri", "Griglia LCZ (custom) - Parametri",
+            "Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", "Griglia LCZ (custom)"
+        ]
+        
+        for name in grid_names:
+            layers = QgsProject.instance().mapLayersByName(name)
+            for lyr in layers:
+                if os.path.normpath(lyr.source()).startswith(os.path.normpath(data_dir)):
+                    return lyr
+        return None
+
+    def _field_has_values(self, layer, field_name):
+        """Check if at least one feature has a non-NULL value in the specified field."""
+        idx = layer.fields().indexFromName(field_name)
+        if idx == -1:
+            return False
+        
+        # Check first 100 features for efficiency
+        count = 0
+        for feat in layer.getFeatures():
+            val = feat.attribute(idx)
+            if val is not None and str(val) not in ('NULL', ''):
+                try:
+                    if float(val) != 0:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+            count += 1
+            if count > 100:
+                break
+        return False
+
+    def update_param_indicators(self):
+        """Update indicator button states based on data availability in grid."""
+        grid_layer = self.find_valid_grid_layer()
+        
+        if not grid_layer:
+            # Disable all indicators
+            for btn in self.indicator_buttons.values():
+                btn.setEnabled(False)
+            return
+        
+        for param_id, config in PARAM_VISUALIZATION.items():
+            if param_id in self.indicator_buttons:
+                field_name = config['field']
+                has_data = self._field_has_values(grid_layer, field_name)
+                self.indicator_buttons[param_id].setEnabled(has_data)
+
+    def apply_param_style(self, field_name):
+        """Apply graduated color style to the grid layer for the specified parameter using quantile classification."""
+        from qgis.core import (
+            QgsGraduatedSymbolRenderer, QgsRendererRange, 
+            QgsFillSymbol, QgsStyle, QgsClassificationQuantile
+        )
+        
+        grid_layer = self.find_valid_grid_layer()
+        if not grid_layer:
+            self.iface.messageBar().pushMessage("Errore", "Nessuna griglia trovata.", level=2)
+            return
+        
+        # Get visualization config
+        config = PARAM_VISUALIZATION.get(field_name)
+        if not config:
+            self.iface.messageBar().pushMessage("Errore", f"Configurazione non trovata per {field_name}.", level=2)
+            return
+        
+        field_idx = grid_layer.fields().indexFromName(config['field'])
+        if field_idx == -1:
+            self.iface.messageBar().pushMessage("Errore", f"Campo {config['field']} non trovato nella griglia.", level=2)
+            return
+        
+        try:
+            # Get color ramp from QGIS styles
+            style = QgsStyle.defaultStyle()
+            ramp_name = config['ramp']
+            color_ramp = style.colorRamp(ramp_name)
+            
+            if not color_ramp:
+                color_ramp = style.colorRamp('Spectral')
+            
+            if not color_ramp:
+                self.iface.messageBar().pushMessage("Errore", "Nessuna rampa colore disponibile.", level=2)
+                return
+            
+            # Collect actual values from the layer
+            values = []
+            for feat in grid_layer.getFeatures():
+                val = feat.attribute(field_idx)
+                if val is not None and str(val) not in ('NULL', ''):
+                    try:
+                        values.append(float(val))
+                    except (ValueError, TypeError):
+                        pass
+            
+            if not values:
+                self.iface.messageBar().pushMessage("Errore", f"Nessun valore valido nel campo {config['field']}.", level=2)
+                return
+            
+            # Use quantile classification
+            num_classes = 10
+            classifier = QgsClassificationQuantile()
+            classes = classifier.classes(values, num_classes)
+            
+            ranges = []
+            for i, cls in enumerate(classes):
+                # Get color from ramp
+                color = color_ramp.color(i / (len(classes) - 1) if len(classes) > 1 else 0.5)
+                
+                symbol = QgsFillSymbol.createSimple({
+                    'color': color.name(),
+                    'outline_style': 'no'
+                })
+                
+                label = f"{cls.lowerBound():.2f} - {cls.upperBound():.2f}"
+                range_item = QgsRendererRange(cls.lowerBound(), cls.upperBound(), symbol, label)
+                ranges.append(range_item)
+            
+            # Create renderer with ranges
+            renderer = QgsGraduatedSymbolRenderer(config['field'], ranges)
+            
+            grid_layer.setRenderer(renderer)
+            grid_layer.triggerRepaint()
+            
+            self.iface.messageBar().pushMessage(
+                "FETCH", 
+                f"Stile '{config['label']}' (quantile) applicato alla griglia.", 
+                level=3, 
+                duration=3
+            )
+            
+        except Exception as e:
+            self.iface.messageBar().pushMessage("Errore", f"Impossibile applicare stile: {str(e)}", level=2)
 
     def run_downloads(self):
         project_path = QgsProject.instance().fileName()
