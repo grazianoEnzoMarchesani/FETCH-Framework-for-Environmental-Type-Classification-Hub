@@ -10,6 +10,7 @@ from qgis.core import (
     QgsTask, QgsMessageLog, Qgis, QgsProject,
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsGeometry
 )
+from ...core.exceptions import FetchError, FetchDataError, FetchWarning, FetchCriticalError
 
 
 class DownloadTask(QgsTask):
@@ -53,7 +54,7 @@ class DownloadTask(QgsTask):
 
     def run(self):
         def task_log(msg, level=Qgis.Info):
-            QgsMessageLog.logMessage(msg, "IT-LCZ", level)
+            QgsMessageLog.logMessage(msg, "FETCH", level)
 
         try:
             total_steps = sum(1 for val in self.selected_checks.values() if val)
@@ -73,7 +74,7 @@ class DownloadTask(QgsTask):
                     self.progressUpdated.emit(f"Download DTM Tinitaly (tile {i+1}/{len(self.tiles)})", current_step, total_steps, sub_percent)
                     success, msg = self.data_manager.download_tinitaly_tile(tile)
                     if not success:
-                        task_log(f"Fallimento Tinitaly {tile}: {msg}", Qgis.Critical)
+                        task_log(f"⚠ Tinitaly {tile}: {msg}", Qgis.Warning)
                         self.error_count += 1
                     self.setProgress(sub_percent)
 
@@ -129,7 +130,7 @@ class DownloadTask(QgsTask):
                 self.emit_progress("S2GM (Albedo Sentinel-2)", current_step, total_steps)
                 
                 if not self.cdse_user or not self.cdse_pass:
-                    task_log("Credenziali CDSE mancanti per Albedo.", Qgis.Warning)
+                    task_log("⚠ Credenziali CDSE mancanti per Albedo.", Qgis.Warning)
                     self.error_count += 1
                 else:
                     task_log("Acquisizione Sentinel-2 Albedo (richiede tempo)...")
@@ -137,7 +138,7 @@ class DownloadTask(QgsTask):
                         self.extent, self.crs, self.cdse_user, self.cdse_pass
                     )
                     if not success:
-                        task_log(f"Fallimento Albedo: {msg}", Qgis.Critical)
+                        task_log(f"⚠ Albedo: {msg}", Qgis.Warning)
                         self.error_count += 1
                 self.setProgress(int(current_step / total_steps * 100))
 
@@ -179,7 +180,26 @@ class DownloadTask(QgsTask):
 
             self.success = True
             return True
-        except Exception as e:
-            self.message = str(e)
-            task_log(f"Errore critico durante il download: {self.message}", Qgis.Critical)
+        except FetchWarning as w:
+            task_log(f"⚠ Avviso: {w.user_message}", Qgis.Warning)
+            self.error_count += 1
+            # Non-blocking, continue
+            return True
+        except FetchCriticalError as e:
+            self.message = e.user_message
+            task_log(f"✗ Errore critico: {e.user_message}", Qgis.Critical)
             return False
+        except FetchDataError as e:
+            self.message = e.user_message
+            source_info = f" (sorgente: {e.source})" if e.source else ""
+            task_log(f"✗ Errore dati{source_info}: {e.user_message}", Qgis.Critical)
+            return not e.recoverable  # Return True if recoverable
+        except FetchError as e:
+            self.message = e.user_message
+            task_log(f"✗ Errore: {e.user_message}", Qgis.Critical if not e.recoverable else Qgis.Warning)
+            return e.recoverable
+        except Exception as e:
+            self.message = f"Errore imprevisto: {str(e)}"
+            task_log(self.message, Qgis.Critical)
+            return False
+

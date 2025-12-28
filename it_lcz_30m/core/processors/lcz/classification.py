@@ -189,32 +189,64 @@ class LCZClassificationProcessor:
         landuse_path = os.path.join(unified_dir, FileNames.LANDUSE)
         return landuse_path if os.path.exists(landuse_path) else None
     
-    def _get_dominant_esa_class(self, geometry, raster_provider):
+    def _compute_esa_majority_for_layer(self, layer, raster_path, log_callback=None):
         """
-        Get the dominant ESA class within a polygon geometry.
-        Uses centroid sampling for speed - sufficient for grid cells.
+        Compute the majority (most frequent) ESA class for each cell in the grid layer.
+        Uses QGIS native:zonalstatisticsfb algorithm for accurate zonal analysis.
         
         Args:
-            geometry: QgsGeometry of the cell
-            raster_provider: QgsRasterDataProvider (reused across features)
+            layer: QgsVectorLayer with grid cells
+            raster_path: Path to ESA WorldCover raster
+            log_callback: Optional logging function
+            
+        Returns:
+            QgsVectorLayer with 'esa_majority' field added, or None on failure
         """
-        from qgis.core import QgsPointXY
+        import processing
         
         try:
-            # Use centroid sampling - efficient for grid cells
-            centroid = geometry.centroid().asPoint()
+            # Run zonal statistics with Majority statistic (code 9)
+            # This calculates the most frequent raster value within each polygon
+            result = processing.run('native:zonalstatisticsfb', {
+                'INPUT': layer,
+                'INPUT_RASTER': raster_path,
+                'RASTER_BAND': 1,
+                'COLUMN_PREFIX': 'esa_',
+                'STATISTICS': [9],  # 9 = Majority (most frequent value)
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
             
-            # Sample the raster value at centroid
-            value, success = raster_provider.sample(
-                QgsPointXY(centroid.x(), centroid.y()), 1  # band 1
-            )
+            output_layer = result['OUTPUT']
+            if log_callback:
+                log_callback(f"Statistiche zonali ESA calcolate per {output_layer.featureCount()} celle")
             
-            if success and value is not None:
-                return int(value)
-            return None
+            return output_layer
             
         except Exception as e:
-            self.log(f"Errore nel campionamento ESA: {e}", Qgis.Warning)
+            self.log(f"Errore nel calcolo statistiche zonali ESA: {e}", Qgis.Warning)
+            if log_callback:
+                log_callback(f"Errore statistiche zonali: {e}")
+            return None
+    
+    def _get_dominant_esa_class(self, feature, esa_majority_idx):
+        """
+        Get the dominant ESA class for a feature from pre-computed zonal statistics.
+        
+        Args:
+            feature: QgsFeature with esa_majority field
+            esa_majority_idx: Field index of esa_majority column
+            
+        Returns:
+            int: ESA class code or None if not available
+        """
+        try:
+            if esa_majority_idx == -1:
+                return None
+            value = feature.attribute(esa_majority_idx)
+            if value is not None and str(value) not in ('NULL', ''):
+                return int(float(value))  # Handle potential float representation
+            return None
+        except (ValueError, TypeError):
             return None
     
     def _apply_esa_correction(self, lcz_class, esa_class, impervious_frac=None):
@@ -328,19 +360,31 @@ class LCZClassificationProcessor:
             esa_fix_idx = layer.fields().indexFromName(esa_fix_field_name)
             log_local(f"Campo {esa_fix_field_name} creato come QString")
         
-        # Try to load ESA landuse raster for correction (load ONCE, reuse provider)
+        # Pre-compute ESA landuse majority using zonal statistics
         landuse_path = self._get_landuse_raster_path()
         use_esa_correction = False
-        landuse_provider = None
+        esa_majority_lookup = {}  # Dict mapping feature ID to ESA majority class
         
         if landuse_path and os.path.exists(landuse_path):
-            landuse_raster = QgsRasterLayer(landuse_path, "esa_landuse")
-            if landuse_raster.isValid():
-                landuse_provider = landuse_raster.dataProvider()
-                use_esa_correction = True
-                log_local(f"Correzione ESA WorldCover attiva: {os.path.basename(landuse_path)}")
+            log_local(f"Calcolo statistiche zonali ESA WorldCover (Majority)...")
+            esa_layer = self._compute_esa_majority_for_layer(layer, landuse_path, log_local)
+            if esa_layer:
+                # Build lookup dictionary from temporary layer
+                esa_majority_idx = esa_layer.fields().indexFromName('esa_majority')
+                if esa_majority_idx != -1:
+                    for feat in esa_layer.getFeatures():
+                        val = feat.attribute(esa_majority_idx)
+                        if val is not None and str(val) not in ('NULL', ''):
+                            try:
+                                esa_majority_lookup[feat.id()] = int(float(val))
+                            except (ValueError, TypeError):
+                                pass
+                    use_esa_correction = len(esa_majority_lookup) > 0
+                    log_local(f"Correzione ESA attiva: {len(esa_majority_lookup)} celle con classe ESA")
+                else:
+                    log_local("Campo esa_majority non trovato nel layer zonale", Qgis.Warning)
             else:
-                log_local("Layer ESA non valido, correzione disabilitata", Qgis.Warning)
+                log_local("Statistiche zonali ESA fallite, correzione disabilitata", Qgis.Warning)
         else:
             log_local("Raster ESA WorldCover non trovato, classificazione senza correzione")
         
@@ -358,6 +402,7 @@ class LCZClassificationProcessor:
         if missing:
             log_local(f"Campi LCZ mancanti: {missing}", Qgis.Warning)
         
+        # Use ORIGINAL layer for iteration and writes (not the temp zonalstatistics layer)
         layer.startEditing()
         processed_count = 0
         corrected_count = 0
@@ -426,7 +471,8 @@ class LCZClassificationProcessor:
                 
                 # Apply ESA correction for natural classes
                 if use_esa_correction and lcz_class not in ['N/D', 'ERRORE']:
-                    esa_class = self._get_dominant_esa_class(feature.geometry(), landuse_provider)
+                    # Get ESA class from pre-computed lookup dictionary
+                    esa_class = esa_majority_lookup.get(feat_id)
                     original_class = lcz_class
                     lcz_class = self._apply_esa_correction(lcz_class, esa_class, impervious_frac)
                     if lcz_class != original_class:
