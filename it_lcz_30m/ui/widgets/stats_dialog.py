@@ -34,10 +34,20 @@ from ...core.constants import LCZMappings
 
 class MplCanvas(FigureCanvas):
     def __init__(self, parent=None, width=5, height=4, dpi=100):
+        # Balanced layout parameters
         fig = Figure(figsize=(width, height), dpi=dpi)
         fig.patch.set_facecolor('#ffffff')
         self.axes = fig.add_subplot(111)
+        
+        # Consistent margins to avoid label cutting and leave space for legend on top
+        fig.subplots_adjust(left=0.1, right=0.95, top=0.82, bottom=0.25)
+        
+        # Remove top and right spines for a cleaner look
+        self.axes.spines['top'].set_visible(False)
+        self.axes.spines['right'].set_visible(False)
+        
         super(MplCanvas, self).__init__(fig)
+        self.setMinimumHeight(200) # Prevents squashing
 
 
 class AdvancedStatsDialog(QDialog):
@@ -115,6 +125,30 @@ class AdvancedStatsDialog(QDialog):
         self.tabs.addTab(self.create_esa_tab(), "Correzione ESA")
         
         self.layout.addWidget(self.tabs)
+        
+    def create_info_box(self, title, text):
+        box = QFrame()
+        box.setStyleSheet("""
+            QFrame { 
+                background-color: #e3f2fd; 
+                border-left: 5px solid #2196f3; 
+                border-radius: 4px; 
+                margin: 10px;
+                padding: 10px;
+            }
+        """)
+        layout = QVBoxLayout(box)
+        
+        header = QLabel(f"💡 {title}")
+        header.setStyleSheet("font-weight: bold; color: #1565c0; font-size: 12px;")
+        layout.addWidget(header)
+        
+        content = QLabel(text)
+        content.setStyleSheet("color: #0d47a1; font-size: 11px;")
+        content.setWordWrap(True)
+        layout.addWidget(content)
+        
+        return box
 
     def create_overview_tab(self):
         tab = QWidget()
@@ -166,6 +200,12 @@ class AdvancedStatsDialog(QDialog):
         chart_layout.addWidget(canvas)
         layout.addWidget(chart_container)
         
+        layout.addWidget(self.create_info_box(
+            "Interpretazione Panoramica",
+            "Questa vista mostra la 'composizione genetica' del territorio. Una prevalenza di classi 1-3 indica un centro storico compatto, mentre classi 4-6 suggeriscono espansione urbana moderna. "
+            "Controlla se la distribuzione delle classi naturali (A-G) riflette la reale presenza di parchi o corpi idrici nell'area."
+        ))
+        
         return tab
 
     def create_quality_tab(self):
@@ -192,10 +232,11 @@ class AdvancedStatsDialog(QDialog):
         chart_layout.addWidget(canvas)
         layout.addWidget(chart_container)
         
-        # Match Stats description
-        info = QLabel("Nota: Un RMSEP vicino a 0 indica un match quasi perfetto con le definizioni teoriche di Stewart & Oke (2012).")
-        info.setStyleSheet("color: #7f8c8d; font-style: italic; padding: 10px;")
-        layout.addWidget(info)
+        layout.addWidget(self.create_info_box(
+            "Interpretazione Qualità (RMSEP)",
+            "L'RMSEP misura lo scostamento tra i dati reali del sito e il profilo teorico di Stewart & Oke. "
+            "Valori bassi (< 0.5) indicano un match eccellente. Se una classe ha un RMSEP alto, potrebbe indicare un'anomalia nei dati sorgente o una morfologia urbana 'atípica' per gli standard internazionali."
+        ))
         
         return tab
 
@@ -224,14 +265,23 @@ class AdvancedStatsDialog(QDialog):
         ]
         
         for p_id, p_label in params_to_show:
+            container = QWidget()
+            cont_layout = QVBoxLayout(container)
+            
+            # Label Title
+            title = QLabel(f"📊 {p_label}")
+            title.setStyleSheet("font-size: 13px; font-weight: bold; color: #2c3e50; margin-top: 10px;")
+            cont_layout.addWidget(title)
+            
             chart_container = QFrame()
-            chart_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1; margin-bottom: 20px;")
+            chart_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1;")
+            chart_container.setMinimumHeight(240)
             chart_layout = QVBoxLayout(chart_container)
             chart_layout.setContentsMargins(5, 5, 5, 5)
             
+            # Width is flexible, height is fixed contextually
             canvas = MplCanvas(self, width=8, height=3)
             
-            # Extract data
             valid_classes = []
             values = []
             colors = []
@@ -242,11 +292,52 @@ class AdvancedStatsDialog(QDialog):
                     colors.append(LCZMappings.COLORS.get(lcz, '#bebebe'))
             
             if values:
-                canvas.axes.bar(valid_classes, values, color=colors, alpha=0.7)
-                canvas.axes.set_title(f"Valore Medio: {p_label}", fontsize=10, fontweight='bold')
-                canvas.axes.tick_params(axis='both', which='major', labelsize=8)
+                # Plot actual values
+                bars = canvas.axes.bar(valid_classes, values, color=colors, alpha=0.7, edgecolor='#333', linewidth=0.5, label='Media Sito')
+                
+                # Plot Reference Ranges (Stewart & Oke 2012)
+                ref_mins = []
+                ref_maxs = []
+                ref_x = []
+                for i, lcz in enumerate(valid_classes):
+                    lcz_ref = LCZMappings.PARAMETERS.get(lcz, {})
+                    if p_id in lcz_ref:
+                        p_min, p_max = lcz_ref[p_id]
+                        # Handle infinity for visualization
+                        display_max = p_max
+                        if p_max == float('inf'):
+                            # Use site max or 1.5x of min, but never less than min
+                            site_max = max(values) if values else 0
+                            display_max = max(p_min * 1.1, site_max * 1.2)
+                        
+                        # Ensure mx is at least mn to avoid negative yerr
+                        mn = p_min
+                        mx = max(mn + 0.001, display_max)
+                        
+                        ref_x.append(i)
+                        ref_mins.append(mn)
+                        ref_maxs.append(mx)
+                
+                if ref_x:
+                    # Center and half-width for symmetric errorbar
+                    y_centers = [(mn + mx)/2 for mn, mx in zip(ref_mins, ref_maxs)]
+                    y_errs = [max(0, (mx - mn)/2) for mn, mx in zip(ref_mins, ref_maxs)]
+                    
+                    # Draw reference ranges as vertical lines with caps
+                    canvas.axes.errorbar(ref_x, y_centers, yerr=y_errs,
+                                       fmt='none', ecolor='#2c3e50', elinewidth=2, capsize=4, 
+                                       alpha=0.6, label='Range Stewart & Oke')
+                
+                # Move legend above the plot to avoid overlapping
+                canvas.axes.legend(fontsize=8, frameon=False, loc='lower center', 
+                                 bbox_to_anchor=(0.5, 1.02), ncol=2)
+                
+                canvas.axes.set_ylabel("Media")
+                canvas.axes.tick_params(axis='both', which='major', labelsize=9)
+                
                 chart_layout.addWidget(canvas)
-                content_layout.addWidget(chart_container)
+                cont_layout.addWidget(chart_container)
+                content_layout.addWidget(container)
 
         return tab
 
@@ -270,8 +361,16 @@ class AdvancedStatsDialog(QDialog):
         ]
         
         for p_id, p_label in params_to_show:
+            container = QWidget()
+            cont_layout = QVBoxLayout(container)
+            
+            title = QLabel(f"🌡️ {p_label}")
+            title.setStyleSheet("font-size: 13px; font-weight: bold; color: #2c3e50; margin-top: 10px;")
+            cont_layout.addWidget(title)
+            
             chart_container = QFrame()
-            chart_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1; margin-bottom: 20px;")
+            chart_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1;")
+            chart_container.setMinimumHeight(240)
             chart_layout = QVBoxLayout(chart_container)
             chart_layout.setContentsMargins(5, 5, 5, 5)
             
@@ -287,26 +386,66 @@ class AdvancedStatsDialog(QDialog):
                     colors.append(LCZMappings.COLORS.get(lcz, '#bebebe'))
             
             if values:
-                canvas.axes.bar(valid_classes, values, color=colors, alpha=0.7)
-                canvas.axes.set_title(f"Valore Medio: {p_label}", fontsize=10, fontweight='bold')
-                canvas.axes.tick_params(axis='both', which='major', labelsize=8)
+                canvas.axes.bar(valid_classes, values, color=colors, alpha=0.7, edgecolor='#333', linewidth=0.5, label='Media Sito')
+                
+                # Plot Reference Ranges
+                ref_mins = []
+                ref_maxs = []
+                ref_x = []
+                for i, lcz in enumerate(valid_classes):
+                    lcz_ref = LCZMappings.PARAMETERS.get(lcz, {})
+                    if p_id in lcz_ref:
+                        p_min, p_max = lcz_ref[p_id]
+                        display_max = p_max
+                        if p_max == float('inf'):
+                            site_max = max(values) if values else 0
+                            display_max = max(p_min * 1.1, site_max * 1.2)
+                        
+                        mn = p_min
+                        mx = max(mn + 0.001, display_max)
+                        ref_x.append(i)
+                        ref_mins.append(mn)
+                        ref_maxs.append(mx)
+
+                if ref_x:
+                     y_centers = [(mn + mx)/2 for mn, mx in zip(ref_mins, ref_maxs)]
+                     y_errs = [max(0, (mx - mn)/2) for mn, mx in zip(ref_mins, ref_maxs)]
+                     
+                     canvas.axes.errorbar(ref_x, y_centers, yerr=y_errs,
+                                       fmt='none', ecolor='#2c3e50', elinewidth=2, capsize=4, 
+                                       alpha=0.6, label='Range Stewart & Oke')
+
+                # Move legend above the plot to avoid overlapping
+                canvas.axes.legend(fontsize=8, frameon=False, loc='lower center', 
+                                 bbox_to_anchor=(0.5, 1.02), ncol=2)
+                
+                canvas.axes.set_ylabel("Media")
+                canvas.axes.tick_params(axis='both', which='major', labelsize=9)
+                
                 chart_layout.addWidget(canvas)
-                content_layout.addWidget(chart_container)
+                cont_layout.addWidget(chart_container)
+                content_layout.addWidget(container)
 
         return tab
 
     def create_esa_tab(self):
         tab = QWidget()
-        layout = QVBoxLayout(tab)
+        main_layout = QVBoxLayout(tab)
         
         if not HAS_MATPLOTLIB: return tab
         
-        chart_container = QFrame()
-        chart_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1;")
-        chart_layout = QVBoxLayout(chart_container)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
         
-        canvas = MplCanvas(self, width=6, height=6)
+        # 1. Overview Section
+        overview_container = QFrame()
+        overview_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1;")
+        over_layout = QVBoxLayout(overview_container)
         
+        canvas_over = MplCanvas(self, width=6, height=5)
         corrected = self.stats['esa_correction']['corrected']
         total = self.stats['esa_correction']['total']
         unchanged = total - corrected
@@ -315,20 +454,75 @@ class AdvancedStatsDialog(QDialog):
             sizes = [corrected, unchanged]
             labels = [f'Corrette ESA ({corrected})', f'Originali ({unchanged})']
             colors = ['#3498db', '#ecf0f1']
+            canvas_over.axes.pie(sizes, labels=labels, autopct='%1.1f%%', 
+                               startangle=90, colors=colors, shadow=False,
+                               wedgeprops={'edgecolor': 'white', 'linewidth': 2})
+            canvas_over.axes.set_title("Percentuale Celle Rettificate da ESA WorldCover", fontsize=12, fontweight='bold')
+        
+        over_layout.addWidget(canvas_over)
+        scroll_layout.addWidget(overview_container)
+        
+        # 2. Detailed Transitions Section
+        transitions = self.stats['esa_correction'].get('transitions', {})
+        if transitions:
+            detail_title = QLabel("Dettaglio Transizioni (Classe Originale → Nuova)")
+            detail_title.setStyleSheet("font-size: 14px; font-weight: bold; margin-top: 20px; color: #2c3e50;")
+            scroll_layout.addWidget(detail_title)
             
-            canvas.axes.pie(sizes, labels=labels, autopct='%1.1f%%', 
-                          startangle=90, colors=colors, shadow=False,
-                          wedgeprops={'edgecolor': 'white', 'linewidth': 2})
-            canvas.axes.set_title("Impatto Correzione ESA WorldCover", fontsize=12, fontweight='bold')
+            # Use a grid layout or flow for small pie charts
+            # For simplicity and readability, we'll use a wrap-around layout or just a list of containers
+            for orig_class, targets in sorted(transitions.items()):
+                chart_cont = QFrame()
+                chart_cont.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1; margin-bottom: 20px;")
+                chart_cont.setMinimumHeight(450) # Enforce larger height
+                c_layout = QVBoxLayout(chart_cont)
+                
+                # Larger canvas for better visibility
+                canvas_t = MplCanvas(self, width=8, height=6)
+                
+                # Data for this original class
+                legend_labels = []
+                sizes = []
+                colors = []
+                total_orig = sum(targets.values())
+                
+                for target_class, count in sorted(targets.items()):
+                    pct = (count / total_orig) * 100
+                    legend_labels.append(f"→ LCZ {target_class}: {count} ({pct:.1f}%)")
+                    sizes.append(count)
+                    colors.append(LCZMappings.COLORS.get(target_class, '#bebebe'))
+                
+                # Plot without internal labels to avoid overlapping
+                wedges, _ = canvas_t.axes.pie(sizes, 
+                                startangle=140, 
+                                colors=colors,
+                                wedgeprops={'edgecolor': 'white', 'linewidth': 1.5})
+                
+                # Use a larger legend on the right
+                canvas_t.axes.legend(wedges, legend_labels, 
+                                   title="Destinazione Classi",
+                                   loc="center left", 
+                                   bbox_to_anchor=(1, 0, 0.5, 1), 
+                                   fontsize=10, frameon=False)
+                
+                canvas_t.axes.set_title(f"Rettifica ESA: Evoluzione delle celle LCZ {orig_class}", 
+                                      fontsize=13, fontweight='bold', pad=30)
+                
+                # Optimize layout space for long legend
+                canvas_t.figure.subplots_adjust(left=0.05, right=0.65, top=0.85, bottom=0.05)
+                
+                c_layout.addWidget(canvas_t)
+                scroll_layout.addWidget(chart_cont)
         
-        chart_layout.addWidget(canvas)
-        layout.addWidget(chart_container)
+        scroll.setWidget(scroll_content)
+        main_layout.addWidget(scroll)
         
-        info = QLabel("Questa metrica indica quante celle classificate inizialmente come 'Naturali' sono state sovrascritte dai dati ESA WorldCover.")
-        info.setWordWrap(True)
-        info.setStyleSheet("color: #7f8c8d; font-style: italic; padding: 10px;")
-        layout.addWidget(info)
-        
+        main_layout.addWidget(self.create_info_box(
+            "Interpretazione Correzione ESA",
+            "I grafici a torta mostrano la 'migrazione' delle classi. "
+            "Se molte celle LCZ A (Dense Trees) sono diventate LCZ D (Low Plants), significa che il sensore satellitare ha rilevato una densità di vegetazione inferiore a quella stimata dai parametri proxy."
+        ))
+
         return tab
 
     def create_stat_card(self, label, value, color):

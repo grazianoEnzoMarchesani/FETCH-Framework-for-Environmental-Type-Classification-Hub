@@ -37,6 +37,7 @@ class StatsAggregator:
         matches_data = {} # {class: [values]}
         param_data = {} # {class: {param: [values]}}
         esa_corrected_count = 0
+        esa_transitions = {} # {original: {new: count}}
         total_valid_count = 0
 
         for feat in layer.getFeatures():
@@ -48,6 +49,18 @@ class StatsAggregator:
             lcz = str(lcz)
             lcz_counts[lcz] = lcz_counts.get(lcz, 0) + 1
             
+            # ESA Fix
+            esa_fix = feat.attribute(esa_fix_field)
+            if esa_fix not in (None, 'NULL', '-', 'ERRORE'):
+                esa_corrected_count += 1
+                if ' → ' in str(esa_fix):
+                    try:
+                        orig, new = str(esa_fix).split(' → ')
+                        if orig not in esa_transitions: esa_transitions[orig] = {}
+                        esa_transitions[orig][new] = esa_transitions[orig].get(new, 0) + 1
+                    except Exception:
+                        pass
+                
             # RMSEP
             r_val = feat.attribute(rmsep_field)
             if r_val not in (None, 'NULL'):
@@ -59,11 +72,6 @@ class StatsAggregator:
             if m_val not in (None, 'NULL'):
                 if lcz not in matches_data: matches_data[lcz] = []
                 matches_data[lcz].append(int(m_val))
-                
-            # ESA Fix
-            esa_fix = feat.attribute(esa_fix_field)
-            if esa_fix not in (None, 'NULL', '-', 'ERRORE'):
-                esa_corrected_count += 1
                 
             # Parameter means
             if lcz not in param_data: param_data[lcz] = {}
@@ -88,6 +96,7 @@ class StatsAggregator:
             'param_means': param_means,
             'esa_correction': {
                 'corrected': esa_corrected_count,
-                'total': total_valid_count
+                'total': total_valid_count,
+                'transitions': esa_transitions # {original: {new: count}}
             }
         }
