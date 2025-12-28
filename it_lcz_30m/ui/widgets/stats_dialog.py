@@ -645,6 +645,44 @@ class AdvancedStatsDialog(QDialog):
                 
                 pdf.savefig(fig_esa)
                 plt.close(fig_esa)
+                
+                # 5. ESA Detailed Transitions Pages
+                transitions = self.stats['esa_correction'].get('transitions', {})
+                if transitions:
+                    # Grouping 2 charts per page for good visibility in A4
+                    orig_classes = sorted(transitions.keys())
+                    for i in range(0, len(orig_classes), 2):
+                        fig_trans = Figure(figsize=(8.27, 11.69))
+                        fig_trans.suptitle("Dettaglio Transizioni ESA (Evoluzione Classi)", fontsize=16, fontweight='bold', y=0.95)
+                        
+                        chunk = orig_classes[i:i+2]
+                        for j, orig_class in enumerate(chunk):
+                            ax = fig_trans.add_subplot(2, 1, j+1)
+                            targets = transitions[orig_class]
+                            
+                            legend_labels = []
+                            sizes = []
+                            colors_t = []
+                            total_orig = sum(targets.values())
+                            
+                            for target_class, count in sorted(targets.items()):
+                                pct = (count / total_orig) * 100
+                                legend_labels.append(f"→ LCZ {target_class}: {count} ({pct:.1f}%)")
+                                sizes.append(count)
+                                colors_t.append(LCZMappings.COLORS.get(target_class, '#bebebe'))
+                            
+                            wedges, _ = ax.pie(sizes, startangle=140, colors=colors_t, 
+                                             wedgeprops={'edgecolor': 'white', 'linewidth': 1})
+                            
+                            ax.legend(wedges, legend_labels, title="Destinazione", 
+                                     loc="center left", bbox_to_anchor=(1, 0, 0.5, 1), 
+                                     fontsize=9, frameon=False)
+                            
+                            ax.set_title(f"Evoluzione celle LCZ {orig_class}", fontsize=12, fontweight='bold')
+                        
+                        fig_trans.tight_layout(rect=[0, 0.03, 1, 0.92])
+                        pdf.savefig(fig_trans)
+                        plt.close(fig_trans)
 
             from ...core.stats_aggregator import QgsMessageLog, Qgis # Using aggregator's alias
             QgsMessageLog.logMessage(f"Report PDF salvato correttamente in: {path}", "FETCH", Qgis.Success)
