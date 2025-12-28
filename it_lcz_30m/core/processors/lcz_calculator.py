@@ -50,8 +50,7 @@ class LCZCalculator:
             'sky_view_factor': ('svf_mean', 'Sky View Factor'),
             'surface_fractions': (None, 'Surface Fractions (BSF/ISF/PSF)'),
             'surface_albedo': ('albedo', 'Surface Albedo'),
-            'aspect_ratio': ('aspect_ratio', 'Building Aspect Ratio (H/W)'),
-            'roughness_elements_height': ('z_h', 'Geometric Mean Height (z_H)'),
+            'aspect_ratio': ('aspect_ratio', 'Aspect Ratio (H/W) & Roughness H (zH)'),
             'terrain_roughness_class': ('terrain_rough', 'Terrain Roughness Class'),
             'surface_admittance': ('admittance', 'Surface Admittance'),
             'anthropogenic_heat_output': ('anthro_heat', 'Anthropogenic Heat Output'),
@@ -101,11 +100,11 @@ class LCZCalculator:
         elif parameter_id == 'surface_fractions':
             processed = self.fractions_proc.process(layer, target_path, log_callback)
 
-        elif parameter_id == 'roughness_elements_height':
-            processed = self.roughness_proc.process(layer, target_path, log_callback)
-
         elif parameter_id == 'aspect_ratio':
-            processed = self.aspect_proc.process(layer, log_callback)
+            # Run Roughness Height first as it is a prerequisite for Aspect Ratio
+            processed_zh = self.roughness_proc.process(layer, target_path, log_callback)
+            processed_ar = self.aspect_proc.process(layer, log_callback)
+            processed = processed_ar # Reporting AR processed count
 
         elif parameter_id == 'terrain_roughness_class':
             processed = self.terrain_proc.process(layer, log_callback)
