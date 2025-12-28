@@ -89,7 +89,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.layout.addWidget(self.progress_section)
         
         # Section 6: Advanced Statistics (Bottom Button)
-        self.stats_button = QPushButton("📊 Statistiche Avanzate")
+        self.stats_button = QPushButton("Statistiche Avanzate")
         self.stats_button.setObjectName("AccentButton")
         self.stats_button.setToolTip("Visualizza statistiche e grafici avanzati della classificazione")
         self.stats_button.setEnabled(False)

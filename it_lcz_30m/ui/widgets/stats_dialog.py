@@ -139,7 +139,7 @@ class AdvancedStatsDialog(QDialog):
         """)
         layout = QVBoxLayout(box)
         
-        header = QLabel(f"💡 {title}")
+        header = QLabel(f"{title}")
         header.setStyleSheet("font-weight: bold; color: #1565c0; font-size: 12px;")
         layout.addWidget(header)
         
@@ -276,7 +276,7 @@ class AdvancedStatsDialog(QDialog):
             cont_layout = QVBoxLayout(container)
             
             # Label Title
-            title = QLabel(f"📊 {p_label}")
+            title = QLabel(f"{p_label}")
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #2c3e50; margin-top: 10px;")
             cont_layout.addWidget(title)
             
@@ -371,7 +371,7 @@ class AdvancedStatsDialog(QDialog):
             container = QWidget()
             cont_layout = QVBoxLayout(container)
             
-            title = QLabel(f"🌡️ {p_label}")
+            title = QLabel(f"{p_label}")
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #2c3e50; margin-top: 10px;")
             cont_layout.addWidget(title)
             
