@@ -6,7 +6,10 @@ Section 3: Sequential processing steps (Unify, DSM, SVF).
 """
 
 from qgis.PyQt.QtCore import Qt, pyqtSignal
-from qgis.PyQt.QtWidgets import QVBoxLayout, QLabel, QPushButton
+from qgis.PyQt.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QPushButton
+)
 from qgis.core import QgsApplication
 from qgis.gui import QgsCollapsibleGroupBox
 
@@ -27,47 +30,107 @@ class ProcessingSection(QgsCollapsibleGroupBox):
     def _setup_ui(self):
         """Initialize the UI components."""
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setSpacing(2)
+        self.main_layout.setContentsMargins(5, 10, 5, 10)
+        self.main_layout.setSpacing(10)
+        
+        # Pipeline Card
+        self.pipeline_card = QWidget()
+        self.pipeline_card.setObjectName("ResultsCard")
+        self.pipeline_layout = QVBoxLayout(self.pipeline_card)
+        self.pipeline_layout.setContentsMargins(0, 5, 0, 5)
+        self.pipeline_layout.setSpacing(0)
+        
+        # Header inside card
+        header_container = QWidget()
+        header_layout = QVBoxLayout(header_container)
+        header_layout.setContentsMargins(12, 10, 12, 5)
+        lbl_card_title = QLabel("WORKFLOW DI ELABORAZIONE")
+        lbl_card_title.setObjectName("ResultsHeader")
+        header_layout.addWidget(lbl_card_title)
+        self.pipeline_layout.addWidget(header_container)
         
         # Step 1: Unify
-        self.btn_unify = QPushButton(" 1. Unifica e Ritaglia Dati")
-        self.btn_unify.setObjectName("PrimaryButton")
-        self.btn_unify.setIcon(QgsApplication.getThemeIcon("mActionRelationAdd.svg"))
-        self.btn_unify.setToolTip("FASE 1: Riproietta tutti i dati in UTM e ritaglia sull'AOI")
-        self.main_layout.addWidget(self.btn_unify)
-        
-        # Arrow 1
-        self.arrow1 = QLabel("▼")
-        self.arrow1.setAlignment(Qt.AlignCenter)
-        self.arrow1.setStyleSheet("color: #bdc3c7; font-size: 10px; margin: 2px 0;")
-        self.main_layout.addWidget(self.arrow1)
+        self.row_unify, self.btn_unify, self.ind_unify = self._create_process_row(
+            "1", "Unificazione Dati", "Riproiezione UTM e ritaglio AOI", "mActionRelationAdd.svg"
+        )
+        self.btn_unify.setToolTip("Riproietta tutti i dati scaricati e ritaglia sull'area di studio")
+        self.pipeline_layout.addWidget(self.row_unify)
         
         # Step 2: DSM
-        self.btn_dsm = QPushButton(" 2. Genera DSM Sintetico")
-        self.btn_dsm.setObjectName("PrimaryButton")
-        self.btn_dsm.setIcon(QgsApplication.getThemeIcon("mActionHillshade.svg"))
-        self.btn_dsm.setToolTip("FASE 2: Crea DSM = DTM + Altezze Edifici + Altezze Alberi")
-        self.main_layout.addWidget(self.btn_dsm)
-        
-        # Arrow 2
-        self.arrow2 = QLabel("▼")
-        self.arrow2.setAlignment(Qt.AlignCenter)
-        self.arrow2.setStyleSheet("color: #bdc3c7; font-size: 10px; margin: 2px 0;")
-        self.main_layout.addWidget(self.arrow2)
+        self.row_dsm, self.btn_dsm, self.ind_dsm = self._create_process_row(
+            "2", "Generazione DSM", "Modello Superficie (Edifici + Alberi)", "mActionHillshade.svg"
+        )
+        self.btn_dsm.setToolTip("Crea il DSM sintetico sommando DTM e altezze di edifici e vegetazione")
+        self.pipeline_layout.addWidget(self.row_dsm)
         
         # Step 3: SVF
-        self.btn_svf = QPushButton(" 3. Calcola Sky View Factor")
-        self.btn_svf.setObjectName("PrimaryButton")
-        self.btn_svf.setIcon(QgsApplication.getThemeIcon("mActionAlgorithm.svg"))
-        self.btn_svf.setToolTip("FASE 3: Calcola SVF dal DSM usando SAGA GIS")
-        self.main_layout.addWidget(self.btn_svf)
+        self.row_svf, self.btn_svf, self.ind_svf = self._create_process_row(
+            "3", "Calcolo SVF", "Sky View Factor (SAGA GIS)", "mActionAlgorithm.svg"
+        )
+        self.btn_svf.setToolTip("Calcola la frazione di cielo visibile utilizzando l'algoritmo SAGA")
+        self.pipeline_layout.addWidget(self.row_svf)
         
+        self.main_layout.addWidget(self.pipeline_card)
+        
+    def _create_process_row(self, number, title, subtitle, icon_name):
+        """Helper to create a professional process row."""
+        row = QWidget()
+        row.setObjectName("ProcessRow")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(12)
+        
+        # Badge
+        lbl_badge = QLabel(number)
+        lbl_badge.setObjectName("StepBadge")
+        lbl_badge.setAlignment(Qt.AlignCenter)
+        layout.addWidget(lbl_badge)
+        
+        # Info
+        info_container = QWidget()
+        info_layout = QVBoxLayout(info_container)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(0)
+        
+        lbl_title = QLabel(title)
+        lbl_title.setObjectName("StepTitle")
+        info_layout.addWidget(lbl_title)
+        
+        lbl_subtitle = QLabel(subtitle)
+        lbl_subtitle.setObjectName("StepSubtitle")
+        info_layout.addWidget(lbl_subtitle)
+        
+        layout.addWidget(info_container)
+        layout.addStretch()
+        
+        # Action Button
+        btn = QPushButton("ESEGUI")
+        btn.setObjectName("CalculateButton")
+        btn.setIcon(QgsApplication.getThemeIcon(icon_name))
+        btn.setFixedWidth(90)
+        layout.addWidget(btn)
+        
+        # Status Indicator
+        indicator = QPushButton()
+        indicator.setObjectName("IndicatorButton")
+        indicator.setFixedSize(12, 12)  # Slightly smaller than results dots
+        indicator.setEnabled(False)
+        layout.addWidget(indicator)
+        
+        return row, btn, indicator
+
     def _connect_signals(self):
         """Connect button signals."""
         self.btn_unify.clicked.connect(self.unify_requested.emit)
         self.btn_dsm.clicked.connect(self.dsm_requested.emit)
         self.btn_svf.clicked.connect(self.svf_requested.emit)
         
+    def set_step_status(self, step_idx, completed):
+        """Update step indicator color (1: Unify, 2: DSM, 3: SVF)."""
+        indicators = {1: self.ind_unify, 2: self.ind_dsm, 3: self.ind_svf}
+        if step_idx in indicators:
+            indicators[step_idx].setEnabled(completed)
+            
     def set_dsm_enabled(self, enabled):
         """Enable/disable DSM button based on dependencies."""
         self.btn_dsm.setEnabled(enabled)

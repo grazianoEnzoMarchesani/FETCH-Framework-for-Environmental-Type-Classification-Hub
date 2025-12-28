@@ -188,5 +188,33 @@ QLineEdit:focus {
 #VisualButton:disabled {
     background-color: #f8f9fa;
     border: 1px dashed #ced4da;
+#StepBadge {
+    background-color: #2c3e50;
+    color: white;
+    border-radius: 12px;
+    font-family: 'SF Mono', monospace;
+    font-size: 11px;
+    font-weight: bold;
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+}
+#ProcessRow {
+    background-color: #ffffff;
+    border-bottom: 1px solid #f0f0f0;
+    padding: 2px 0;
+}
+#ProcessRow:hover {
+    background-color: #fcfcfc;
+}
+#StepTitle {
+    font-size: 11px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+#StepSubtitle {
+    font-size: 9px;
+    color: #7f8c8d;
 }
 """

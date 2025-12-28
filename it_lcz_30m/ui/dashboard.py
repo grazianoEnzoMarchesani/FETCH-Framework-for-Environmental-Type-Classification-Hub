@@ -164,7 +164,12 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.proc_section.set_dsm_enabled(has_dtm)
         self.proc_section.set_svf_enabled(has_dsm)
         
-        # 2. Section 4 (Grid) needs SVF (end of sequential process)
+        # 2. Update Processing Section indicators
+        self.proc_section.set_step_status(1, has_dtm)  # Unify done if DTM exists
+        self.proc_section.set_step_status(2, has_dsm)  # DSM done if DSM exists
+        self.proc_section.set_step_status(3, has_svf)  # SVF done if SVF exists
+        
+        # 3. Section 4 (Grid) needs SVF (end of sequential process)
         self.grid_section.setEnabled(has_svf)
         
         # 3. Section 5 needs a Grid layer
