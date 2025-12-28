@@ -33,7 +33,7 @@ class LayerMixin:
         return None
 
     def _field_has_values(self, layer, field_name):
-        """Check if at least one feature has a non-NULL value in the specified field."""
+        """Check if at least one feature has a valid numeric value in the specified field."""
         idx = layer.fields().indexFromName(field_name)
         if idx == -1:
             return False
@@ -43,8 +43,8 @@ class LayerMixin:
             val = feat.attribute(idx)
             if val is not None and str(val) not in ('NULL', ''):
                 try:
-                    if float(val) != 0:
-                        return True
+                    float(val)  # Just check if it's a valid number (0 is valid!)
+                    return True
                 except (ValueError, TypeError):
                     pass
             count += 1
