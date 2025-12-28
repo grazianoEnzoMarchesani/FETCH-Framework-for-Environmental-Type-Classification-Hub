@@ -19,6 +19,7 @@ class GridDefinitionSection(QgsCollapsibleGroupBox):
     
     # Signals
     grid_requested = pyqtSignal()
+    info_requested = pyqtSignal()  # Request an AOI refresh from dashboard
     
     def __init__(self, parent=None):
         super().__init__("4. Definizione Griglia LCZ", parent)
@@ -120,6 +121,9 @@ class GridDefinitionSection(QgsCollapsibleGroupBox):
         """Connect internal signals."""
         self.grid_auto_radio.toggled.connect(self._toggle_grid_mode)
         self.btn_grid.clicked.connect(self.grid_requested.emit)
+        self.cell_size_combo.currentIndexChanged.connect(self.info_requested.emit)
+        self.grid_layer_radio.toggled.connect(self.info_requested.emit)
+        self.grid_layer_combo.layerChanged.connect(self.info_requested.emit)
         
     def _toggle_grid_mode(self, auto_checked):
         """Toggle between auto and existing layer mode."""
@@ -143,3 +147,42 @@ class GridDefinitionSection(QgsCollapsibleGroupBox):
         """Enable or disable the section."""
         super().setEnabled(enabled)
         self.btn_grid.setEnabled(enabled)
+
+    def update_grid_info(self, extent, crs_authid):
+        """
+        Calculate and display estimated number of cells.
+        
+        Args:
+            extent: QgsRectangle of the AOI
+            crs_authid: CRS of the AOI
+        """
+        if not extent or extent.isEmpty():
+            self.grid_info_label.setText("(Seleziona area per calcolare celle)")
+            return
+
+        if not self.is_auto_mode():
+            layer = self.grid_layer_combo.currentLayer()
+            if layer:
+                count = layer.featureCount()
+                self.grid_info_label.setText(f"Griglia esistente: {count:,} celle rilevate.")
+            else:
+                self.grid_info_label.setText("(Seleziona un layer griglia)")
+            return
+
+        # Calculate for auto mode
+        size = self.get_cell_size()
+        width = extent.width()
+        height = extent.height()
+        
+        cols = int(width / size)
+        rows = int(height / size)
+        total = cols * rows
+        
+        if total > 0:
+            self.grid_info_label.setText(
+                f"Griglia stimata: ~{total:,} celle\n"
+                f"Dimensioni: {cols} x {rows} (Cella {size}m)"
+            )
+        else:
+            self.grid_info_label.setText("(Area troppo piccola per questa dimensione)")
+

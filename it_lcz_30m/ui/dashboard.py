@@ -102,6 +102,11 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         # Grid
         self.grid_section.grid_requested.connect(self.run_grid_creation)
+        self.grid_section.info_requested.connect(self.refresh_grid_info)
+        
+        # Connect Setup signals to Grid Info refresh
+        self.setup_section.aoi_changed.connect(self.refresh_grid_info)
+        self.setup_section.extent_captured.connect(self.refresh_grid_info)
         
         # Parameters
         self.params_section.parameter_requested.connect(self.run_specific_lcz_param)
@@ -114,6 +119,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         # Initial state
         self.check_layers_and_update_ui()
+        self.refresh_grid_info()
 
     # =========================================================================
     # UI State Management
@@ -132,6 +138,12 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         else:
             self.progress_section.reset()
             self.check_layers_and_update_ui()
+            self.refresh_grid_info()
+
+    def refresh_grid_info(self, *args):
+        """Update the grid information label based on current AOI and settings."""
+        extent, crs = self.setup_section.get_extent_and_crs()
+        self.grid_section.update_grid_info(extent, crs)
 
     def check_layers_and_update_ui(self, *args):
         """Enable or disable Sections 4, 5 and Classification based on layer presence."""
