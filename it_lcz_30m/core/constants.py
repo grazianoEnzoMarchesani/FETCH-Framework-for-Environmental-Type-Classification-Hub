@@ -163,6 +163,42 @@ class LCZMappings:
         'anthro_heat': 'anthropogenic_heat'
     }
     
+    # LCZ color palette (Stewart & Oke 2012 / WUDAPT standard)
+    COLORS = {
+        '1': '#8c0000', '2': '#cf0201', '3': '#fe0100', '4': '#bd4d01',
+        '5': '#ff6600', '6': '#ff9957', '7': '#f9ef00', '8': '#bcbcbc',
+        '9': '#fecca9', '10': '#555555', 'A': '#016901', 'B': '#06aa02',
+        'C': '#638526', 'D': '#badb7a', 'E': '#000000', 'F': '#fbf5ad',
+        'G': '#6a6afe', 'N/D': '#bebebe'
+    }
+
+    # LCZ class to UHI Vulnerability mapping (based on user's schema)
+    # Changed from "Risk" to "Vulnerability" as per user request
+    VULNERABILITY_MAPPING = {
+        '2': 'Very High', '3': 'Very High', '10': 'Very High', '8': 'High',
+        '1': 'High', '7': 'High', '5': 'Medium', '4': 'Medium', '6': 'Medium-Low',
+        'E': 'Low-Medium', '9': 'Low', 'B': 'Low', 'C': 'Low', 'A': 'Very Low',
+        'G': 'Very Low', 'D': 'Very Low', 'F': 'Very Low', 'N/D': 'Unknown/Other'
+    }
+
+    # UHI Vulnerability color palette
+    VULNERABILITY_COLORS = {
+        'Very High': '#ff5150',
+        'High': '#e97131',
+        'Medium': '#f6c6ac',
+        'Medium-Low': '#fae2d6',
+        'Low-Medium': '#d9f2d0',
+        'Low': '#c0f0c8',
+        'Very Low': '#c1e4f5',
+        'Unknown/Other': '#bebebe'
+    }
+    
+    # Desired order for vulnerability legend
+    VULNERABILITY_ORDER = [
+        'Very High', 'High', 'Medium', 'Medium-Low',
+        'Low-Medium', 'Low', 'Very Low', 'Unknown/Other'
+    ]
+
     # ESA WorldCover class codes to LCZ natural class mapping
     ESA_TO_LCZ = {
         10: 'A',   # Tree cover → Dense trees (or B if low SVF)

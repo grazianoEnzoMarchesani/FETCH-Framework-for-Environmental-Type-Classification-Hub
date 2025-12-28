@@ -7,10 +7,13 @@ Provides methods for QGIS layer styling operations.
 
 from qgis.core import (
     QgsGraduatedSymbolRenderer, QgsRendererRange, 
-    QgsFillSymbol, QgsStyle, QgsClassificationQuantile
+    QgsFillSymbol, QgsStyle, QgsClassificationQuantile,
+    QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsSymbol
 )
+from qgis.PyQt.QtGui import QColor
 
 from ..constants import PARAM_VISUALIZATION
+from ...core.constants import LCZMappings
 
 
 class StyleMixin:
@@ -47,58 +50,94 @@ class StyleMixin:
             return
         
         try:
-            style = QgsStyle.defaultStyle()
-            ramp_name = config['ramp']
-            color_ramp = style.colorRamp(ramp_name)
+            # Check if this is a categorized renderer (LCZ or Vulnerability)
+            if config.get('renderer') == 'categorized':
+                categories = []
+                
+                if config['field'] == 'lcz_class':
+                    palette = LCZMappings.COLORS
+                    # Standard LCZ order 1-10, A-G
+                    ordered_keys = list(LCZMappings.CLASSES.keys()) + ['N/D']
+                elif config['field'] == 'lcz_vulnerability':
+                    palette = LCZMappings.VULNERABILITY_COLORS
+                    ordered_keys = LCZMappings.VULNERABILITY_ORDER
+                else:
+                    self.iface.messageBar().pushMessage("Errore", f"Mappatura non definita per renderer categorizzato: {field_name}", level=2)
+                    return
+
+                for cat_value in ordered_keys:
+                    color_hex = palette.get(cat_value)
+                    if not color_hex:
+                        continue
+                    
+                    symbol = QgsFillSymbol.createSimple({
+                        'color': color_hex,
+                        'outline_style': 'no'
+                    })
+                    
+                    label = LCZMappings.CLASSES.get(cat_value, cat_value) if config['field'] == 'lcz_class' else cat_value
+                    category = QgsRendererCategory(cat_value, symbol, label, True)
+                    categories.append(category)
+                
+                renderer = QgsCategorizedSymbolRenderer(config['field'], categories)
             
-            if not color_ramp:
-                color_ramp = style.colorRamp('Spectral')
-            
-            if not color_ramp:
-                self.iface.messageBar().pushMessage("Errore", "Nessuna rampa colore disponibile.", level=2)
-                return
-            
-            # Collect valid values
-            values = []
-            for feat in grid_layer.getFeatures():
-                val = feat.attribute(field_idx)
-                if val is not None and str(val) not in ('NULL', ''):
-                    try:
-                        values.append(float(val))
-                    except (ValueError, TypeError):
-                        pass
-            
-            if not values:
-                self.iface.messageBar().pushMessage("Errore", f"Nessun valore valido nel campo {config['field']}.", level=2)
-                return
-            
-            # Create quantile classification
-            num_classes = 10
-            classifier = QgsClassificationQuantile()
-            classes = classifier.classes(values, num_classes)
-            
-            # Build renderer ranges
-            ranges = []
-            for i, cls in enumerate(classes):
-                color = color_ramp.color(i / (len(classes) - 1) if len(classes) > 1 else 0.5)
-                symbol = QgsFillSymbol.createSimple({
-                    'color': color.name(),
-                    'outline_style': 'no'
-                })
-                label = f"{cls.lowerBound():.2f} - {cls.upperBound():.2f}"
-                range_item = QgsRendererRange(cls.lowerBound(), cls.upperBound(), symbol, label)
-                ranges.append(range_item)
-            
+            else:
+                # Graduated renderer (original logic)
+                style = QgsStyle.defaultStyle()
+                ramp_name = config.get('ramp', 'Spectral')
+                color_ramp = style.colorRamp(ramp_name)
+                
+                if not color_ramp:
+                    color_ramp = style.colorRamp('Spectral')
+                
+                if not color_ramp:
+                    self.iface.messageBar().pushMessage("Errore", "Nessuna rampa colore disponibile.", level=2)
+                    return
+                
+                # Collect valid values
+                values = []
+                for feat in grid_layer.getFeatures():
+                    val = feat.attribute(field_idx)
+                    if val is not None and str(val) not in ('NULL', ''):
+                        try:
+                            values.append(float(val))
+                        except (ValueError, TypeError):
+                            pass
+                
+                if not values:
+                    self.iface.messageBar().pushMessage("Errore", f"Nessun valore valido nel campo {config['field']}.", level=2)
+                    return
+                
+                # Create quantile classification
+                num_classes = 10
+                classifier = QgsClassificationQuantile()
+                classes = classifier.classes(values, num_classes)
+                
+                # Build renderer ranges
+                ranges = []
+                for i, cls in enumerate(classes):
+                    color = color_ramp.color(i / (len(classes) - 1) if len(classes) > 1 else 0.5)
+                    symbol = QgsFillSymbol.createSimple({
+                        'color': color.name(),
+                        'outline_style': 'no'
+                    })
+                    label = f"{cls.lowerBound():.2f} - {cls.upperBound():.2f}"
+                    range_item = QgsRendererRange(cls.lowerBound(), cls.upperBound(), symbol, label)
+                    ranges.append(range_item)
+                
+                renderer = QgsGraduatedSymbolRenderer(config['field'], ranges)
+
             # Apply renderer
-            renderer = QgsGraduatedSymbolRenderer(config['field'], ranges)
             grid_layer.setRenderer(renderer)
             grid_layer.triggerRepaint()
             
             self.iface.messageBar().pushMessage(
                 "FETCH", 
-                f"Stile '{config['label']}' (quantile) applicato alla griglia.", 
+                f"Stile '{config['label']}' applicato alla griglia.", 
                 level=3, duration=3
             )
             
         except Exception as e:
+            import traceback
+            QgsMessageLog.logMessage(f"Errore styling: {traceback.format_exc()}", "FETCH", Qgis.Critical)
             self.iface.messageBar().pushMessage("Errore", f"Impossibile applicare stile: {str(e)}", level=2)

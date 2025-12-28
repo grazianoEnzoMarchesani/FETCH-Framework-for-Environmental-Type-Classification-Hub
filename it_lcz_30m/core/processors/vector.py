@@ -113,6 +113,7 @@ class VectorProcessor:
         from qgis.PyQt.QtCore import QVariant, QMetaType
         fields = [
             QgsField("lcz_class", QMetaType.QString, len=10),  # String for LCZ codes: "1"-"10", "A"-"G"
+            QgsField("lcz_vulnerability", QMetaType.QString, len=20), # UHI Vulnerability: "Very High" to "Very Low"
             QgsField("lcz_rmsep", QMetaType.Double),           # RMSEP value for classification quality
             QgsField("lcz_matches", QMetaType.Int),            # Number of perfect parameter matches
             QgsField("lcz_esa_fix", QMetaType.QString, len=12), # ESA correction: "original → new" (e.g., "C → D") or "-"

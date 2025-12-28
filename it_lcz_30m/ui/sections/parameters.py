@@ -77,6 +77,39 @@ class ParametersSection(QgsCollapsibleGroupBox):
             
         self.main_layout.addLayout(self.params_grid)
         
+        # Classification Results Visualization (added row)
+        self.results_layout = QHBoxLayout()
+        self.results_layout.setContentsMargins(0, 5, 0, 5)
+        
+        self.lbl_results = QLabel("Risultati:")
+        self.lbl_results.setStyleSheet("font-size: 10px; font-weight: bold; color: #34495e;")
+        self.results_layout.addWidget(self.lbl_results)
+        
+        # LCZ Indicator
+        self.ind_lcz = QPushButton()
+        self.ind_lcz.setObjectName("IndicatorButton")
+        self.ind_lcz.setEnabled(False)
+        self.ind_lcz.setToolTip("Visualizza Classi LCZ sulla mappa")
+        self.ind_lcz.clicked.connect(lambda: self.visualization_requested.emit('lcz_class'))
+        self.results_layout.addWidget(self.ind_lcz)
+        self.results_layout.addWidget(QLabel("LCZ"))
+        self.indicator_buttons['lcz_class'] = self.ind_lcz
+        
+        self.results_layout.addSpacing(10)
+        
+        # Vulnerability Indicator
+        self.ind_vuln = QPushButton()
+        self.ind_vuln.setObjectName("IndicatorButton")
+        self.ind_vuln.setEnabled(False)
+        self.ind_vuln.setToolTip("Visualizza Vulnerabilità UHI sulla mappa")
+        self.ind_vuln.clicked.connect(lambda: self.visualization_requested.emit('lcz_vulnerability'))
+        self.results_layout.addWidget(self.ind_vuln)
+        self.results_layout.addWidget(QLabel("VULN"))
+        self.indicator_buttons['lcz_vulnerability'] = self.ind_vuln
+        
+        self.results_layout.addStretch()
+        self.main_layout.addLayout(self.results_layout)
+        
         # Classification button
         self.btn_classify = QPushButton(" Esegui Classificazione Finale")
         self.btn_classify.setObjectName("SuccessButton")

@@ -18,6 +18,8 @@ PARAM_VISUALIZATION = {
     'admittance': {'field': 'admittance', 'label': 'μ', 'ramp': 'OrRd', 'min': 500, 'max': 2500},
     'albedo': {'field': 'albedo', 'label': 'α', 'ramp': 'RdYlGn', 'min': 0, 'max': 0.5},
     'anthro_heat': {'field': 'anthro_heat', 'label': 'QF', 'ramp': 'Inferno', 'min': 0, 'max': 100},
+    'lcz_class': {'field': 'lcz_class', 'label': 'LCZ', 'renderer': 'categorized'},
+    'lcz_vulnerability': {'field': 'lcz_vulnerability', 'label': 'VULN', 'renderer': 'categorized'},
 }
 
 # Data sources available for download

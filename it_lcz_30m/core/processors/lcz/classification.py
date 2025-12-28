@@ -330,8 +330,21 @@ class LCZClassificationProcessor:
         if idx == -1:
             layer.dataProvider().addAttributes([QgsField(field_name, QMetaType.QString, len=10)])
             layer.updateFields()
-            idx = layer.fields().indexFromName(field_name)
-            log_local(f"Campo {field_name} creato come QString")
+            idx = layer.fields().lookupField(field_name)
+            log_local(f"Campo {field_name} creato con indice {idx}")
+        else:
+            log_local(f"Campo {field_name} trovato con indice {idx}")
+        
+        # Create Vulnerability field (String)
+        vuln_field_name = 'lcz_vulnerability'
+        vuln_idx = layer.fields().indexFromName(vuln_field_name)
+        if vuln_idx == -1:
+            layer.dataProvider().addAttributes([QgsField(vuln_field_name, QMetaType.QString, len=20)])
+            layer.updateFields()
+            vuln_idx = layer.fields().lookupField(vuln_field_name)
+            log_local(f"Campo {vuln_field_name} creato con indice {vuln_idx}")
+        else:
+            log_local(f"Campo {vuln_field_name} trovato con indice {vuln_idx}")
         
         # Create RMSEP field (Double) for storing the RMSEP value
         rmsep_field_name = 'lcz_rmsep'
@@ -480,7 +493,11 @@ class LCZClassificationProcessor:
                         # Show explicit transition: "original → new" (e.g., "C → D")
                         esa_fix_status = f"{original_class} → {lcz_class}"
                 
+                # Get Vulnerability from LCZ class
+                vulnerability = LCZMappings.VULNERABILITY_MAPPING.get(lcz_class, 'Unknown/Other')
+                
                 layer.changeAttributeValue(feat_id, idx, lcz_class)
+                layer.changeAttributeValue(feat_id, vuln_idx, vulnerability)
                 layer.changeAttributeValue(feat_id, rmsep_idx, rmsep_value)
                 layer.changeAttributeValue(feat_id, matches_idx, perfect_matches)
                 layer.changeAttributeValue(feat_id, esa_fix_idx, esa_fix_status)
