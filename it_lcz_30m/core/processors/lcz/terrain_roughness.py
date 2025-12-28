@@ -6,7 +6,7 @@ from qgis.core import (
     QgsFeatureRequest, QgsVectorLayer, QgsCoordinateTransform, 
     QgsProject, QgsGeometry, QgsField
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QVariant, QMetaType
 from .base import LCZBaseProcessor
 
 class TerrainRoughnessProcessor(LCZBaseProcessor):
@@ -19,9 +19,8 @@ class TerrainRoughnessProcessor(LCZBaseProcessor):
         idx_zh = layer.fields().indexFromName('z_h')
         
         # Output fields
-        from qgis.PyQt.QtCore import QVariant
-        idx_dst = self._ensure_field(layer, 'terrain_rough', QVariant.Int) # Classification is Int
-        idx_z0 = self._ensure_field(layer, 'z0_value', QVariant.Double)
+        idx_dst = self._ensure_field(layer, 'terrain_rough', QMetaType.Int) # Classification is Int
+        idx_z0 = self._ensure_field(layer, 'z0_value', QMetaType.Double)
 
         # 1. Pre-fetch data if missing
         base_dir = self.dm.get_project_dir()

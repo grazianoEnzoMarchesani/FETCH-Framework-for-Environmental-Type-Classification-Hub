@@ -8,6 +8,7 @@ from qgis.core import (
     QgsCoordinateTransform, QgsVectorLayer, QgsGeometry,
     QgsCoordinateReferenceSystem, NULL
 )
+from qgis.PyQt.QtCore import QMetaType
 from .base import LCZBaseProcessor
 
 class AspectRatioProcessor(LCZBaseProcessor):
@@ -25,8 +26,7 @@ class AspectRatioProcessor(LCZBaseProcessor):
             idx_ar = layer.fields().indexFromName('aspect_ratio')
             if idx_ar == -1:
                 from qgis.core import QgsField
-                from qgis.PyQt.QtCore import QVariant
-                layer.dataProvider().addAttributes([QgsField('aspect_ratio', QVariant.Double)])
+                layer.dataProvider().addAttributes([QgsField('aspect_ratio', QMetaType.Double)])
                 layer.updateFields()
                 idx_ar = layer.fields().indexFromName('aspect_ratio')
 

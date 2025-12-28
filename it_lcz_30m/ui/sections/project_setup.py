@@ -19,7 +19,7 @@ from qgis.core import (
     QgsCoordinateReferenceSystem, QgsSimpleFillSymbolLayer,
     QgsSymbol, QgsSingleSymbolRenderer
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QVariant, QMetaType
 from qgis.PyQt.QtGui import QColor
 from qgis.gui import QgsMapLayerComboBox, QgsCollapsibleGroupBox
 
@@ -211,8 +211,8 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
             
             # Set up fields
             fields = QgsFields()
-            fields.append(QgsField("name", QVariant.String))
-            fields.append(QgsField("source", QVariant.String))
+            fields.append(QgsField("name", QMetaType.QString))
+            fields.append(QgsField("source", QMetaType.QString))
             
             # Create CRS
             crs = QgsCoordinateReferenceSystem(crs_authid)

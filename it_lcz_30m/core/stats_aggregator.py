@@ -1,0 +1,93 @@
+# -*- coding: utf-8 -*-
+"""
+Stats Aggregator for FETCH Plugin
+Processes the grid layer attributes to provide aggregated metrics for statistics.
+"""
+
+import numpy as np
+from qgis.core import QgsProject, QgsMessageLog, Qgis
+from .constants import LCZMappings, FieldNames
+
+class StatsAggregator:
+    @staticmethod
+    def get_layer_stats(layer):
+        """
+        Aggregates statistics from the grid layer.
+        Returns a dict with:
+        - lcz_counts: {class: count}
+        - rmsep_stats: {class: mean_rmsep}
+        - match_stats: {class: mean_matches}
+        - param_means: {class: {param: mean_val}}
+        - esa_correction: {count_corrected, count_total}
+        """
+        if not layer or not layer.isValid():
+            return None
+
+        # Fields we care about
+        lcz_field = 'lcz_class'
+        rmsep_field = 'lcz_rmsep'
+        matches_field = 'lcz_matches'
+        esa_fix_field = 'lcz_esa_fix'
+        
+        # Mapping for parameters
+        param_fields = LCZMappings.FIELD_TO_PARAM # {field_name: param_internal_name}
+
+        lcz_counts = {}
+        rmsep_data = {} # {class: [values]}
+        matches_data = {} # {class: [values]}
+        param_data = {} # {class: {param: [values]}}
+        esa_corrected_count = 0
+        total_valid_count = 0
+
+        for feat in layer.getFeatures():
+            lcz = feat.attribute(lcz_field)
+            if lcz is None or str(lcz) == 'NULL' or lcz == 'ERRORE':
+                continue
+            
+            total_valid_count += 1
+            lcz = str(lcz)
+            lcz_counts[lcz] = lcz_counts.get(lcz, 0) + 1
+            
+            # RMSEP
+            r_val = feat.attribute(rmsep_field)
+            if r_val not in (None, 'NULL'):
+                if lcz not in rmsep_data: rmsep_data[lcz] = []
+                rmsep_data[lcz].append(float(r_val))
+                
+            # Matches
+            m_val = feat.attribute(matches_field)
+            if m_val not in (None, 'NULL'):
+                if lcz not in matches_data: matches_data[lcz] = []
+                matches_data[lcz].append(int(m_val))
+                
+            # ESA Fix
+            esa_fix = feat.attribute(esa_fix_field)
+            if esa_fix not in (None, 'NULL', '-', 'ERRORE'):
+                esa_corrected_count += 1
+                
+            # Parameter means
+            if lcz not in param_data: param_data[lcz] = {}
+            for f_name, p_name in param_fields.items():
+                val = feat.attribute(f_name)
+                if val not in (None, 'NULL'):
+                    if p_name not in param_data[lcz]: param_data[lcz][p_name] = []
+                    param_data[lcz][p_name].append(float(val))
+
+        # Calculate averages
+        rmsep_stats = {lcz: np.mean(vals) for lcz, vals in rmsep_data.items() if vals}
+        match_stats = {lcz: np.mean(vals) for lcz, vals in matches_data.items() if vals}
+        
+        param_means = {}
+        for lcz, params in param_data.items():
+            param_means[lcz] = {p: np.mean(vals) for p, vals in params.items() if vals}
+
+        return {
+            'lcz_counts': lcz_counts,
+            'rmsep_stats': rmsep_stats,
+            'match_stats': match_stats,
+            'param_means': param_means,
+            'esa_correction': {
+                'corrected': esa_corrected_count,
+                'total': total_valid_count
+            }
+        }

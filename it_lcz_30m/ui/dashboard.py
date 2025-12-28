@@ -9,7 +9,7 @@ The UI is composed of modular section widgets and mixins for better maintainabil
 import os
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QScrollArea
+    QDockWidget, QWidget, QVBoxLayout, QScrollArea, QPushButton
 )
 from qgis.core import QgsProject, QgsMessageLog, Qgis, QgsApplication
 
@@ -26,6 +26,8 @@ from .sections import (
     ProjectSetupSection, DataAcquisitionSection, ProcessingSection,
     GridDefinitionSection, ParametersSection, ProgressInfoSection
 )
+from .widgets.stats_dialog import AdvancedStatsDialog
+from ..core.stats_aggregator import StatsAggregator
 from .mixins import LayerMixin, StyleMixin
 
 
@@ -85,6 +87,14 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.progress_section = ProgressInfoSection(self)
         self.scroll_layout.addStretch()
         self.layout.addWidget(self.progress_section)
+        
+        # Section 6: Advanced Statistics (Bottom Button)
+        self.stats_button = QPushButton("📊 Statistiche Avanzate")
+        self.stats_button.setObjectName("AccentButton")
+        self.stats_button.setToolTip("Visualizza statistiche e grafici avanzati della classificazione")
+        self.stats_button.setEnabled(False)
+        self.stats_button.clicked.connect(self.show_advanced_stats)
+        self.layout.addWidget(self.stats_button)
         
         self.setWidget(self.root)
         
@@ -192,6 +202,20 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         # Classification enabled if grid exists
         self.params_section.set_classify_enabled(has_grid)
+        
+        # Stats enabled if grid exists AND has lcz_class field populated
+        has_stats = False
+        if has_grid:
+            grid_layer = self.find_valid_grid_layer()
+            if grid_layer and grid_layer.fields().indexFromName('lcz_class') != -1:
+                # Check if at least one feature has a class
+                count = grid_layer.featureCount()
+                if count > 0:
+                    # We assume if the field exists and we ran classification, it's enough to enable the button.
+                    # A more thorough check would be to check if any value != NULL/N/D.
+                    has_stats = True
+        
+        self.stats_button.setEnabled(has_stats)
 
     # =========================================================================
     # Task Execution Methods
@@ -516,6 +540,21 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         task.taskTerminated.connect(lambda: on_finished(False))
         
         QgsApplication.taskManager().addTask(task)
+
+    def show_advanced_stats(self):
+        """Show the advanced statistics dialog."""
+        grid_layer = self.find_valid_grid_layer()
+        if not grid_layer:
+            self.iface.messageBar().pushMessage("Errore", "Nessun layer di classificazione utile trovato.", level=2)
+            return
+            
+        stats = StatsAggregator.get_layer_stats(grid_layer)
+        if not stats or not stats['lcz_counts']:
+            self.iface.messageBar().pushMessage("Info", "Nessun dato di classificazione trovato nel layer.", level=3)
+            return
+            
+        dialog = AdvancedStatsDialog(stats, self)
+        dialog.exec_()
 
     def closeEvent(self, event):
         """Handle close event."""

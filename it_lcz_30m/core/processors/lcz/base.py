@@ -13,7 +13,7 @@ class LCZBaseProcessor:
     def __init__(self, data_manager):
         self.dm = data_manager
 
-    def _ensure_field(self, layer, field_name, field_type=QVariant.Double):
+    def _ensure_field(self, layer, field_name, field_type=QMetaType.Double):
         """Ensures a field exists in the layer, creating it if necessary."""
         idx = layer.fields().indexFromName(field_name)
         if idx == -1:

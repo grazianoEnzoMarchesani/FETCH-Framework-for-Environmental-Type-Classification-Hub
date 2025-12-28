@@ -7,6 +7,7 @@ from qgis.core import (
     QgsRasterLayer, QgsFeatureRequest, Qgis,
     QgsProject, QgsGeometry, QgsField
 )
+from qgis.PyQt.QtCore import QMetaType
 from .base import LCZBaseProcessor
 
 class RoughnessHeightProcessor(LCZBaseProcessor):
@@ -33,8 +34,7 @@ class RoughnessHeightProcessor(LCZBaseProcessor):
             idx_zh = layer.fields().indexFromName('z_h')
             if idx_zh == -1:
                 from qgis.core import QgsField
-                from qgis.PyQt.QtCore import QVariant
-                layer.dataProvider().addAttributes([QgsField('z_h', QVariant.Double)])
+                layer.dataProvider().addAttributes([QgsField('z_h', QMetaType.Double)])
                 layer.updateFields()
                 idx_zh = layer.fields().indexFromName('z_h')
 

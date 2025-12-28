@@ -6,6 +6,7 @@ from qgis.core import (
     Qgis, QgsVectorLayer, QgsProject, QgsFeatureRequest, 
     QgsCoordinateTransform, QgsGeometry
 )
+from qgis.PyQt.QtCore import QMetaType
 import processing
 from .base import LCZBaseProcessor
 
@@ -95,9 +96,8 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                 ind_layer.startEditing()
                 if ind_layer.fields().indexFromName('heat_weight') == -1:
                     from qgis.core import QgsField
-                    from qgis.PyQt.QtCore import QVariant
                     # Fixed DeprecationWarning: use the standardized (name, type) constructor
-                    ind_layer.dataProvider().addAttributes([QgsField("heat_weight", QVariant.Double)])
+                    ind_layer.dataProvider().addAttributes([QgsField("heat_weight", QMetaType.Double)])
                     ind_layer.updateFields()
                 
                 idx_sector = ind_layer.fields().indexFromName('eprtr_sectors')

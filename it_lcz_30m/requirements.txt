@@ -1,0 +1,6 @@
+# FETCH Plugin Dependencies
+numpy
+rasterio
+eodag
+statsmodels
+matplotlib
