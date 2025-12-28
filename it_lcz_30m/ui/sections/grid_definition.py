@@ -7,8 +7,8 @@ Section 4: LCZ Grid creation and configuration.
 
 from qgis.PyQt.QtCore import pyqtSignal
 from qgis.PyQt.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, 
-    QPushButton, QRadioButton, QComboBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QPushButton, QRadioButton, QComboBox, QButtonGroup
 )
 from qgis.core import QgsMapLayerProxyModel, QgsApplication
 from qgis.gui import QgsMapLayerComboBox, QgsCollapsibleGroupBox
@@ -28,40 +28,93 @@ class GridDefinitionSection(QgsCollapsibleGroupBox):
     def _setup_ui(self):
         """Initialize the UI components."""
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(5, 10, 5, 10)
+        self.main_layout.setSpacing(10)
         
-        # Auto grid option
+        # Mode Selection Group
+        self.grid_group = QButtonGroup(self)
+        
+        self.selection_container = QWidget()
+        self.selection_layout = QVBoxLayout(self.selection_container)
+        self.selection_layout.setContentsMargins(0, 0, 0, 0)
+        self.selection_layout.setSpacing(0)
+        
+        # Row 1: Auto Grid
+        self.row_auto = QWidget()
+        self.row_auto.setObjectName("SourceRow")
+        layout_auto = QHBoxLayout(self.row_auto)
+        layout_auto.setContentsMargins(10, 5, 10, 5)
+        
         self.grid_auto_radio = QRadioButton("Genera griglia automatica")
+        self.grid_auto_radio.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
         self.grid_auto_radio.setChecked(True)
-        self.main_layout.addWidget(self.grid_auto_radio)
+        self.grid_group.addButton(self.grid_auto_radio)
+        layout_auto.addWidget(self.grid_auto_radio)
+        
+        layout_auto.addStretch()
         
         # Cell size selection
-        self.cell_size_layout = QHBoxLayout()
-        self.cell_size_layout.addWidget(QLabel("Dimensione:"))
+        lbl_size = QLabel("Dim:")
+        lbl_size.setStyleSheet("font-size: 10px; color: #7f8c8d;")
+        layout_auto.addWidget(lbl_size)
+        
         self.cell_size_combo = QComboBox()
         self.cell_size_combo.addItems(["30m", "50m", "100m"])
         self.cell_size_combo.setCurrentText("30m")
-        self.cell_size_layout.addWidget(self.cell_size_combo)
-        self.main_layout.addLayout(self.cell_size_layout)
+        self.cell_size_combo.setFixedWidth(70)
+        layout_auto.addWidget(self.cell_size_combo)
         
-        # Grid info label
-        self.grid_info_label = QLabel("(Seleziona area per calcolare celle)")
-        self.grid_info_label.setStyleSheet("font-size: 10px; color: #95a5a6; font-style: italic;")
-        self.main_layout.addWidget(self.grid_info_label)
+        self.selection_layout.addWidget(self.row_auto)
         
-        # Existing layer option
+        # Row 2: Existing Layer
+        self.row_layer = QWidget()
+        self.row_layer.setObjectName("SourceRow")
+        layout_layer = QHBoxLayout(self.row_layer)
+        layout_layer.setContentsMargins(10, 5, 10, 5)
+        
         self.grid_layer_radio = QRadioButton("Usa layer esistente")
-        self.main_layout.addWidget(self.grid_layer_radio)
+        self.grid_layer_radio.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
+        self.grid_group.addButton(self.grid_layer_radio)
+        layout_layer.addWidget(self.grid_layer_radio)
+        
+        layout_layer.addStretch()
         
         self.grid_layer_combo = QgsMapLayerComboBox()
         self.grid_layer_combo.setFilters(QgsMapLayerProxyModel.PolygonLayer)
         self.grid_layer_combo.setEnabled(False)
-        self.main_layout.addWidget(self.grid_layer_combo)
+        self.grid_layer_combo.setFixedWidth(150)
+        layout_layer.addWidget(self.grid_layer_combo)
+        
+        self.selection_layout.addWidget(self.row_layer)
+        
+        self.main_layout.addWidget(self.selection_container)
+        
+        # Info Card
+        self.info_card = QWidget()
+        self.info_card.setObjectName("ResultsCard")
+        self.info_layout = QVBoxLayout(self.info_card)
+        self.info_layout.setContentsMargins(12, 10, 12, 10)
+        self.info_layout.setSpacing(5)
+        
+        lbl_card_title = QLabel("INFORMAZIONI GRIGLIA")
+        lbl_card_title.setObjectName("ResultsHeader")
+        self.info_layout.addWidget(lbl_card_title)
+        
+        self.grid_info_label = QLabel("(Seleziona area per calcolare celle)")
+        self.grid_info_label.setObjectName("ExtentLabel") # Consistent with other sections
+        self.grid_info_label.setWordWrap(True)
+        self.info_layout.addWidget(self.grid_info_label)
+        
+        self.main_layout.addWidget(self.info_card)
         
         # Generate button
         self.btn_grid = QPushButton(" Genera/Applica Griglia")
         self.btn_grid.setObjectName("DarkButton")
         self.btn_grid.setIcon(QgsApplication.getThemeIcon("mActionRectangle.svg"))
+        self.btn_grid.setMinimumHeight(38)
+        self.main_layout.addSpacing(5)
         self.main_layout.addWidget(self.btn_grid)
+        self.main_layout.addSpacing(5)
         
     def _connect_signals(self):
         """Connect internal signals."""
