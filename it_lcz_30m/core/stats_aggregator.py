@@ -36,7 +36,9 @@ class StatsAggregator:
         rmsep_data = {} # {class: [values]}
         matches_data = {} # {class: [values]}
         esa_transitions = {} # {original: {new: count}}
+        param_data = {} # {class: {param: [values]}}
         param_data_pre = {} # {original_class: {param: [values]}}
+        esa_corrected_count = 0
         total_valid_count = 0
 
         for feat in layer.getFeatures():
