@@ -562,11 +562,14 @@ class AdvancedStatsDialog(QDialog):
                 counts = self.stats['lcz_counts']
                 dominant = max(counts, key=counts.get) if counts else "N/D"
                 
+                from datetime import datetime
+                now = datetime.now().strftime("%d/%m/%Y %H:%M")
+                
                 info_text = (
                     f"Superficie Analizzata: {total_ha:.1f} ha\n"
                     f"Numero Totale Celle: {total_cells}\n"
                     f"Classe LCZ Dominante: LCZ {dominant}\n"
-                    f"Data Report: {QColor(Qt.white).name()} (Sistema)" # Placeholder for real date if needed
+                    f"Data di Generazione: {now}"
                 )
                 fig_cover.text(0.5, 0.4, info_text, fontsize=12, ha='center', linespacing=2)
                 
