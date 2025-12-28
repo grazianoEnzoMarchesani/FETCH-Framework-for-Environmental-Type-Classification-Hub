@@ -16,9 +16,11 @@ from qgis.core import (
     QgsMapLayerProxyModel, QgsApplication, QgsProject,
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsField,
     QgsVectorFileWriter, QgsFields, QgsWkbTypes,
-    QgsCoordinateReferenceSystem
+    QgsCoordinateReferenceSystem, QgsSimpleFillSymbolLayer,
+    QgsSymbol, QgsSingleSymbolRenderer
 )
 from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtGui import QColor
 from qgis.gui import QgsMapLayerComboBox, QgsCollapsibleGroupBox
 
 from ...core.utils import is_within_italy
@@ -254,12 +256,48 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
                 QgsProject.instance().addMapLayer(boundary_layer)
                 self.boundary_layer_path = boundary_path
                 
+                # Apply custom styling
+                self._apply_boundary_styling(boundary_layer)
+                
                 # Select the new boundary layer in the combo
                 self.aoi_combo.setLayer(boundary_layer)
                 
         except Exception as e:
             # Silently fail - this is a convenience feature
             pass
+            
+    def _apply_boundary_styling(self, layer):
+        """
+        Apply custom styling to the boundary layer as requested:
+        - Fill: Light brown semi-transparent
+        - Stroke: Red dashed line (1mm)
+        """
+        # Create a simple fill symbol layer
+        # Fill: Light Tan (matched from image) alpha ~80/255
+        fill_color = QColor(200, 180, 140, 80) 
+        # Stroke: Solid Red (matched from image)
+        stroke_color = QColor(192, 0, 38)
+        
+        props = {
+            'color': f'{fill_color.red()},{fill_color.green()},{fill_color.blue()},{fill_color.alpha()}',
+            'outline_color': f'{stroke_color.red()},{stroke_color.green()},{stroke_color.blue()}',
+            'outline_width': '1.0',
+            'outline_width_unit': 'MM',
+            'outline_style': 'dash',
+            'joinstyle': 'bevel',
+            'style': 'no'
+        }
+        
+        symbol_layer = QgsSimpleFillSymbolLayer.create(props)
+        if symbol_layer:
+            # Create a fill symbol and set the layer
+            symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+            symbol.changeSymbolLayer(0, symbol_layer)
+            
+            # Apply renderer
+            renderer = QgsSingleSymbolRenderer(symbol)
+            layer.setRenderer(renderer)
+            layer.triggerRepaint()
         
     def get_extent_and_crs(self):
         """Get the current AOI extent and CRS."""
