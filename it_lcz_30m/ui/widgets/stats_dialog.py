@@ -132,6 +132,7 @@ class AdvancedStatsDialog(QDialog):
         self.tabs.addTab(self.create_parameters_tab(), "Morfologia")
         self.tabs.addTab(self.create_physical_tab(), "Proprietà Fisiche")
         self.tabs.addTab(self.create_esa_tab(), "Correzione ESA")
+        self.tabs.addTab(self.create_esa_comparison_tab(), "Validazione Post-ESA")
         
         self.layout.addWidget(self.tabs)
         
@@ -541,6 +542,81 @@ class AdvancedStatsDialog(QDialog):
 
         return tab
 
+    def create_esa_comparison_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        if not HAS_MATPLOTLIB: return tab
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        
+        # We compare a few key parameters Before vs After
+        params_to_compare = [
+            ('building_surface_fraction', 'Building Fraction (%)'),
+            ('sky_view_factor', 'SVF (0-1)'),
+            ('surface_albedo', 'Albedo (0-1)')
+        ]
+        
+        for p_id, p_label in params_to_compare:
+            container = QWidget()
+            cont_layout = QVBoxLayout(container)
+            
+            title = QLabel(p_label)
+            title.setStyleSheet("font-size: 13px; font-weight: bold; color: #2c3e50; margin-top: 10px;")
+            cont_layout.addWidget(title)
+            
+            chart_container = QFrame()
+            chart_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1;")
+            chart_container.setMinimumHeight(300)
+            chart_layout = QVBoxLayout(chart_container)
+            
+            canvas = MplCanvas(self, width=8, height=4)
+            
+            # Combine classes from pre and post to have a complete X axis
+            all_classes = sorted(list(set(self.stats['param_means'].keys()) | set(self.stats['param_means_pre'].keys())))
+            
+            vals_post = []
+            vals_pre = []
+            valid_x = []
+            
+            for lcz in all_classes:
+                v_post = self.stats['param_means'].get(lcz, {}).get(p_id)
+                v_pre = self.stats['param_means_pre'].get(lcz, {}).get(p_id)
+                
+                if v_post is not None or v_pre is not None:
+                    valid_x.append(lcz)
+                    vals_post.append(v_post if v_post is not None else 0)
+                    vals_pre.append(v_pre if v_pre is not None else 0)
+            
+            if valid_x:
+                x = np.arange(len(valid_x))
+                width = 0.35
+                
+                canvas.axes.bar(x - width/2, vals_pre, width, label='Prima (Originale)', color='#bdc3c7', alpha=0.7)
+                canvas.axes.bar(x + width/2, vals_post, width, label='Dopo (ESA Corrected)', color='#3498db', alpha=0.8)
+                
+                canvas.axes.set_xticks(x)
+                canvas.axes.set_xticklabels(valid_x)
+                canvas.axes.legend(fontsize=9, frameon=False, loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=2)
+                canvas.axes.set_ylabel("Media")
+                
+                chart_layout.addWidget(canvas)
+                cont_layout.addWidget(chart_container)
+                content_layout.addWidget(container)
+
+        layout.addWidget(self.create_info_box(
+            "Validazione Scientifica Post-Correzione",
+            "Questi grafici permettono di verificare se il rimescolamento delle classi LCZ operato da ESA WorldCover altera significativamente le medie morfologiche. "
+            "Idealmente, le barre dovrebbero essere simili: se noti scostamenti enormi, significa che la correzione ESA ha spostato molte celle in classi che non rispecchiano i parametri locali calcolati."
+        ))
+        
+        return tab
+
     def export_to_pdf(self):
         from qgis.PyQt.QtWidgets import QFileDialog
         import os
@@ -692,9 +768,27 @@ class AdvancedStatsDialog(QDialog):
                             
                             ax.set_title(f"Evoluzione celle LCZ {orig_class}", fontsize=12, fontweight='bold')
                         
-                        fig_trans.tight_layout(rect=[0, 0.03, 1, 0.92])
-                        pdf.savefig(fig_trans)
-                        plt.close(fig_trans)
+                # 6. ESA Validation Summary
+                fig_val = Figure(figsize=(8.27, 11.69))
+                fig_val.suptitle("Validazione Post-Correzione ESA", fontsize=16, fontweight='bold', y=0.95)
+                
+                # Plot SVF Comparison in PDF
+                ax_v = fig_val.add_subplot(211)
+                p_id = 'sky_view_factor'
+                all_cls = sorted(list(set(self.stats['param_means'].keys()) | set(self.stats['param_means_pre'].keys())))
+                v_pre = [self.stats['param_means_pre'].get(l, {}).get(p_id, 0) for l in all_cls]
+                v_post = [self.stats['param_means'].get(l, {}).get(p_id, 0) for l in all_cls]
+                
+                x = np.arange(len(all_cls))
+                ax_v.bar(x-0.2, v_pre, 0.4, label='Originale', color='#bdc3c7')
+                ax_v.bar(x+0.2, v_post, 0.4, label='Corrected', color='#3498db')
+                ax_v.set_xticks(x)
+                ax_v.set_xticklabels(all_cls, fontsize=8)
+                ax_v.set_title("Confronto SVF (Prima vs Dopo)", fontsize=12)
+                ax_v.legend()
+                
+                pdf.savefig(fig_val)
+                plt.close(fig_val)
 
             from ...core.stats_aggregator import QgsMessageLog, Qgis # Using aggregator's alias
             QgsMessageLog.logMessage(f"Report PDF salvato correttamente in: {path}", "FETCH", Qgis.Success)
