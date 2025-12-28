@@ -14,7 +14,11 @@ from qgis.core import QgsMapLayerProxyModel, QgsApplication
 from qgis.gui import QgsMapLayerComboBox, QgsCollapsibleGroupBox
 
 
-class GridDefinitionSection(QgsCollapsibleGroupBox):
+from ..mixins.help_mixin import HelpMixin
+from ..help_content import HELP_GRID_DEFINITION
+
+
+class GridDefinitionSection(QgsCollapsibleGroupBox, HelpMixin):
     """Section 4: Grid Definition - LCZ grid creation settings."""
     
     # Signals
@@ -52,6 +56,10 @@ class GridDefinitionSection(QgsCollapsibleGroupBox):
         self.grid_group.addButton(self.grid_auto_radio)
         layout_auto.addWidget(self.grid_auto_radio)
         
+        # Help auto
+        help_auto = self.create_help_button("automatic_grid", HELP_GRID_DEFINITION)
+        layout_auto.addWidget(help_auto)
+        
         layout_auto.addStretch()
         
         # Cell size selection
@@ -77,6 +85,10 @@ class GridDefinitionSection(QgsCollapsibleGroupBox):
         self.grid_layer_radio.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
         self.grid_group.addButton(self.grid_layer_radio)
         layout_layer.addWidget(self.grid_layer_radio)
+        
+        # Help existing
+        help_exist = self.create_help_button("existing_layer", HELP_GRID_DEFINITION)
+        layout_layer.addWidget(help_exist)
         
         layout_layer.addStretch()
         

@@ -47,6 +47,9 @@ class HelpMixin:
         text += f"<p>{data['content']}</p>"
         text += f"<hr><p style='font-size: 10px; color: #7f8c8d;'><i>Fonte: {data['source']}</i></p>"
         
+        if 'url' in data and data['url']:
+            text += f"<p><a href='{data['url']}'>🔗 Link al servizio/repository</a></p>"
+        
         msg.setText(text)
         msg.setTextFormat(Qt.RichText)
         msg.setStandardButtons(QMessageBox.Ok)
