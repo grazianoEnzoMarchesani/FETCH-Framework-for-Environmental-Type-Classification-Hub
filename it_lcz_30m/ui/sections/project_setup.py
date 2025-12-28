@@ -10,7 +10,7 @@ import os
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QGridLayout, QHBoxLayout, QLabel, 
-    QPushButton, QRadioButton
+    QPushButton, QRadioButton, QButtonGroup
 )
 from qgis.core import (
     QgsMapLayerProxyModel, QgsApplication, QgsProject,
@@ -46,7 +46,9 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         self.main_layout.setContentsMargins(5, 10, 5, 10)
         self.main_layout.setSpacing(10)
         
-        # AOI Mode Selection
+        # AOI Mode Selection (Grouped for mutual exclusivity)
+        self.aoi_group = QButtonGroup(self)
+        
         self.selection_container = QWidget()
         self.selection_layout = QVBoxLayout(self.selection_container)
         self.selection_layout.setContentsMargins(0, 0, 0, 0)
@@ -61,6 +63,7 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         self.aoi_layer_radio = QRadioButton("Usa Layer Vettoriale (AOI)")
         self.aoi_layer_radio.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
         self.aoi_layer_radio.setChecked(True)
+        self.aoi_group.addButton(self.aoi_layer_radio)
         layout_layer.addWidget(self.aoi_layer_radio)
         
         layout_layer.addStretch()
@@ -80,6 +83,7 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         
         self.aoi_extent_radio = QRadioButton("Usa Estensione Mappa")
         self.aoi_extent_radio.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
+        self.aoi_group.addButton(self.aoi_extent_radio)
         layout_extent.addWidget(self.aoi_extent_radio)
         
         layout_extent.addStretch()
