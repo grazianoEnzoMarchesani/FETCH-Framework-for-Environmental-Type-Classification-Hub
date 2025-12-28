@@ -15,6 +15,7 @@ from qgis.core import QgsProject, QgsMessageLog, Qgis, QgsApplication
 
 # Local modular imports
 from ..core.data_manager import DataManager
+from ..core.constants import LayerNames, FileNames
 from .styles import STYLESHEET
 from .constants import PARAM_VISUALIZATION
 from .tasks import (
@@ -144,9 +145,9 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
             return False
 
         # 1. Sequential Processing Dependencies (Section 3)
-        has_dtm = has_valid_layer("DTM Tinitaly (10m)")
-        has_dsm = has_valid_layer("DSM Sintetico (10m)")
-        has_svf = has_valid_layer("Sky View Factor (10m)")
+        has_dtm = has_valid_layer(LayerNames.DTM)
+        has_dsm = has_valid_layer(LayerNames.DSM)
+        has_svf = has_valid_layer(LayerNames.SVF)
         
         self.proc_section.set_dsm_enabled(has_dtm)
         self.proc_section.set_svf_enabled(has_dsm)
@@ -155,10 +156,13 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.grid_section.setEnabled(has_svf)
         
         # 3. Section 5 needs a Grid layer
-        grid_names = ["Griglia LCZ (30m)", "Griglia LCZ (50m)", "Griglia LCZ (100m)", 
-                      "Griglia LCZ (custom)", "Griglia LCZ (30m) - Parametri", 
-                      "Griglia LCZ (50m) - Parametri", "Griglia LCZ (100m) - Parametri", 
-                      "Griglia LCZ (custom) - Parametri"]
+        grid_names = [
+            LayerNames.grid_name(30), LayerNames.grid_name(50), LayerNames.grid_name(100),
+            LayerNames.GRID_CUSTOM,
+            LayerNames.grid_params_name(30), LayerNames.grid_params_name(50),
+            LayerNames.grid_params_name(100),
+            LayerNames.GRID_CUSTOM + LayerNames.GRID_PARAMS_SUFFIX
+        ]
         
         has_grid = any(has_valid_layer(name) for name in grid_names)
         
@@ -291,7 +295,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
                 self.progress_section.set_status("✓ DSM generato con successo.")
                 self.iface.messageBar().pushMessage("FETCH", "DSM sintetico generato!", level=3)
                 if task.output_path:
-                    self._load_raster_layer(task.output_path, "DSM Sintetico (10m)")
+                    self._load_raster_layer(task.output_path, LayerNames.DSM)
                     # Create grid if extent available
                     extent, crs = self.setup_section.get_extent_and_crs()
                     if extent:
@@ -330,7 +334,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
                 self.progress_section.set_status("✓ SVF calcolato con successo.")
                 self.iface.messageBar().pushMessage("FETCH", "Sky View Factor calcolato!", level=3)
                 if task.output_path:
-                    self._load_raster_layer(task.output_path, "Sky View Factor (10m)")
+                    self._load_raster_layer(task.output_path, LayerNames.SVF)
                     # Create grid if extent available
                     extent, crs = self.setup_section.get_extent_and_crs()
                     if extent:
@@ -388,9 +392,9 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
                 if task.output_path:
                     if self.grid_section.is_auto_mode():
                         cell_size = self.grid_section.get_cell_size()
-                        layer_name = f"Griglia LCZ ({cell_size}m)"
+                        layer_name = LayerNames.grid_name(cell_size)
                     else:
-                        layer_name = "Griglia LCZ (custom)"
+                        layer_name = LayerNames.GRID_CUSTOM
                     self.data_manager.load_grid_layer(task.output_path, layer_name)
             else:
                 self.progress_section.set_status(f"✗ Creazione griglia fallita: {task.message}", is_error=True)

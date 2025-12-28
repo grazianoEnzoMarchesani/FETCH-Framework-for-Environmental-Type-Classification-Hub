@@ -27,63 +27,13 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, List
 from datetime import datetime
 
-# Fix multiprocessing issues on macOS with QGIS
-import multiprocessing
-import sys
-import os
-
-if sys.platform == 'darwin':  # macOS
-    # Point to the actual python executable inside the QGIS bundle
-    # This prevents 'spawn' from launching the QGIS GUI binary
-    exe_dir = os.path.dirname(sys.executable)
-    # Search for versioned python (e.g., python3.12) as priority
-    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
-    candidate_names = [f"python{py_ver}", "python3", "Python"]
-    
-    found_p = None
-    for folder in [exe_dir, os.path.join(exe_dir, "bin")]:
-        for name in candidate_names:
-            p = os.path.join(folder, name)
-            if os.path.exists(p):
-                found_p = p
-                break
-        if found_p: break
-        
-    if found_p:
-        try:
-            if not hasattr(sys, '_qgis_executable'):
-                sys._qgis_executable = sys.executable
-            sys.executable = found_p
-            multiprocessing.set_executable(found_p)
-        except: pass
-            
-    # Always ensure start method is 'spawn' on macOS inside QGIS
-    try:
-        if multiprocessing.get_start_method(allow_none=True) != 'spawn':
-            multiprocessing.set_start_method('spawn', force=True)
-    except RuntimeError:
-        pass  # Already set
+# Apply platform-specific fixes (MacOS multiprocessing, PROJ_LIB)
+from .utils import apply_plugin_fixes
+apply_plugin_fixes()
 
 # Disable EODAG parallel downloads to avoid multiprocessing issues in QGIS
 os.environ['EODAG__COP_DATASPACE__DOWNLOAD__OUTPUTS_EXTENSION'] = '.zip'
 os.environ['EODAG__COP_DATASPACE__DOWNLOAD__EXTRACT'] = 'true'
-
-# Fix PROJ data path for QGIS on macOS to avoid "Valid PROJ data directory not found"
-if sys.platform == 'darwin':
-    from qgis.core import QgsApplication
-    proj_path = os.path.join(QgsApplication.pkgDataPath(), "proj")
-    if not os.path.exists(proj_path):
-        # Fallback for some QGIS versions/installations
-        proj_path = "/Applications/QGIS-final-3_44_5.app/Contents/Resources/qgis/proj"
-    
-    if os.path.exists(proj_path):
-        os.environ['PROJ_LIB'] = proj_path
-        os.environ['PROJ_DATA'] = proj_path
-        try:
-            import pyproj
-            pyproj.datadir.set_data_dir(proj_path)
-        except:
-            pass
 
 
 import numpy as np

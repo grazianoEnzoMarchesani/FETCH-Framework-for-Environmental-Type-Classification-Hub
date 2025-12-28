@@ -3,6 +3,9 @@
 import os
 from qgis.core import QgsProject, QgsMessageLog, Qgis
 
+# Centralized constants
+from .constants import LayerNames, FileNames, FolderNames
+
 # Import new specialized modules
 from .downloaders.tinitaly import TinitalyDownloader
 from .downloaders.tum import TUMDownloader
@@ -41,25 +44,8 @@ class DataManager:
         self.vector_proc = VectorProcessor(self)
         self.lcz_calc = LCZCalculator(self)
 
-        # Fix PROJ environment for macOS
-        self._setup_proj_env()
-
         # UI Compatibility Attributes
         self.tum_categories = ["LoD1"]
-
-    def _setup_proj_env(self):
-        import sys
-        if sys.platform == 'darwin':
-            from qgis.core import QgsApplication
-            proj_path = os.path.join(QgsApplication.pkgDataPath(), "proj")
-            if os.path.exists(proj_path):
-                os.environ['PROJ_LIB'] = proj_path
-                os.environ['PROJ_DATA'] = proj_path
-                try:
-                    import pyproj
-                    pyproj.datadir.set_data_dir(proj_path)
-                except:
-                    pass
 
     def get_project_dir(self):
         project_path = QgsProject.instance().fileName()
@@ -161,16 +147,16 @@ class DataManager:
         t_extent = transform.transformBoundingBox(extent)
         
         mapping = {
-            "tinitaly_tiles": {"pattern": "**/*_s10.tif", "output_name": "dtm_10m.tif", "merge": True, "recursive": True},
-            "tum_lod1": {"pattern": "*.json", "output_name": "buildings_lod1.gpkg", "type": "vector"},
-            "eth_canopy": {"pattern": "*.tif", "output_name": "canopy_height_10m.tif", "merge": True},
-            "esa_worldcover": {"pattern": "*.tif", "output_name": "landuse_10m.tif", "merge": True},
-            "meta_hrsl": {"pattern": "meta_hrsl_aoi.tif", "output_name": "population_10m.tif", "merge": False},
-            "sentinel2_albedo": {"pattern": "*_albedo_10m.tif", "output_name": "albedo_10m.tif", "merge": False},
-            "osm_roads": {"pattern": "roads.geojson", "output_name": "roads.gpkg", "type": "vector"},
-            "anas_traffic": {"pattern": "traffic_points.json", "output_name": "traffic_points.gpkg", "type": "vector"},
-            "copernicus_hrl": {"pattern": "*.tif", "output_name": "imperviousness_10m.tif", "merge": True},
-            "eprtr_industry": {"pattern": "industrial_sites.json", "output_name": "industry_points.gpkg", "type": "vector"},
+            FolderNames.TINITALY: {"pattern": "**/*_s10.tif", "output_name": FileNames.DTM, "merge": True, "recursive": True},
+            FolderNames.TUM: {"pattern": "*.json", "output_name": FileNames.BUILDINGS, "type": "vector"},
+            FolderNames.ETH: {"pattern": "*.tif", "output_name": FileNames.CANOPY, "merge": True},
+            FolderNames.ESA: {"pattern": "*.tif", "output_name": FileNames.LANDUSE, "merge": True},
+            FolderNames.META: {"pattern": "meta_hrsl_aoi.tif", "output_name": FileNames.POPULATION, "merge": False},
+            FolderNames.SENTINEL: {"pattern": "*_albedo_10m.tif", "output_name": FileNames.ALBEDO, "merge": False},
+            FolderNames.OSM: {"pattern": "roads.geojson", "output_name": FileNames.ROADS, "type": "vector"},
+            FolderNames.ANAS: {"pattern": "traffic_points.json", "output_name": FileNames.TRAFFIC, "type": "vector"},
+            FolderNames.HRL: {"pattern": "*.tif", "output_name": FileNames.IMPERVIOUSNESS, "merge": True},
+            FolderNames.INDUSTRY: {"pattern": "industrial_sites.json", "output_name": FileNames.INDUSTRY, "type": "vector"},
         }
         
         output_paths = []
@@ -196,11 +182,16 @@ class DataManager:
         from qgis.core import QgsRasterLayer, QgsVectorLayer
         layers = []
         mapping = {
-            "dtm_10m.tif": "DTM Tinitaly (10m)", "buildings_lod1.gpkg": "Edifici TUM LoD1",
-            "canopy_height_10m.tif": "Altezza Alberi ETH (10m)", "landuse_10m.tif": "Land Use ESA (10m)",
-            "population_10m.tif": "Popolazione Meta HRSL", "albedo_10m.tif": "Albedo Sentinel-2 (10m)",
-            "roads.gpkg": "Reti Stradali OSM", "traffic_points.gpkg": "Punti Traffico ANAS",
-            "imperviousness_10m.tif": "Impermeabilità Copernicus (10m)", "industry_points.gpkg": "Punti Industriali E-PRTR",
+            FileNames.DTM: LayerNames.DTM,
+            FileNames.BUILDINGS: LayerNames.BUILDINGS,
+            FileNames.CANOPY: LayerNames.CANOPY,
+            FileNames.LANDUSE: LayerNames.LANDUSE,
+            FileNames.POPULATION: LayerNames.POPULATION,
+            FileNames.ALBEDO: LayerNames.ALBEDO,
+            FileNames.ROADS: LayerNames.ROADS,
+            FileNames.TRAFFIC: LayerNames.TRAFFIC,
+            FileNames.IMPERVIOUSNESS: LayerNames.IMPERVIOUSNESS,
+            FileNames.INDUSTRY: LayerNames.INDUSTRY,
         }
         for fname, dname in mapping.items():
             path = os.path.join(unified_dir, fname)

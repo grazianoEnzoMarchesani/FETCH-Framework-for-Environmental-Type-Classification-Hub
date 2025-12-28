@@ -17,6 +17,9 @@ try:
 except ImportError:
     HAS_STATSMODELS = False
 
+# Centralized constants
+from ...constants import LCZMappings, FileNames, FolderNames, FieldNames
+
 
 class LCZClassifier:
     """
@@ -24,50 +27,14 @@ class LCZClassifier:
     Uses RMSEP (Root Mean Square Error Percentage) to find the best matching LCZ class.
     """
     
-    # LCZ class definitions
-    LCZ_CLASSES = {
-        '1': 'Compact highrise', '2': 'Compact midrise', '3': 'Compact lowrise',
-        '4': 'Open highrise', '5': 'Open midrise', '6': 'Open lowrise',
-        '7': 'Lightweight lowrise', '8': 'Large lowrise', '9': 'Sparsely built',
-        '10': 'Heavy industry', 'A': 'Dense trees', 'B': 'Scattered trees',
-        'C': 'Bush, scrub', 'D': 'Low plants', 'E': 'Bare rock or paved',
-        'F': 'Bare soil or sand', 'G': 'Water'
-    }
+    # LCZ class definitions - reference centralized constants
+    LCZ_CLASSES = LCZMappings.CLASSES
     
     # LCZ parameter ranges from Stewart & Oke (2012)
-    LCZ_PARAMETERS = {
-        '1': {'sky_view_factor': (0.2, 0.4), 'aspect_ratio': (2, float('inf')), 'building_surface_fraction': (40, 60), 'impervious_surface_fraction': (40, 60), 'pervious_surface_fraction': (0, 10), 'height_roughness': (25, float('inf')), 'terrain_roughness': (8, 8), 'surface_admittance': (1500, 1800), 'surface_albedo': (0.1, 0.2), 'anthropogenic_heat': (50, 300)},
-        '2': {'sky_view_factor': (0.3, 0.6), 'aspect_ratio': (0.75, 2), 'building_surface_fraction': (40, 70), 'impervious_surface_fraction': (30, 50), 'pervious_surface_fraction': (0, 20), 'height_roughness': (10, 25), 'terrain_roughness': (6, 7), 'surface_admittance': (1500, 2200), 'surface_albedo': (0.1, 0.2), 'anthropogenic_heat': (0, 75)},
-        '3': {'sky_view_factor': (0.2, 0.6), 'aspect_ratio': (0.75, 1.5), 'building_surface_fraction': (40, 70), 'impervious_surface_fraction': (20, 50), 'pervious_surface_fraction': (0, 30), 'height_roughness': (3, 10), 'terrain_roughness': (6, 6), 'surface_admittance': (1200, 1800), 'surface_albedo': (0.1, 0.2), 'anthropogenic_heat': (0, 75)},
-        '4': {'sky_view_factor': (0.5, 0.7), 'aspect_ratio': (0.75, 1.25), 'building_surface_fraction': (20, 40), 'impervious_surface_fraction': (30, 40), 'pervious_surface_fraction': (30, 40), 'height_roughness': (25, float('inf')), 'terrain_roughness': (7, 8), 'surface_admittance': (1400, 1800), 'surface_albedo': (0.12, 0.25), 'anthropogenic_heat': (0, 50)},
-        '5': {'sky_view_factor': (0.5, 0.8), 'aspect_ratio': (0.3, 0.75), 'building_surface_fraction': (20, 40), 'impervious_surface_fraction': (30, 50), 'pervious_surface_fraction': (20, 40), 'height_roughness': (10, 25), 'terrain_roughness': (5, 6), 'surface_admittance': (1400, 2000), 'surface_albedo': (0.12, 0.25), 'anthropogenic_heat': (0, 25)},
-        '6': {'sky_view_factor': (0.6, 0.9), 'aspect_ratio': (0.3, 0.75), 'building_surface_fraction': (20, 40), 'impervious_surface_fraction': (20, 50), 'pervious_surface_fraction': (30, 60), 'height_roughness': (3, 10), 'terrain_roughness': (5, 6), 'surface_admittance': (1200, 1800), 'surface_albedo': (0.12, 0.25), 'anthropogenic_heat': (0, 25)},
-        '7': {'sky_view_factor': (0.2, 0.5), 'aspect_ratio': (1, 2), 'building_surface_fraction': (60, 90), 'impervious_surface_fraction': (0, 20), 'pervious_surface_fraction': (0, 30), 'height_roughness': (2, 4), 'terrain_roughness': (4, 5), 'surface_admittance': (800, 1500), 'surface_albedo': (0.15, 0.35), 'anthropogenic_heat': (0, 35)},
-        '8': {'sky_view_factor': (0.7, float('inf')), 'aspect_ratio': (0.1, 0.3), 'building_surface_fraction': (30, 50), 'impervious_surface_fraction': (40, 50), 'pervious_surface_fraction': (0, 20), 'height_roughness': (3, 10), 'terrain_roughness': (5, 5), 'surface_admittance': (1200, 1800), 'surface_albedo': (0.15, 0.25), 'anthropogenic_heat': (0, 50)},
-        '9': {'sky_view_factor': (0.8, 1), 'aspect_ratio': (0.1, 0.25), 'building_surface_fraction': (10, 20), 'impervious_surface_fraction': (0, 20), 'pervious_surface_fraction': (60, 80), 'height_roughness': (3, 10), 'terrain_roughness': (5, 6), 'surface_admittance': (1000, 1800), 'surface_albedo': (0.12, 0.25), 'anthropogenic_heat': (0, 10)},
-        '10': {'sky_view_factor': (0.6, 0.9), 'aspect_ratio': (0.2, 0.5), 'building_surface_fraction': (20, 30), 'impervious_surface_fraction': (20, 40), 'pervious_surface_fraction': (40, 50), 'height_roughness': (5, 15), 'terrain_roughness': (5, 6), 'surface_admittance': (1000, 2500), 'surface_albedo': (0.12, 0.2), 'anthropogenic_heat': (300, float('inf'))},
-        'A': {'sky_view_factor': (0, 0.4), 'aspect_ratio': (1, float('inf')), 'building_surface_fraction': (0, 10), 'impervious_surface_fraction': (0, 10), 'pervious_surface_fraction': (90, 100), 'height_roughness': (3, 30), 'terrain_roughness': (8, 8), 'surface_admittance': (1000, 1800), 'surface_albedo': (0.12, 0.2), 'anthropogenic_heat': (0, 0)},
-        'B': {'sky_view_factor': (0.5, 0.8), 'aspect_ratio': (0.25, 0.75), 'building_surface_fraction': (0, 10), 'impervious_surface_fraction': (0, 10), 'pervious_surface_fraction': (90, 100), 'height_roughness': (3, 15), 'terrain_roughness': (5, 6), 'surface_admittance': (1200, 1800), 'surface_albedo': (0.15, 0.25), 'anthropogenic_heat': (0, 0)},
-        'C': {'sky_view_factor': (0.7, 0.9), 'aspect_ratio': (0.25, 1), 'building_surface_fraction': (0, 10), 'impervious_surface_fraction': (0, 10), 'pervious_surface_fraction': (90, 100), 'height_roughness': (0, 2), 'terrain_roughness': (4, 5), 'surface_admittance': (700, 1500), 'surface_albedo': (0.15, 0.30), 'anthropogenic_heat': (0, 0)},
-        'D': {'sky_view_factor': (0.9, 1), 'aspect_ratio': (0, 0.1), 'building_surface_fraction': (0, 10), 'impervious_surface_fraction': (0, 10), 'pervious_surface_fraction': (90, 100), 'height_roughness': (0, 1), 'terrain_roughness': (3, 4), 'surface_admittance': (1200, 1600), 'surface_albedo': (0.15, 0.25), 'anthropogenic_heat': (0, 0)},
-        'E': {'sky_view_factor': (0.9, 1), 'aspect_ratio': (0, 0.1), 'building_surface_fraction': (0, 10), 'impervious_surface_fraction': (90, 100), 'pervious_surface_fraction': (0, 10), 'height_roughness': (0, 0.25), 'terrain_roughness': (1, 2), 'surface_admittance': (1200, 2500), 'surface_albedo': (0.15, 0.3), 'anthropogenic_heat': (0, 0)},
-        'F': {'sky_view_factor': (0.9, 1), 'aspect_ratio': (0, 0.1), 'building_surface_fraction': (0, 10), 'impervious_surface_fraction': (0, 10), 'pervious_surface_fraction': (90, 100), 'height_roughness': (0, 0.25), 'terrain_roughness': (1, 2), 'surface_admittance': (600, 1400), 'surface_albedo': (0.2, 0.35), 'anthropogenic_heat': (0, 0)},
-        'G': {'sky_view_factor': (0.9, 1), 'aspect_ratio': (0, 0.1), 'building_surface_fraction': (0, 10), 'impervious_surface_fraction': (0, 10), 'pervious_surface_fraction': (90, 100), 'height_roughness': (0, 0.25), 'terrain_roughness': (1, 1), 'surface_admittance': (1500, 1500), 'surface_albedo': (0.02, 0.10), 'anthropogenic_heat': (0, 0)}
-    }
+    LCZ_PARAMETERS = LCZMappings.PARAMETERS
     
     # Mapping from grid layer fields to LCZ parameter names
-    FIELD_MAPPING = {
-        'svf_mean': 'sky_view_factor',
-        'aspect_ratio': 'aspect_ratio',
-        'building_frac': 'building_surface_fraction',
-        'impervious_frac': 'impervious_surface_fraction',
-        'pervious_frac': 'pervious_surface_fraction',
-        'z_h': 'height_roughness',
-        'terrain_rough': 'terrain_roughness',
-        'admittance': 'surface_admittance',
-        'albedo': 'surface_albedo',
-        'anthro_heat': 'anthropogenic_heat'
-    }
+    FIELD_MAPPING = LCZMappings.FIELD_TO_PARAM
 
     def __init__(self, parameters):
         """
@@ -203,20 +170,8 @@ class LCZClassificationProcessor:
     Includes ESA WorldCover-based correction for natural classes.
     """
     
-    # ESA WorldCover class codes to LCZ natural class mapping
-    ESA_TO_LCZ = {
-        10: 'A',   # Tree cover → Dense trees (or B if low SVF)
-        20: 'C',   # Shrubland → Bush, scrub
-        30: 'D',   # Grassland → Low plants
-        40: 'D',   # Cropland → Low plants
-        50: None,  # Built-up → Keep RMSEP classification (1-10)
-        60: 'F',   # Bare/sparse vegetation → Bare soil (check impervious for E)
-        70: 'F',   # Snow and ice → Bare soil/sand
-        80: 'G',   # Permanent water bodies → Water
-        90: 'D',   # Herbaceous wetland → Low plants (near water)
-        95: 'A',   # Mangroves → Dense trees
-        100: 'D',  # Moss and lichen → Low plants
-    }
+    # ESA WorldCover class codes to LCZ natural class mapping - reference centralized constants
+    ESA_TO_LCZ = LCZMappings.ESA_TO_LCZ
     
     def __init__(self, data_manager):
         self.dm = data_manager
@@ -230,8 +185,8 @@ class LCZClassificationProcessor:
         base_dir = self.dm.get_project_dir()
         if not base_dir:
             return None
-        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
-        landuse_path = os.path.join(unified_dir, "landuse_10m.tif")
+        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), FolderNames.UNIFIED)
+        landuse_path = os.path.join(unified_dir, FileNames.LANDUSE)
         return landuse_path if os.path.exists(landuse_path) else None
     
     def _get_dominant_esa_class(self, geometry, raster_provider):

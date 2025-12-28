@@ -1,36 +1,10 @@
 # -*- coding: utf-8 -*-
 
-import sys
-import multiprocessing
 import os.path
 
-# MacOS Multiprocessing Fix for QGIS (prevents opening extra GUI instances)
-if sys.platform == 'darwin':
-    exe_dir = os.path.dirname(sys.executable)
-    # Search for versioned python (e.g., python3.12) as priority
-    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
-    candidate_names = [f"python{py_ver}", "python3", "Python"]
-    
-    found_p = None
-    for folder in [exe_dir, os.path.join(exe_dir, "bin")]:
-        for name in candidate_names:
-            p = os.path.join(folder, name)
-            if os.path.exists(p):
-                found_p = p
-                break
-        if found_p: break
-        
-    if found_p:
-        try:
-            if not hasattr(sys, '_qgis_executable'):
-                sys._qgis_executable = sys.executable
-            sys.executable = found_p
-            multiprocessing.set_executable(found_p)
-        except: pass
-    try:
-        if multiprocessing.get_start_method(allow_none=True) != 'spawn':
-            multiprocessing.set_start_method('spawn', force=True)
-    except: pass
+# Apply platform-specific fixes (MacOS multiprocessing, PROJ_LIB)
+from .core.utils import apply_plugin_fixes
+apply_plugin_fixes()
 
 
 from qgis.PyQt.QtCore import QCoreApplication, Qt

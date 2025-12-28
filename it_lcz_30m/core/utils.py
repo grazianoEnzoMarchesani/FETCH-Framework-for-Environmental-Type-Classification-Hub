@@ -1,5 +1,73 @@
 # -*- coding: utf-8 -*-
 
+import os
+import sys
+
+
+def apply_plugin_fixes():
+    """
+    Apply necessary platform-specific fixes for the FETCH plugin.
+    
+    On macOS, this:
+    1. Sets sys.executable to the actual Python interpreter (prevents QGIS GUI duplication)
+    2. Sets multiprocessing start method to 'spawn'
+    3. Configures PROJ_LIB/PROJ_DATA environment variables
+    
+    Should be called at plugin startup (main.py) and in standalone scripts (sentinel2_albedo.py).
+    """
+    if sys.platform != 'darwin':
+        return  # Only needed on macOS
+    
+    import multiprocessing
+    
+    # --- Multiprocessing Fix ---
+    # Prevents QGIS from opening duplicate GUI windows when using multiprocessing
+    exe_dir = os.path.dirname(sys.executable)
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    candidate_names = [f"python{py_ver}", "python3", "Python"]
+    
+    found_p = None
+    for folder in [exe_dir, os.path.join(exe_dir, "bin")]:
+        for name in candidate_names:
+            p = os.path.join(folder, name)
+            if os.path.exists(p):
+                found_p = p
+                break
+        if found_p:
+            break
+    
+    if found_p:
+        try:
+            if not hasattr(sys, '_qgis_executable'):
+                sys._qgis_executable = sys.executable
+            sys.executable = found_p
+            multiprocessing.set_executable(found_p)
+        except:
+            pass
+    
+    try:
+        if multiprocessing.get_start_method(allow_none=True) != 'spawn':
+            multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass  # Already set
+    
+    # --- PROJ Environment Fix ---
+    # Fixes "Valid PROJ data directory not found" errors
+    try:
+        from qgis.core import QgsApplication
+        proj_path = os.path.join(QgsApplication.pkgDataPath(), "proj")
+        if os.path.exists(proj_path):
+            os.environ['PROJ_LIB'] = proj_path
+            os.environ['PROJ_DATA'] = proj_path
+            try:
+                import pyproj
+                pyproj.datadir.set_data_dir(proj_path)
+            except:
+                pass
+    except:
+        pass
+
+
 from qgis.core import QgsRectangle, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject, QgsGeometry
 
 def is_within_italy(extent, crs_auth_id):
@@ -58,16 +126,7 @@ def get_utm_zone_for_extent(extent, crs_auth_id):
 def download_file_generic(url, local_path, auth=None):
     """Generic file downloader used by various modules with robust SSL error handling."""
     import requests
-    import os
-    import sys
-    from qgis.core import QgsMessageLog, Qgis, QgsApplication
-    
-    # Fix PROJ environment if missing (needed for some library imports during download/processing)
-    if sys.platform == 'darwin' and 'PROJ_LIB' not in os.environ:
-        proj_path = os.path.join(QgsApplication.pkgDataPath(), "proj")
-        if os.path.exists(proj_path):
-            os.environ['PROJ_LIB'] = proj_path
-            os.environ['PROJ_DATA'] = proj_path
+    from qgis.core import QgsMessageLog, Qgis
 
     try:
         # Try with SSL verification first
