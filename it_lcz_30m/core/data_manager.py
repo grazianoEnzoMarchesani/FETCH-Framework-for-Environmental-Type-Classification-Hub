@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import os
-from qgis.core import QgsProject, QgsMessageLog, Qgis
+from qgis.core import QgsProject, QgsMessageLog, Qgis, QgsCoordinateReferenceSystem
 
 # Centralized constants
 from .constants import LayerNames, FileNames, FolderNames
@@ -140,6 +140,9 @@ class DataManager:
         if not os.path.exists(unified_dir): os.makedirs(unified_dir)
         
         target_crs_auth = self.get_utm_zone_for_extent(extent, crs_auth_id)
+        if log_callback:
+            log_callback(f"Definizione CRS Target: {target_crs_auth}")
+            
         from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform
         t_crs = QgsCoordinateReferenceSystem(target_crs_auth)
         s_crs = QgsCoordinateReferenceSystem(crs_auth_id)
@@ -174,7 +177,6 @@ class DataManager:
         return (True, f"Processati {len(output_paths)} dataset", output_paths) if output_paths else (False, "Nessun dato", [])
 
     def load_unified_layers(self, log_callback=None):
-        # Keep loading logic here as it interacts closely with QGIS Project
         base_dir = self.get_project_dir()
         if not base_dir: return []
         unified_dir = os.path.join(base_dir, self.get_data_dir_name(), "unified")
@@ -193,13 +195,51 @@ class DataManager:
             FileNames.IMPERVIOUSNESS: LayerNames.IMPERVIOUSNESS,
             FileNames.INDUSTRY: LayerNames.INDUSTRY,
         }
+
+        # Determine optimal UTM projection from a reference layer (e.g. Buildings)
+        # to ensure project consistency
+        ref_path = os.path.join(unified_dir, FileNames.BUILDINGS)
+        target_crs_forced = None
+        if os.path.exists(ref_path):
+            l_ref = QgsVectorLayer(ref_path, "ref", "ogr")
+            if l_ref.isValid():
+                target_crs_forced = l_ref.crs().authid()
+        
+        # Fallback to current project CRS if layer ref fails
+        if not target_crs_forced:
+            target_crs_forced = QgsProject.instance().crs().authid()
+
         for fname, dname in mapping.items():
             path = os.path.join(unified_dir, fname)
-            if not os.path.exists(path) or QgsProject.instance().mapLayersByName(dname): continue
+            if not os.path.exists(path): continue
+            
+            # Remove existing layer to force reload
+            existing = QgsProject.instance().mapLayersByName(dname)
+            for lyr_old in existing:
+                QgsProject.instance().removeMapLayer(lyr_old.id())
+                
             lyr = QgsRasterLayer(path, dname) if fname.endswith('.tif') else QgsVectorLayer(path, dname, "ogr")
             if lyr.isValid():
+                # Explicitly set CRS to avoid metadata mismatch issues
+                lyr.setCrs(QgsCoordinateReferenceSystem(target_crs_forced))
                 QgsProject.instance().addMapLayer(lyr)
                 layers.append(lyr)
+            elif log_callback:
+                log_callback(f"Layer non valido caricando {fname}: {path}", Qgis.Critical)
+        
+        # PRO-ACTIVE VISIBILITY FIXES
+        if target_crs_forced:
+            # Set the entire Project to the UTM Zone
+            QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(target_crs_forced))
+        
+        if self.iface:
+            # Zoom to the buildings layer (the most relevant one)
+            lyr_buildings = QgsProject.instance().mapLayersByName(LayerNames.BUILDINGS)
+            if lyr_buildings:
+                self.iface.mapCanvas().setExtent(lyr_buildings[0].extent())
+            
+            self.iface.mapCanvas().refresh()
+            
         return layers
 
     def load_grid_layer(self, grid_path, layer_name=None, log_callback=None):

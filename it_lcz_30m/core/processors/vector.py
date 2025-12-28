@@ -24,50 +24,80 @@ class VectorProcessor:
         if not input_files: return False
         
         input_file = input_files[0]
-        temp_reprojected = output_path.replace(".gpkg", "_temp.gpkg")
-        
         # Load the input layer
         layer = QgsVectorLayer(input_file, "temp_input", "ogr")
         if not layer.isValid():
             self.log(f"Layer non valido: {input_file}", Qgis.Critical)
             return False
+            
+        # Ensure CRS is set (fallback to EPSG:4326 if unknown/missing)
+        if not layer.crs().isValid():
+            self.log(f"CRS non valido per {os.path.basename(input_file)}. Imposto EPSG:4326 come fallback.", Qgis.Warning)
+            layer.setCrs(QgsCoordinateReferenceSystem("EPSG:4326"))
         
-        # Count features for logging
-        total_features = layer.featureCount()
-        self.log(f"Elaborazione {total_features} features da {os.path.basename(input_file)}...")
-        
-        # Step 1: Reproject to target CRS (with geometry validation)
-        # Use context options to skip invalid geometries
-        from qgis.core import QgsProcessingContext, QgsFeatureRequest
+        # Prepare processing context with geometry validation fallback
+        from qgis.core import QgsProcessingContext, QgsFeatureRequest, QgsProcessing
         context = QgsProcessingContext()
-        # SkipInvalid = 1 (AbortOnInvalid=0, SkipInvalid=1, NoCheck=2)
         context.setInvalidGeometryCheck(QgsFeatureRequest.GeometrySkipInvalid)
         
-        processing.run("native:reprojectlayer", {
-            'INPUT': input_file, 
-            'TARGET_CRS': target_crs, 
-            'OUTPUT': temp_reprojected
-        }, context=context)
+        # Step 0: Projection Safety Check
+        if not layer.crs().isValid() or layer.crs().authid() == "":
+            self.log(f"Assegnazione CRS 4326 a layer sorgente senza metadati...")
+            res_assigned = processing.run("native:assignprojection", {
+                'INPUT': layer,
+                'CRS': QgsCoordinateReferenceSystem("EPSG:4326"),
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, context=context)
+            assigned_layer = res_assigned['OUTPUT']
+        else:
+            assigned_layer = layer
         
-        # Step 2: Clip to extent (also with skip invalid)
+        # Step 1/4: Reproject to Target CRS (Internal Layer)
+        res_repro = processing.run("native:reprojectlayer", {
+            'INPUT': assigned_layer, 
+            'TARGET_CRS': target_crs, 
+            'OUTPUT': 'TEMPORARY_OUTPUT'
+        }, context=context)
+        repro_layer = res_repro['OUTPUT']
+        
+        # Diagnostic Log: verify coordinate range in UTM
+        repro_ext = repro_layer.extent()
+        self.log(f"Step 1/4 (Reproject): {repro_layer.featureCount()} features a {target_crs}")
+        self.log(f" -> Extent UTM: {repro_ext.xMinimum():.1f}, {repro_ext.yMinimum():.1f}")
+        
+        # Step 2/4: Fix Geometries (Internal Layer)
+        res_fixed = processing.run("native:fixgeometries", {
+            'INPUT': repro_layer,
+            'OUTPUT': 'TEMPORARY_OUTPUT'
+        }, context=context)
+        fixed_layer = res_fixed['OUTPUT']
+        self.log(f"Step 2/4 (Fix): {fixed_layer.featureCount()} geometrie riparate")
+        
+        # Step 3/4: Clip to extent (Final File)
+        # Usage of object-based Extent avoids locale/precision issues
         processing.run("native:extractbyextent", {
-            'INPUT': temp_reprojected,
-            'EXTENT': f"{target_extent.xMinimum()},{target_extent.xMaximum()},{target_extent.yMinimum()},{target_extent.yMaximum()}",
+            'INPUT': fixed_layer,
+            'EXTENT': target_extent, 
             'CLIP': True, 
             'OUTPUT': output_path
         }, context=context)
         
-        # Cleanup temp files
-        if os.path.exists(temp_reprojected):
-            try: os.remove(temp_reprojected)
-            except: pass
-        
-        # Log result
+        # Step 4/4: Create Spatial Index (Crucial for visibility/rendering)
         if os.path.exists(output_path):
+            processing.run("native:createspatialindex", {
+                'INPUT': output_path
+            }, context=context)
+            
+            # Final validation check
             result_layer = QgsVectorLayer(output_path, "temp_result", "ogr")
             if result_layer.isValid():
-                self.log(f"Processate {result_layer.featureCount()} features (di {total_features} originali)")
-        
+                self.log(f"Step 3/4 (Clip): {result_layer.featureCount()} features salvate in {os.path.basename(output_path)}")
+                self.log(f"Step 4/4 (Index): Indice spaziale creato per {os.path.basename(output_path)}")
+            else:
+                self.log(f"ERRORE: Layer finale non valido: {output_path}", Qgis.Critical)
+        else:
+            self.log(f"ERRORE: Output non creato in {output_path}", Qgis.Critical)
+            
         return os.path.exists(output_path)
 
     def create_lcz_grid(self, extent, crs_auth_id, cell_size=100, log_callback=None):

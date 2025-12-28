@@ -111,17 +111,27 @@ def get_utm_zone_for_extent(extent, crs_auth_id):
     Determina la zona UTM corretta basata sul centroide dell'extent.
     Restituisce l'EPSG della zona UTM appropriata per l'Italia.
     """
-    source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
-    wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
-    transform = QgsCoordinateTransform(source_crs, wgs84, QgsProject.instance())
-    wgs84_extent = transform.transformBoundingBox(extent)
-    
-    # Calcola zona UTM dal centroide
-    center_lon = (wgs84_extent.xMinimum() + wgs84_extent.xMaximum()) / 2
-    zone = int((center_lon + 180) / 6) + 1
-    
-    # Per Italia, usa sempre emisfero nord (326XX)
-    return f"EPSG:326{zone:02d}"
+    try:
+        source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
+        wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+        transform = QgsCoordinateTransform(source_crs, wgs84, QgsProject.instance())
+        
+        # Transform the centroid for better stability on large/invalid extents
+        center = extent.center()
+        w84_center = transform.transform(center)
+        
+        center_lon = w84_center.x()
+        
+        # Clip to Italy's approximate longitude range (6E to 19E)
+        if center_lon < 6: center_lon = 6
+        if center_lon > 19: center_lon = 19
+        
+        zone = int((center_lon + 180) / 6) + 1
+        return f"EPSG:326{zone:02d}"
+    except Exception as e:
+        QgsMessageLog.logMessage(f"Fallback UTM Zone detection (e: {e})", "FETCH", Qgis.Warning)
+        # Default for Italy (Zone 32N covers Milan, Turin, Bologna, Florence, Rome)
+        return "EPSG:32632"
 
 def download_file_generic(url, local_path, auth=None):
     """Generic file downloader used by various modules with robust SSL error handling."""
