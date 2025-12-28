@@ -162,13 +162,20 @@ class AdvancedStatsDialog(QDialog):
         summary_layout = QHBoxLayout()
         
         total_cells = sum(self.stats['lcz_counts'].values())
-        unique_classes = len(self.stats['lcz_counts'])
+        
+        # Calculate Dominant Class
+        counts = self.stats['lcz_counts']
+        dominant_class = max(counts, key=counts.get) if counts else "N/D"
+        
+        # Calculate Total Area (Each 30m cell is 900m2 = 0.09 hectares)
+        total_ha = total_cells * 0.09
         
         summary_layout.addWidget(self.create_stat_card("Celle Totali", str(total_cells), "#3498db"))
-        summary_layout.addWidget(self.create_stat_card("Classi LCZ Unite", str(unique_classes), "#2ecc71"))
+        summary_layout.addWidget(self.create_stat_card("Superficie (ha)", f"{total_ha:.1f}", "#2ecc71"))
         
         avg_rmsep = np.mean(list(self.stats['rmsep_stats'].values())) if self.stats['rmsep_stats'] else 0
         summary_layout.addWidget(self.create_stat_card("RMSEP Medio", f"{avg_rmsep:.2f}", "#f1c40f"))
+        summary_layout.addWidget(self.create_stat_card("Classe Dominante", f"LCZ {dominant_class}", "#e67e22"))
         
         layout.addLayout(summary_layout)
         
