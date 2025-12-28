@@ -109,4 +109,64 @@ QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled {
 #IndicatorButton:disabled {
     background-color: #bdc3c7;
 }
+#ParamRow {
+    background-color: #ffffff;
+    border-bottom: 1px solid #f0f0f0;
+}
+#ParamRow:hover {
+    background-color: #fcfcfc;
+}
+#ResultsCard {
+    background-color: #f1f2f6; 
+    border: 1px solid #dcdde1; 
+    border-radius: 6px;
+}
+#ResultsHeader {
+    font-size: 10px; 
+    font-weight: bold; 
+    color: #7f8c8d; 
+    text-transform: uppercase;
+}
+#CalculateButton {
+    background-color: #f8f9fa;
+    color: #2c3e50;
+    border: 1px solid #dcdde1;
+    font-weight: 600;
+    font-size: 10px;
+    padding: 4px 10px;
+    min-width: 80px;
+}
+#CalculateButton:hover {
+    background-color: #e9ecef;
+    border-color: #bdc3c7;
+}
+#CalculateButton:pressed {
+    background-color: #dee2e6;
+}
+#CalculateButton:disabled {
+    background-color: #f1f2f6;
+    color: #b2bec3;
+}
+#VisualButton {
+    background-color: #f8f9fa; 
+    border: 1px solid #dcdde1;
+    border-radius: 9px;
+    min-width: 18px;
+    max-width: 18px;
+    min-height: 18px;
+    max-height: 18px;
+    padding: 0;
+}
+#VisualButton:enabled {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2ecc71, stop:1 #27ae60);
+    border: 1px solid #219150;
+}
+#VisualButton:enabled:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #34e883, stop:1 #2ecc71);
+    border-color: #27ae60;
+}
+#VisualButton:disabled {
+    background-color: #f8f9fa;
+    border: 1px dashed #ced4da;
+}
 """

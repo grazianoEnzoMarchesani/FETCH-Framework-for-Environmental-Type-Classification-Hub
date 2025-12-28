@@ -61,12 +61,28 @@ class StyleMixin:
                 elif config['field'] == 'lcz_vulnerability':
                     palette = LCZMappings.VULNERABILITY_COLORS
                     ordered_keys = LCZMappings.VULNERABILITY_ORDER
+                elif config['field'] == 'lcz_esa_fix':
+                    # Dynamic categories for ESA Fix (transitions like "C → D")
+                    palette = LCZMappings.COLORS
+                    unique_values = grid_layer.uniqueValues(field_idx)
+                    ordered_keys = sorted([str(v) for v in unique_values if v is not None])
                 else:
                     self.iface.messageBar().pushMessage("Errore", f"Mappatura non definita per renderer categorizzato: {field_name}", level=2)
                     return
 
                 for cat_value in ordered_keys:
-                    color_hex = palette.get(cat_value)
+                    color_hex = None
+                    if config['field'] == 'lcz_esa_fix':
+                        if cat_value == '-':
+                            color_hex = '#bebebe' # Gray for no fix
+                        elif ' → ' in cat_value:
+                            target_lcz = cat_value.split(' → ')[-1]
+                            color_hex = palette.get(target_lcz, '#bebebe')
+                        else:
+                            color_hex = palette.get(cat_value, '#bebebe')
+                    else:
+                        color_hex = palette.get(cat_value)
+                    
                     if not color_hex:
                         continue
                     

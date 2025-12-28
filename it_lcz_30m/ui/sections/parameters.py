@@ -32,83 +32,120 @@ class ParametersSection(QgsCollapsibleGroupBox):
     def _setup_ui(self):
         """Initialize the UI components."""
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(5, 10, 5, 10)
+        self.main_layout.setSpacing(0)
         
         # Info label
         self.params_info_label = QLabel("Calcola parametri LCZ per ogni cella:")
-        self.params_info_label.setStyleSheet("font-size: 11px; color: #7f8c8d; font-style: italic;")
+        self.params_info_label.setStyleSheet("font-size: 11px; color: #7f8c8d; font-style: italic; margin-bottom: 5px;")
         self.main_layout.addWidget(self.params_info_label)
         
-        # Grid of parameter buttons with indicator dots
-        self.params_grid = QGridLayout()
-        self.params_grid.setHorizontalSpacing(4)
+        # Container for the list of parameters
+        self.params_container = QWidget()
+        self.params_list_layout = QVBoxLayout(self.params_container)
+        self.params_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.params_list_layout.setSpacing(0)
         
-        row = 0
-        for i, (pid, name, tip, fields) in enumerate(PARAM_DEFINITIONS):
-            col = (i % 2) * 3  # Each param takes 3 columns: button + indicators
-            if i > 0 and i % 2 == 0:
-                row += 1
+        for pid, name, tip, fields in PARAM_DEFINITIONS:
+            row_widget = QWidget()
+            row_widget.setObjectName("ParamRow")
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(10, 8, 10, 8)
             
-            # Main parameter button
-            btn = QPushButton(name)
-            btn.setObjectName("AccentButton")
-            btn.setStyleSheet("font-size: 10px; padding: 5px;")
+            # Label
+            lbl = QLabel(name)
+            lbl.setWordWrap(True)  # Allow name to wrap in narrow panels
+            lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #2c3e50;")
+            lbl.setToolTip(tip)
+            row_layout.addWidget(lbl)
+            
+            row_layout.addStretch()
+            
+            # Calculate Button
+            btn = QPushButton("Calcola")
+            btn.setObjectName("CalculateButton")
+            btn.setFixedWidth(80)  # Align buttons by giving them a fixed width
             btn.setToolTip(tip)
             btn.clicked.connect(lambda checked, p=pid: self.parameter_requested.emit(p))
-            self.params_grid.addWidget(btn, row, col)
+            row_layout.addWidget(btn)
             self.param_buttons[pid] = btn
             
-            # Indicator buttons container
-            indicators_widget = QWidget()
-            indicators_layout = QHBoxLayout(indicators_widget)
-            indicators_layout.setContentsMargins(0, 0, 0, 0)
-            indicators_layout.setSpacing(2)
+            # Indicators Container (Fixed width to align buttons)
+            indicators_area = QWidget()
+            indicators_area.setFixedWidth(75)  # Space for 3 dots + spacing
+            indicators_layout = QHBoxLayout(indicators_area)
+            indicators_layout.setContentsMargins(5, 0, 0, 0)
+            indicators_layout.setSpacing(4)
             
             for field in fields:
                 indicator = QPushButton()
-                indicator.setObjectName("IndicatorButton")
-                indicator.setEnabled(False)  # Start disabled
+                indicator.setObjectName("VisualButton")
+                indicator.setFixedSize(18, 18)
+                indicator.setEnabled(False)
                 indicator.setToolTip(f"Visualizza {PARAM_VISUALIZATION.get(field, {}).get('label', field)} sulla mappa")
                 indicator.clicked.connect(lambda checked, f=field: self.visualization_requested.emit(f))
                 indicators_layout.addWidget(indicator)
                 self.indicator_buttons[field] = indicator
             
             indicators_layout.addStretch()
-            self.params_grid.addWidget(indicators_widget, row, col + 1)
+            row_layout.addWidget(indicators_area)
             
-        self.main_layout.addLayout(self.params_grid)
+            self.params_list_layout.addWidget(row_widget)
+            
+        self.main_layout.addWidget(self.params_container)
+        self.main_layout.addSpacing(10)
         
-        # Classification Results Visualization (added row)
-        self.results_layout = QHBoxLayout()
-        self.results_layout.setContentsMargins(0, 5, 0, 5)
+        # Classification Results Visualization (footer grid for better responsiveness)
+        self.results_card = QWidget()
+        self.results_card.setObjectName("ResultsCard")
+        self.results_grid = QGridLayout(self.results_card)
+        self.results_grid.setContentsMargins(12, 12, 12, 12)
+        self.results_grid.setHorizontalSpacing(15)
+        self.results_grid.setVerticalSpacing(10)
         
-        self.lbl_results = QLabel("Risultati:")
-        self.lbl_results.setStyleSheet("font-size: 10px; font-weight: bold; color: #34495e;")
-        self.results_layout.addWidget(self.lbl_results)
+        self.lbl_results_header = QLabel("Visualizza Risultati Classificazione:")
+        self.lbl_results_header.setObjectName("ResultsHeader")
+        self.results_grid.addWidget(self.lbl_results_header, 0, 0, 1, 2)
         
-        # LCZ Indicator
-        self.ind_lcz = QPushButton()
-        self.ind_lcz.setObjectName("IndicatorButton")
-        self.ind_lcz.setEnabled(False)
-        self.ind_lcz.setToolTip("Visualizza Classi LCZ sulla mappa")
-        self.ind_lcz.clicked.connect(lambda: self.visualization_requested.emit('lcz_class'))
-        self.results_layout.addWidget(self.ind_lcz)
-        self.results_layout.addWidget(QLabel("LCZ"))
-        self.indicator_buttons['lcz_class'] = self.ind_lcz
+        # Helper nested function to create result items with indicators on the right (consistent with top list)
+        def add_result_item(field, label, tooltip, row, col, span=1):
+            container = QWidget()
+            layout = QHBoxLayout(container)
+            layout.setContentsMargins(5, 2, 5, 2)
+            layout.setSpacing(10)
+            
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #34495e;")
+            layout.addWidget(lbl)
+            
+            layout.addStretch()
+            
+            # Indicator Dot (same style as above)
+            btn = QPushButton()
+            btn.setObjectName("VisualButton")
+            btn.setFixedSize(18, 18)
+            btn.setEnabled(False)
+            btn.setToolTip(tooltip)
+            btn.clicked.connect(lambda: self.visualization_requested.emit(field))
+            layout.addWidget(btn)
+            
+            self.results_grid.addWidget(container, row, col, 1, span)
+            self.indicator_buttons[field] = btn
+            return btn
+
+        # Row 1
+        self.ind_lcz = add_result_item('lcz_class', "LCZ", "Visualizza Classi LCZ", 1, 0)
+        self.ind_rmsep = add_result_item('lcz_rmsep', "ERRORE", "Visualizza Errore (RMSEP)", 1, 1)
         
-        self.results_layout.addSpacing(10)
+        # Row 2
+        self.ind_matches = add_result_item('lcz_matches', "MATCH", "Visualizza Corrispondenze", 2, 0)
+        self.ind_esa = add_result_item('lcz_esa_fix', "FIX ESA", "Visualizza Rettifica ESA", 2, 1)
         
-        # Vulnerability Indicator
-        self.ind_vuln = QPushButton()
-        self.ind_vuln.setObjectName("IndicatorButton")
-        self.ind_vuln.setEnabled(False)
-        self.ind_vuln.setToolTip("Visualizza Vulnerabilità UHI sulla mappa")
-        self.ind_vuln.clicked.connect(lambda: self.visualization_requested.emit('lcz_vulnerability'))
-        self.results_layout.addWidget(self.ind_vuln)
-        self.results_layout.addWidget(QLabel("VULN"))
-        self.indicator_buttons['lcz_vulnerability'] = self.ind_vuln
+        # Row 3 (Full width for longer label)
+        self.ind_vuln = add_result_item('lcz_vulnerability', "VULNERABILITÀ", "Visualizza Vulnerabilità", 3, 0, 2)
         
-        self.results_layout.addStretch()
-        self.main_layout.addLayout(self.results_layout)
+        self.main_layout.addWidget(self.results_card)
+        self.main_layout.addSpacing(10)
         
         # Classification button
         self.btn_classify = QPushButton(" Esegui Classificazione Finale")
