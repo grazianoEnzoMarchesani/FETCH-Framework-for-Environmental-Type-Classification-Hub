@@ -593,46 +593,58 @@ class AdvancedStatsDialog(QDialog):
                 pdf.savefig(fig_dist)
                 plt.close(fig_dist)
                 
-                # 3. Parameters Pages (1 for Morph, 1 for Phys)
-                for group_name, params in [("Morfologia Urbana", [
-                    ('building_surface_fraction', 'Building Frac (%)'),
-                    ('sky_view_factor', 'SVF (0-1)'),
-                    ('height_roughness', 'Roughness H (m)'),
-                    ('aspect_ratio', 'Aspect Ratio (H/W)')
-                ]), ("Proprietà Fisiche", [
-                    ('surface_albedo', 'Albedo (0-1)'),
-                    ('surface_admittance', 'Surface Admittance'),
-                    ('anthropogenic_heat', 'Anthro. Heat (W/m²)')
-                ])]:
-                    fig_p = Figure(figsize=(8.27, 11.69))
-                    fig_p.suptitle(group_name, fontsize=16, fontweight='bold', y=0.95)
-                    
-                    for i, (p_id, p_label) in enumerate(params):
-                        ax = fig_p.add_subplot(4, 1, i+1)
-                        valid_classes = []
-                        values = []
-                        colors_p = []
-                        for lcz in sorted(self.stats['param_means'].keys()):
-                            if p_id in self.stats['param_means'][lcz]:
-                                valid_classes.append(lcz)
-                                values.append(self.stats['param_means'][lcz][p_id])
-                                colors_p.append(LCZMappings.COLORS.get(lcz, '#bebebe'))
+                # 3. Parameters Pages
+                all_param_groups = [
+                    ("Morfologia Urbana", [
+                        ('building_surface_fraction', 'Building Frac (%)'),
+                        ('sky_view_factor', 'SVF (0-1)'),
+                        ('impervious_surface_fraction', 'Impervious (%)'),
+                        ('pervious_surface_fraction', 'Pervious (%)'),
+                        ('height_roughness', 'Roughness H (m)'),
+                        ('aspect_ratio', 'Aspect Ratio (H/W)'),
+                        ('terrain_roughness', 'Terrain Roughness (z0)')
+                    ]), 
+                    ("Proprietà Fisiche", [
+                        ('surface_albedo', 'Albedo (0-1)'),
+                        ('surface_admittance', 'Surface Admittance'),
+                        ('anthropogenic_heat', 'Anthro. Heat (W/m²)')
+                    ])
+                ]
+
+                for group_name, params in all_param_groups:
+                    # Grouping 3 charts per page for better readability in A4
+                    for i in range(0, len(params), 3):
+                        fig_p = Figure(figsize=(8.27, 11.69))
+                        fig_p.suptitle(f"{group_name} (Parte {i//3 + 1})", fontsize=16, fontweight='bold', y=0.95)
                         
-                        if values:
-                            ax.bar(valid_classes, values, color=colors_p, alpha=0.7)
-                            # Draw ref ranges (simplified for PDF)
-                            for j, lcz in enumerate(valid_classes):
-                                lcz_ref = LCZMappings.PARAMETERS.get(lcz, {})
-                                if p_id in lcz_ref:
-                                    p_min, p_max = lcz_ref[p_id]
-                                    disp_max = p_max if p_max != float('inf') else p_min * 1.5
-                                    ax.vlines(j, p_min, disp_max, color='#2c3e50', alpha=0.5, linewidth=3)
+                        chunk = params[i:i+3]
+                        for k, (p_id, p_label) in enumerate(chunk):
+                            ax = fig_p.add_subplot(3, 1, k+1)
+                            valid_classes = []
+                            values = []
+                            colors_p = []
+                            for lcz in sorted(self.stats['param_means'].keys()):
+                                if p_id in self.stats['param_means'][lcz]:
+                                    valid_classes.append(lcz)
+                                    values.append(self.stats['param_means'][lcz][p_id])
+                                    colors_p.append(LCZMappings.COLORS.get(lcz, '#bebebe'))
                             
-                            ax.set_title(p_label, fontsize=10)
-                    
-                    fig_p.tight_layout(rect=[0, 0.03, 1, 0.92])
-                    pdf.savefig(fig_p)
-                    plt.close(fig_p)
+                            if values:
+                                ax.bar(valid_classes, values, color=colors_p, alpha=0.7)
+                                # Draw ref ranges (simplified for PDF)
+                                for j, lcz in enumerate(valid_classes):
+                                    lcz_ref = LCZMappings.PARAMETERS.get(lcz, {})
+                                    if p_id in lcz_ref:
+                                        p_min, p_max = lcz_ref[p_id]
+                                        disp_max = p_max if p_max != float('inf') else p_min * 1.5
+                                        ax.vlines(j, p_min, disp_max, color='#2c3e50', alpha=0.5, linewidth=3)
+                                
+                                ax.set_title(p_label, fontsize=11, fontweight='bold')
+                                ax.tick_params(labelsize=8)
+                        
+                        fig_p.tight_layout(rect=[0, 0.03, 1, 0.92])
+                        pdf.savefig(fig_p)
+                        plt.close(fig_p)
 
                 # 4. ESA Correction Page
                 fig_esa = Figure(figsize=(8.27, 11.69))
