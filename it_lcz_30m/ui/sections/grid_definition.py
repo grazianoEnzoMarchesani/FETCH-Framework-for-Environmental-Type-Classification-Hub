@@ -56,11 +56,11 @@ class GridDefinitionSection(QgsCollapsibleGroupBox, HelpMixin):
         self.grid_group.addButton(self.grid_auto_radio)
         layout_auto.addWidget(self.grid_auto_radio)
         
+        layout_auto.addStretch()
+        
         # Help auto
         help_auto = self.create_help_button("automatic_grid", HELP_GRID_DEFINITION)
         layout_auto.addWidget(help_auto)
-        
-        layout_auto.addStretch()
         
         # Cell size selection
         lbl_size = QLabel("Dim:")
@@ -86,11 +86,11 @@ class GridDefinitionSection(QgsCollapsibleGroupBox, HelpMixin):
         self.grid_group.addButton(self.grid_layer_radio)
         layout_layer.addWidget(self.grid_layer_radio)
         
+        layout_layer.addStretch()
+        
         # Help existing
         help_exist = self.create_help_button("existing_layer", HELP_GRID_DEFINITION)
         layout_layer.addWidget(help_exist)
-        
-        layout_layer.addStretch()
         
         self.grid_layer_combo = QgsMapLayerComboBox()
         self.grid_layer_combo.setFilters(QgsMapLayerProxyModel.PolygonLayer)

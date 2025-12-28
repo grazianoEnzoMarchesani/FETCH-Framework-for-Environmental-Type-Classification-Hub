@@ -72,12 +72,12 @@ class DataAcquisitionSection(QgsCollapsibleGroupBox, HelpMixin):
                 "Copernicus HRL (10m)": "copernicus",
                 "Industrial Points (E-PRTR)": "industrial"
             }
+            row_layout.addStretch()
+            
             help_key = key_map.get(src)
             if help_key:
                 help_btn = self.create_help_button(help_key, HELP_DATA_ACQUISITION)
                 row_layout.addWidget(help_btn)
-            
-            row_layout.addStretch()
             
             self.sources_list_layout.addWidget(row_widget)
             self.checks[src] = cb
@@ -97,11 +97,11 @@ class DataAcquisitionSection(QgsCollapsibleGroupBox, HelpMixin):
         self.lbl_card_title.setObjectName("CardHeader")
         header_row.addWidget(self.lbl_card_title)
         
+        header_row.addStretch()
+        
         # Add help to credentials
         help_creds = self.create_help_button("cdse_creds", HELP_DATA_ACQUISITION)
         header_row.addWidget(help_creds)
-        
-        header_row.addStretch()
         
         self.cdse_link = QLabel('<a href="https://dataspace.copernicus.eu">Registrati</a>')
         self.cdse_link.setObjectName("AuthLink")
@@ -136,16 +136,16 @@ class DataAcquisitionSection(QgsCollapsibleGroupBox, HelpMixin):
         self.remember_checkbox.setStyleSheet("font-size: 10px; color: #34495e;")
         actions_row.addWidget(self.remember_checkbox)
         
-        # Add help to remember
-        help_rem = self.create_help_button("remember", HELP_DATA_ACQUISITION)
-        actions_row.addWidget(help_rem)
-        
         self.saved_status = QLabel("")
         self.saved_status.setObjectName("StatusText")
         self.saved_status.setStyleSheet("color: #27ae60;") # Success green
         actions_row.addWidget(self.saved_status)
         
         actions_row.addStretch()
+        
+        # Add help to remember
+        help_rem = self.create_help_button("remember", HELP_DATA_ACQUISITION)
+        actions_row.addWidget(help_rem)
         
         self.btn_clear_creds = QPushButton("Elimina")
         self.btn_clear_creds.setObjectName("CalculateButton") # Use small button style

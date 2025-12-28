@@ -54,43 +54,37 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         
         # Step 1: Unify
         self.row_unify, self.btn_unify, self.ind_unify = self._create_process_row(
-            "1", "Unificazione Dati", "Riproiezione UTM e ritaglio AOI", "mActionRelationAdd.svg"
+            "1", "Unificazione Dati", "Riproiezione UTM e ritaglio AOI", "mActionRelationAdd.svg",
+            help_key="unify"
         )
         self.btn_unify.setToolTip("Riproietta tutti i dati scaricati e ritaglia sull'area di studio")
         
-        # Add help to row
-        help_unify = self.create_help_button("unify", HELP_PROCESSING)
-        self.row_unify.layout().insertWidget(2, help_unify)
         
         self.pipeline_layout.addWidget(self.row_unify)
         
         # Step 2: DSM
         self.row_dsm, self.btn_dsm, self.ind_dsm = self._create_process_row(
-            "2", "Generazione DSM", "Modello Superficie (Edifici + Alberi)", "mActionHillshade.svg"
+            "2", "Generazione DSM", "Modello Superficie (Edifici + Alberi)", "mActionHillshade.svg",
+            help_key="dsm"
         )
         self.btn_dsm.setToolTip("Crea il DSM sintetico sommando DTM e altezze di edifici e vegetazione")
         
-        # Add help to row
-        help_dsm = self.create_help_button("dsm", HELP_PROCESSING)
-        self.row_dsm.layout().insertWidget(2, help_dsm)
         
         self.pipeline_layout.addWidget(self.row_dsm)
         
         # Step 3: SVF
         self.row_svf, self.btn_svf, self.ind_svf = self._create_process_row(
-            "3", "Calcolo Sky View Factor", "Algoritmo Interno (FETCH Engine)", "mActionAlgorithm.svg"
+            "3", "Calcolo Sky View Factor", "Algoritmo Interno (FETCH Engine)", "mActionAlgorithm.svg",
+            help_key="svf"
         )
         self.btn_svf.setToolTip("Calcola la frazione di cielo visibile utilizzando l'algoritmo ottimizzato NumPy")
         
-        # Add help to row
-        help_svf = self.create_help_button("svf", HELP_PROCESSING)
-        self.row_svf.layout().insertWidget(2, help_svf)
         
         self.pipeline_layout.addWidget(self.row_svf)
         
         self.main_layout.addWidget(self.pipeline_card)
         
-    def _create_process_row(self, number, title, subtitle, icon_name):
+    def _create_process_row(self, number, title, subtitle, icon_name, help_key=None):
         """Helper to create a professional process row."""
         row = QWidget()
         row.setObjectName("ProcessRow")
@@ -119,7 +113,13 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         info_layout.addWidget(lbl_subtitle)
         
         layout.addWidget(info_container)
+        layout.addWidget(info_container)
         layout.addStretch()
+        
+        # Help Button (Right aligned, before action)
+        if help_key:
+            help_btn = self.create_help_button(help_key, HELP_PROCESSING)
+            layout.addWidget(help_btn)
         
         # Action Button
         btn = QPushButton("ESEGUI")

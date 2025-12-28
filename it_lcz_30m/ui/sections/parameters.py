@@ -61,11 +61,12 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
             lbl.setToolTip(tip)
             row_layout.addWidget(lbl)
             
-            # Help Icon
-            help_btn = self.create_help_button(pid, HELP_PARAMETERS)
-            row_layout.addWidget(help_btn)
             
             row_layout.addStretch()
+            
+            # Help Icon (Right aligned, before action)
+            help_btn = self.create_help_button(pid, HELP_PARAMETERS)
+            row_layout.addWidget(help_btn)
             
             # Calculate Button
             btn = QPushButton("Calcola")
