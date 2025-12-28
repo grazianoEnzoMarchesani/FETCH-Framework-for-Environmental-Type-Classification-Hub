@@ -17,6 +17,7 @@ try:
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
     from matplotlib.figure import Figure
+    from matplotlib.backends.backend_pdf import PdfPages
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -72,6 +73,14 @@ class AdvancedStatsDialog(QDialog):
         header_layout.addWidget(title_label)
         
         header_layout.addStretch()
+        
+        export_btn = QPushButton("Esporta PDF")
+        export_btn.setStyleSheet("""
+            QPushButton { background-color: #3498db; color: white; border-radius: 4px; padding: 6px 15px; font-weight: bold; margin-right: 10px; }
+            QPushButton:hover { background-color: #2980b9; }
+        """)
+        export_btn.clicked.connect(self.export_to_pdf)
+        header_layout.addWidget(export_btn)
         
         close_btn = QPushButton("Chiudi")
         close_btn.setStyleSheet("""
@@ -531,6 +540,114 @@ class AdvancedStatsDialog(QDialog):
         ))
 
         return tab
+
+    def export_to_pdf(self):
+        from qgis.PyQt.QtWidgets import QFileDialog
+        import os
+        
+        path, _ = QFileDialog.getSaveFileName(self, "Esporta Report Statistiche", "Report_FETCH_LCZ.pdf", "PDF Files (*.pdf)")
+        if not path:
+            return
+            
+        try:
+            with PdfPages(path) as pdf:
+                # 1. Front Page
+                fig_cover = Figure(figsize=(8.27, 11.69)) # A4
+                fig_cover.text(0.5, 0.7, "Report Analisi Climatica Locale", fontsize=24, fontweight='bold', ha='center')
+                fig_cover.text(0.5, 0.65, "FETCH - Framework for Environmental Type Classification Hub", fontsize=14, ha='center', color='#7f8c8d')
+                
+                # Context info
+                total_cells = sum(self.stats['lcz_counts'].values())
+                total_ha = total_cells * 0.09
+                counts = self.stats['lcz_counts']
+                dominant = max(counts, key=counts.get) if counts else "N/D"
+                
+                info_text = (
+                    f"Superficie Analizzata: {total_ha:.1f} ha\n"
+                    f"Numero Totale Celle: {total_cells}\n"
+                    f"Classe LCZ Dominante: LCZ {dominant}\n"
+                    f"Data Report: {QColor(Qt.white).name()} (Sistema)" # Placeholder for real date if needed
+                )
+                fig_cover.text(0.5, 0.4, info_text, fontsize=12, ha='center', linespacing=2)
+                
+                pdf.savefig(fig_cover)
+                plt.close(fig_cover)
+                
+                # 2. Distribution Page
+                fig_dist = Figure(figsize=(8.27, 11.69))
+                ax = fig_dist.add_subplot(211)
+                labels = sorted(self.stats['lcz_counts'].keys())
+                counts_list = [self.stats['lcz_counts'][l] for l in labels]
+                colors = [LCZMappings.COLORS.get(l, '#bebebe') for l in labels]
+                ax.bar(labels, counts_list, color=colors, edgecolor='black', linewidth=0.5)
+                ax.set_title("Distribuzione Classi LCZ (Frequenza)", fontsize=14, fontweight='bold', pad=20)
+                ax.set_ylabel("Numero di celle")
+                
+                # Add scientific note
+                note = "Distribuzione spaziale delle classi. Valori elevati in classi 1-6 indicano aree urbanizzate."
+                fig_dist.text(0.1, 0.45, "Interpretazione: " + note, fontsize=10, style='italic', wrap=True)
+                
+                pdf.savefig(fig_dist)
+                plt.close(fig_dist)
+                
+                # 3. Parameters Pages (1 for Morph, 1 for Phys)
+                for group_name, params in [("Morfologia Urbana", [
+                    ('building_surface_fraction', 'Building Frac (%)'),
+                    ('sky_view_factor', 'SVF (0-1)'),
+                    ('height_roughness', 'Roughness H (m)'),
+                    ('aspect_ratio', 'Aspect Ratio (H/W)')
+                ]), ("Proprietà Fisiche", [
+                    ('surface_albedo', 'Albedo (0-1)'),
+                    ('surface_admittance', 'Surface Admittance'),
+                    ('anthropogenic_heat', 'Anthro. Heat (W/m²)')
+                ])]:
+                    fig_p = Figure(figsize=(8.27, 11.69))
+                    fig_p.suptitle(group_name, fontsize=16, fontweight='bold', y=0.95)
+                    
+                    for i, (p_id, p_label) in enumerate(params):
+                        ax = fig_p.add_subplot(4, 1, i+1)
+                        valid_classes = []
+                        values = []
+                        colors_p = []
+                        for lcz in sorted(self.stats['param_means'].keys()):
+                            if p_id in self.stats['param_means'][lcz]:
+                                valid_classes.append(lcz)
+                                values.append(self.stats['param_means'][lcz][p_id])
+                                colors_p.append(LCZMappings.COLORS.get(lcz, '#bebebe'))
+                        
+                        if values:
+                            ax.bar(valid_classes, values, color=colors_p, alpha=0.7)
+                            # Draw ref ranges (simplified for PDF)
+                            for j, lcz in enumerate(valid_classes):
+                                lcz_ref = LCZMappings.PARAMETERS.get(lcz, {})
+                                if p_id in lcz_ref:
+                                    p_min, p_max = lcz_ref[p_id]
+                                    disp_max = p_max if p_max != float('inf') else p_min * 1.5
+                                    ax.vlines(j, p_min, disp_max, color='#2c3e50', alpha=0.5, linewidth=3)
+                            
+                            ax.set_title(p_label, fontsize=10)
+                    
+                    fig_p.tight_layout(rect=[0, 0.03, 1, 0.92])
+                    pdf.savefig(fig_p)
+                    plt.close(fig_p)
+
+                # 4. ESA Correction Page
+                fig_esa = Figure(figsize=(8.27, 11.69))
+                ax_p = fig_esa.add_subplot(211)
+                corrected = self.stats['esa_correction']['corrected']
+                total = self.stats['esa_correction']['total']
+                if total > 0:
+                    ax_p.pie([corrected, total-corrected], labels=['Corrette ESA', 'Originali'], colors=['#3498db', '#ecf0f1'], autopct='%1.1f%%')
+                    ax_p.set_title("Impatto Correzione ESA WorldCover", fontsize=14, fontweight='bold')
+                
+                pdf.savefig(fig_esa)
+                plt.close(fig_esa)
+
+            from ...core.stats_aggregator import QgsMessageLog, Qgis # Using aggregator's alias
+            QgsMessageLog.logMessage(f"Report PDF salvato correttamente in: {path}", "FETCH", Qgis.Success)
+            
+        except Exception as e:
+            QgsMessageLog.logMessage(f"Errore durante l'esportazione PDF: {e}", "FETCH", Qgis.Critical)
 
     def create_stat_card(self, label, value, color):
         card = QFrame()
