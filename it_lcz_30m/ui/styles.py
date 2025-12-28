@@ -74,13 +74,13 @@ QPushButton:hover {
     padding: 8px;
 }
 #ExtentLabel {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 11px;
-    background-color: #f1f2f6;
+    font-family: 'SF Mono', 'Segoe UI Mono', 'Roboto Mono', monospace;
+    font-size: 10px;
+    background-color: #ffffff;
     border: 1px solid #dfe4ea;
-    border-radius: 3px;
-    padding: 5px;
-    color: #57606f;
+    border-radius: 4px;
+    padding: 8px;
+    color: #2f3542;
 }
 #PrimaryButton:disabled, #DarkButton:disabled, #AccentButton:disabled, #SuccessButton:disabled {
     background-color: #e0e0e0;
