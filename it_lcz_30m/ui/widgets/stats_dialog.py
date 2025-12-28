@@ -111,6 +111,7 @@ class AdvancedStatsDialog(QDialog):
         self.tabs.addTab(self.create_overview_tab(), "Panoramica")
         self.tabs.addTab(self.create_quality_tab(), "Qualità (RMSEP)")
         self.tabs.addTab(self.create_parameters_tab(), "Morfologia")
+        self.tabs.addTab(self.create_physical_tab(), "Proprietà Fisiche")
         self.tabs.addTab(self.create_esa_tab(), "Correzione ESA")
         
         self.layout.addWidget(self.tabs)
@@ -216,7 +217,10 @@ class AdvancedStatsDialog(QDialog):
             ('building_surface_fraction', 'Building Frac (%)'),
             ('sky_view_factor', 'SVF (0-1)'),
             ('impervious_surface_fraction', 'Impervious (%)'),
-            ('height_roughness', 'Roughness H (m)')
+            ('pervious_surface_fraction', 'Pervious (%)'),
+            ('height_roughness', 'Roughness H (m)'),
+            ('aspect_ratio', 'Aspect Ratio (H/W)'),
+            ('terrain_roughness', 'Terrain Roughness (z0)')
         ]
         
         for p_id, p_label in params_to_show:
@@ -228,6 +232,51 @@ class AdvancedStatsDialog(QDialog):
             canvas = MplCanvas(self, width=8, height=3)
             
             # Extract data
+            valid_classes = []
+            values = []
+            colors = []
+            for lcz in sorted(self.stats['param_means'].keys()):
+                if p_id in self.stats['param_means'][lcz]:
+                    valid_classes.append(lcz)
+                    values.append(self.stats['param_means'][lcz][p_id])
+                    colors.append(LCZMappings.COLORS.get(lcz, '#bebebe'))
+            
+            if values:
+                canvas.axes.bar(valid_classes, values, color=colors, alpha=0.7)
+                canvas.axes.set_title(f"Valore Medio: {p_label}", fontsize=10, fontweight='bold')
+                canvas.axes.tick_params(axis='both', which='major', labelsize=8)
+                chart_layout.addWidget(canvas)
+                content_layout.addWidget(chart_container)
+
+        return tab
+
+    def create_physical_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        
+        if not HAS_MATPLOTLIB: return tab
+        
+        params_to_show = [
+            ('surface_albedo', 'Albedo (0-1)'),
+            ('surface_admittance', 'Surface Admittance (J/m²s½K)'),
+            ('anthropogenic_heat', 'Anthro. Heat (W/m²)')
+        ]
+        
+        for p_id, p_label in params_to_show:
+            chart_container = QFrame()
+            chart_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1; margin-bottom: 20px;")
+            chart_layout = QVBoxLayout(chart_container)
+            chart_layout.setContentsMargins(5, 5, 5, 5)
+            
+            canvas = MplCanvas(self, width=8, height=3)
+            
             valid_classes = []
             values = []
             colors = []
