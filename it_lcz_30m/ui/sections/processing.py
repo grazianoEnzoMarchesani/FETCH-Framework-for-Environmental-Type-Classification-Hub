@@ -13,8 +13,11 @@ from qgis.PyQt.QtWidgets import (
 from qgis.core import QgsApplication
 from qgis.gui import QgsCollapsibleGroupBox
 
+from ..mixins.help_mixin import HelpMixin
+from ..help_content import HELP_PROCESSING
 
-class ProcessingSection(QgsCollapsibleGroupBox):
+
+class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
     """Section 3: Sequential Processing - Unify, DSM, SVF steps."""
     
     # Signals
@@ -54,6 +57,11 @@ class ProcessingSection(QgsCollapsibleGroupBox):
             "1", "Unificazione Dati", "Riproiezione UTM e ritaglio AOI", "mActionRelationAdd.svg"
         )
         self.btn_unify.setToolTip("Riproietta tutti i dati scaricati e ritaglia sull'area di studio")
+        
+        # Add help to row
+        help_unify = self.create_help_button("unify", HELP_PROCESSING)
+        self.row_unify.layout().insertWidget(2, help_unify)
+        
         self.pipeline_layout.addWidget(self.row_unify)
         
         # Step 2: DSM
@@ -61,6 +69,11 @@ class ProcessingSection(QgsCollapsibleGroupBox):
             "2", "Generazione DSM", "Modello Superficie (Edifici + Alberi)", "mActionHillshade.svg"
         )
         self.btn_dsm.setToolTip("Crea il DSM sintetico sommando DTM e altezze di edifici e vegetazione")
+        
+        # Add help to row
+        help_dsm = self.create_help_button("dsm", HELP_PROCESSING)
+        self.row_dsm.layout().insertWidget(2, help_dsm)
+        
         self.pipeline_layout.addWidget(self.row_dsm)
         
         # Step 3: SVF
@@ -68,6 +81,11 @@ class ProcessingSection(QgsCollapsibleGroupBox):
             "3", "Calcolo Sky View Factor", "Algoritmo Interno (FETCH Engine)", "mActionAlgorithm.svg"
         )
         self.btn_svf.setToolTip("Calcola la frazione di cielo visibile utilizzando l'algoritmo ottimizzato NumPy")
+        
+        # Add help to row
+        help_svf = self.create_help_button("svf", HELP_PROCESSING)
+        self.row_svf.layout().insertWidget(2, help_svf)
+        
         self.pipeline_layout.addWidget(self.row_svf)
         
         self.main_layout.addWidget(self.pipeline_card)

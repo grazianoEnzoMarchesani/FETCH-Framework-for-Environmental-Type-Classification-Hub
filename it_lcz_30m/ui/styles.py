@@ -217,4 +217,18 @@ QLineEdit:focus {
     font-size: 9px;
     color: #7f8c8d;
 }
+#HelpButton {
+    background-color: #ebf5fb;
+    color: #3498db;
+    border: 1px solid #3498db;
+    border-radius: 9px;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 0;
+    margin: 0;
+}
+#HelpButton:hover {
+    background-color: #3498db;
+    color: white;
+}
 """

@@ -13,9 +13,11 @@ from qgis.PyQt.QtWidgets import (
 from qgis.gui import QgsCollapsibleGroupBox
 
 from ..constants import PARAM_VISUALIZATION, PARAM_DEFINITIONS
+from ..mixins.help_mixin import HelpMixin
+from ..help_content import HELP_PARAMETERS
 
 
-class ParametersSection(QgsCollapsibleGroupBox):
+class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     """Section 5: LCZ Parameters - calculation buttons and status indicators."""
     
     # Signals
@@ -58,6 +60,10 @@ class ParametersSection(QgsCollapsibleGroupBox):
             lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #2c3e50;")
             lbl.setToolTip(tip)
             row_layout.addWidget(lbl)
+            
+            # Help Icon
+            help_btn = self.create_help_button(pid, HELP_PARAMETERS)
+            row_layout.addWidget(help_btn)
             
             row_layout.addStretch()
             
@@ -143,6 +149,10 @@ class ParametersSection(QgsCollapsibleGroupBox):
         
         # Row 3 (Full width for longer label)
         self.ind_vuln = add_result_item('lcz_vulnerability', "VULNERABILITÀ", "Visualizza Vulnerabilità", 3, 0, 2)
+        
+        # Add help to class results
+        help_lcz = self.create_help_button("lcz_class", HELP_PARAMETERS)
+        self.results_grid.addWidget(help_lcz, 0, 2)
         
         self.main_layout.addWidget(self.results_card)
         self.main_layout.addSpacing(10)

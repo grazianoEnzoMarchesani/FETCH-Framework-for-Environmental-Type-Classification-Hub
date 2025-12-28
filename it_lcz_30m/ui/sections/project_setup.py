@@ -22,9 +22,11 @@ from qgis.PyQt.QtCore import QVariant
 from qgis.gui import QgsMapLayerComboBox, QgsCollapsibleGroupBox
 
 from ...core.utils import is_within_italy
+from ..mixins.help_mixin import HelpMixin
+from ..help_content import HELP_PROJECT_SETUP
 
 
-class ProjectSetupSection(QgsCollapsibleGroupBox):
+class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
     """Section 1: Project Setup - AOI selection and extent configuration."""
     
     # Signals
@@ -73,6 +75,10 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         self.aoi_combo.setFixedWidth(180)
         layout_layer.addWidget(self.aoi_combo)
         
+        # Add Help
+        help_aoi = self.create_help_button("aoi_layer", HELP_PROJECT_SETUP)
+        layout_layer.addWidget(help_aoi)
+        
         self.selection_layout.addWidget(self.row_layer)
         
         # Row 2: Map Canvas Extent
@@ -94,6 +100,10 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         self.btn_current_extent.setIcon(QgsApplication.getThemeIcon("mActionSelectExtent.svg"))
         self.btn_current_extent.setEnabled(False)
         layout_extent.addWidget(self.btn_current_extent)
+        
+        # Add Help
+        help_extent = self.create_help_button("capture_extent", HELP_PROJECT_SETUP)
+        layout_extent.addWidget(help_extent)
         
         self.selection_layout.addWidget(self.row_extent)
         

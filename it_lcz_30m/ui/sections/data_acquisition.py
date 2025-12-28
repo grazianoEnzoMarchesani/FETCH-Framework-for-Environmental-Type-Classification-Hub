@@ -14,13 +14,16 @@ from qgis.PyQt.QtWidgets import (
 from qgis.core import QgsApplication, QgsAuthMethodConfig
 from qgis.gui import QgsCollapsibleGroupBox
 
+from ..mixins.help_mixin import HelpMixin
+from ..help_content import HELP_DATA_ACQUISITION
+
 from ..constants import DATA_SOURCES
 
 # Unique ID for CDSE credentials in QGIS auth database
 CDSE_AUTH_CONFIG_ID = "fetch_cdse_auth"
 
 
-class DataAcquisitionSection(QgsCollapsibleGroupBox):
+class DataAcquisitionSection(QgsCollapsibleGroupBox, HelpMixin):
     """Section 2: Data Acquisition - source selection and download controls."""
     
     # Signals
@@ -56,6 +59,26 @@ class DataAcquisitionSection(QgsCollapsibleGroupBox):
             cb.setChecked(True)
             row_layout.addWidget(cb)
             
+            # Map source name to help key
+            key_map = {
+                "Tinitaly (DTM 10m)": "tinitaly",
+                "TUM (Edifici H 10m)": "tum",
+                "ETH (Alberi H 10m)": "eth",
+                "ESA WorldCover (Land Use)": "esa",
+                "Meta HRSL (Popolazione)": "meta",
+                "S2GM (Albedo Sentinel-2)": "s2gm",
+                "OSM Roads (Vettoriale)": "osm",
+                "Traffic ANAS (Italia)": "anas",
+                "Copernicus HRL (10m)": "copernicus",
+                "Industrial Points (E-PRTR)": "industrial"
+            }
+            help_key = key_map.get(src)
+            if help_key:
+                help_btn = self.create_help_button(help_key, HELP_DATA_ACQUISITION)
+                row_layout.addWidget(help_btn)
+            
+            row_layout.addStretch()
+            
             self.sources_list_layout.addWidget(row_widget)
             self.checks[src] = cb
             
@@ -73,6 +96,10 @@ class DataAcquisitionSection(QgsCollapsibleGroupBox):
         self.lbl_card_title = QLabel("ACCESSO COPERNICUS (CDSE)")
         self.lbl_card_title.setObjectName("CardHeader")
         header_row.addWidget(self.lbl_card_title)
+        
+        # Add help to credentials
+        help_creds = self.create_help_button("cdse_creds", HELP_DATA_ACQUISITION)
+        header_row.addWidget(help_creds)
         
         header_row.addStretch()
         
@@ -108,6 +135,10 @@ class DataAcquisitionSection(QgsCollapsibleGroupBox):
         self.remember_checkbox = QCheckBox("Ricorda")
         self.remember_checkbox.setStyleSheet("font-size: 10px; color: #34495e;")
         actions_row.addWidget(self.remember_checkbox)
+        
+        # Add help to remember
+        help_rem = self.create_help_button("remember", HELP_DATA_ACQUISITION)
+        actions_row.addWidget(help_rem)
         
         self.saved_status = QLabel("")
         self.saved_status.setObjectName("StatusText")
