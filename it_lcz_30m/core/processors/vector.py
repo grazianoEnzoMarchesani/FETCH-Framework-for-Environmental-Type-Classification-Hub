@@ -17,6 +17,8 @@ class VectorProcessor:
     def process_dataset(self, folder_path, config, output_path, target_crs, target_extent):
         """Process vector data: reproject and clip to AOI."""
         import glob
+        from qgis.core import QgsVectorLayer, QgsVectorFileWriter, QgsFeature
+        
         pattern = os.path.join(folder_path, config["pattern"])
         input_files = glob.glob(pattern)
         if not input_files: return False
@@ -24,19 +26,48 @@ class VectorProcessor:
         input_file = input_files[0]
         temp_reprojected = output_path.replace(".gpkg", "_temp.gpkg")
         
-        processing.run("native:reprojectlayer", {
-            'INPUT': input_file, 'TARGET_CRS': target_crs, 'OUTPUT': temp_reprojected
-        })
+        # Load the input layer
+        layer = QgsVectorLayer(input_file, "temp_input", "ogr")
+        if not layer.isValid():
+            self.log(f"Layer non valido: {input_file}", Qgis.Critical)
+            return False
         
+        # Count features for logging
+        total_features = layer.featureCount()
+        self.log(f"Elaborazione {total_features} features da {os.path.basename(input_file)}...")
+        
+        # Step 1: Reproject to target CRS (with geometry validation)
+        # Use context options to skip invalid geometries
+        from qgis.core import QgsProcessingContext, QgsFeatureRequest
+        context = QgsProcessingContext()
+        # SkipInvalid = 1 (AbortOnInvalid=0, SkipInvalid=1, NoCheck=2)
+        context.setInvalidGeometryCheck(QgsFeatureRequest.GeometrySkipInvalid)
+        
+        processing.run("native:reprojectlayer", {
+            'INPUT': input_file, 
+            'TARGET_CRS': target_crs, 
+            'OUTPUT': temp_reprojected
+        }, context=context)
+        
+        # Step 2: Clip to extent (also with skip invalid)
         processing.run("native:extractbyextent", {
             'INPUT': temp_reprojected,
             'EXTENT': f"{target_extent.xMinimum()},{target_extent.xMaximum()},{target_extent.yMinimum()},{target_extent.yMaximum()}",
-            'CLIP': True, 'OUTPUT': output_path
-        })
+            'CLIP': True, 
+            'OUTPUT': output_path
+        }, context=context)
         
+        # Cleanup temp files
         if os.path.exists(temp_reprojected):
             try: os.remove(temp_reprojected)
             except: pass
+        
+        # Log result
+        if os.path.exists(output_path):
+            result_layer = QgsVectorLayer(output_path, "temp_result", "ogr")
+            if result_layer.isValid():
+                self.log(f"Processate {result_layer.featureCount()} features (di {total_features} originali)")
+        
         return os.path.exists(output_path)
 
     def create_lcz_grid(self, extent, crs_auth_id, cell_size=100, log_callback=None):
