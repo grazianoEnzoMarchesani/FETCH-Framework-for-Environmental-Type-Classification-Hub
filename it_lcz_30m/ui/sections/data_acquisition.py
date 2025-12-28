@@ -35,70 +35,106 @@ class DataAcquisitionSection(QgsCollapsibleGroupBox):
     def _setup_ui(self):
         """Initialize the UI components."""
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(5, 10, 5, 10)
+        self.main_layout.setSpacing(10)
         
-        # Sources Grid
-        self.sources_grid = QGridLayout()
+        # Sources List
+        self.sources_container = QWidget()
+        self.sources_list_layout = QVBoxLayout(self.sources_container)
+        self.sources_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.sources_list_layout.setSpacing(0)
+        
         self.checks = {}
-        
-        for i, src in enumerate(DATA_SOURCES):
+        for src in DATA_SOURCES:
+            row_widget = QWidget()
+            row_widget.setObjectName("SourceRow")
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(10, 5, 10, 5)
+            
             cb = QCheckBox(src)
+            cb.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
             cb.setChecked(True)
-            self.sources_grid.addWidget(cb, i // 2, i % 2)
+            row_layout.addWidget(cb)
+            
+            self.sources_list_layout.addWidget(row_widget)
             self.checks[src] = cb
             
-        self.main_layout.addLayout(self.sources_grid)
+        self.main_layout.addWidget(self.sources_container)
         
-        # CDSE Credentials
-        self.creds_group = QWidget()
-        self.creds_layout = QGridLayout(self.creds_group)
-        self.creds_layout.setContentsMargins(0, 10, 0, 5)
+        # CDSE Credentials Card
+        self.creds_card = QWidget()
+        self.creds_card.setObjectName("CredentialCard")
+        self.creds_layout = QVBoxLayout(self.creds_card)
+        self.creds_layout.setContentsMargins(15, 12, 15, 12)
+        self.creds_layout.setSpacing(8)
         
-        # Help label with registration link
-        self.cdse_help = QLabel('Richiede account <a href="https://dataspace.copernicus.eu">Copernicus Data Space</a>')
-        self.cdse_help.setOpenExternalLinks(True)
-        self.cdse_help.setStyleSheet("font-size: 10px; color: #34495e;")
-        self.creds_layout.addWidget(self.cdse_help, 0, 0, 1, 2)
+        # Header for Card
+        header_row = QHBoxLayout()
+        self.lbl_card_title = QLabel("ACCESSO COPERNICUS (CDSE)")
+        self.lbl_card_title.setObjectName("CardHeader")
+        header_row.addWidget(self.lbl_card_title)
         
-        self.creds_layout.addWidget(QLabel("Email CDSE:"), 1, 0)
+        header_row.addStretch()
+        
+        self.cdse_link = QLabel('<a href="https://dataspace.copernicus.eu">Registrati</a>')
+        self.cdse_link.setObjectName("AuthLink")
+        self.cdse_link.setOpenExternalLinks(True)
+        header_row.addWidget(self.cdse_link)
+        self.creds_layout.addLayout(header_row)
+        
+        # Form
+        form_layout = QGridLayout()
+        form_layout.setSpacing(5)
+        
+        lbl_user = QLabel("Email:")
+        lbl_user.setStyleSheet("font-size: 10px; color: #7f8c8d;")
         self.cdse_username = QLineEdit()
         self.cdse_username.setPlaceholderText("email@copernicus.eu")
-        self.creds_layout.addWidget(self.cdse_username, 1, 1)
+        form_layout.addWidget(lbl_user, 0, 0)
+        form_layout.addWidget(self.cdse_username, 0, 1)
         
-        self.creds_layout.addWidget(QLabel("Password CDSE:"), 2, 0)
+        lbl_pass = QLabel("Password:")
+        lbl_pass.setStyleSheet("font-size: 10px; color: #7f8c8d;")
         self.cdse_password = QLineEdit()
         self.cdse_password.setEchoMode(QLineEdit.Password)
         self.cdse_password.setPlaceholderText("••••••••")
-        self.creds_layout.addWidget(self.cdse_password, 2, 1)
+        form_layout.addWidget(lbl_pass, 1, 0)
+        form_layout.addWidget(self.cdse_password, 1, 1)
         
-        # Remember credentials row
-        creds_actions = QHBoxLayout()
+        self.creds_layout.addLayout(form_layout)
         
-        self.remember_checkbox = QCheckBox("Ricorda credenziali")
-        self.remember_checkbox.setToolTip("Salva le credenziali in modo cifrato nel database QGIS")
-        creds_actions.addWidget(self.remember_checkbox)
+        # Creds Actions
+        actions_row = QHBoxLayout()
+        self.remember_checkbox = QCheckBox("Ricorda")
+        self.remember_checkbox.setStyleSheet("font-size: 10px; color: #34495e;")
+        actions_row.addWidget(self.remember_checkbox)
         
         self.saved_status = QLabel("")
-        self.saved_status.setStyleSheet("font-size: 10px; color: #27ae60; font-weight: bold;")
-        creds_actions.addWidget(self.saved_status)
+        self.saved_status.setObjectName("StatusText")
+        self.saved_status.setStyleSheet("color: #27ae60;") # Success green
+        actions_row.addWidget(self.saved_status)
         
-        creds_actions.addStretch()
+        actions_row.addStretch()
         
-        self.btn_clear_creds = QPushButton("Elimina salvate")
-        self.btn_clear_creds.setToolTip("Rimuovi le credenziali salvate dal database QGIS")
-        self.btn_clear_creds.setStyleSheet("font-size: 10px;")
-        self.btn_clear_creds.setFixedWidth(100)
+        self.btn_clear_creds = QPushButton("Elimina")
+        self.btn_clear_creds.setObjectName("CalculateButton") # Use small button style
+        self.btn_clear_creds.setFixedWidth(60)
         self.btn_clear_creds.setVisible(False)
-        creds_actions.addWidget(self.btn_clear_creds)
+        actions_row.addWidget(self.btn_clear_creds)
         
-        self.creds_layout.addLayout(creds_actions, 3, 0, 1, 2)
+        self.creds_layout.addLayout(actions_row)
         
-        self.main_layout.addWidget(self.creds_group)
+        self.main_layout.addWidget(self.creds_card)
+        self.creds_group = self.creds_card # Keep alias for visibility toggle
         
         # Download button
         self.btn_download = QPushButton(" Esegui Download Selezione")
         self.btn_download.setObjectName("DarkButton")
         self.btn_download.setIcon(QgsApplication.getThemeIcon("mActionArrowDown.svg"))
+        self.btn_download.setMinimumHeight(38)
+        self.main_layout.addSpacing(5)
         self.main_layout.addWidget(self.btn_download)
+        self.main_layout.addSpacing(5)
         
     def _connect_signals(self):
         """Connect internal signals."""

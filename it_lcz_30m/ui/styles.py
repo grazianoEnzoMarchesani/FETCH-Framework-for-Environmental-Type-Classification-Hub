@@ -89,6 +89,18 @@ QPushButton:hover {
 QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled {
     color: #b2bec3;
 }
+QLineEdit {
+    background-color: #ffffff;
+    border: 1px solid #dcdde1;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: #2c3e50;
+}
+QLineEdit:focus {
+    border: 1px solid #3498db;
+    background-color: #fdfdfd;
+}
 #IndicatorButton {
     background-color: #bdc3c7;
     border: none;
@@ -109,23 +121,31 @@ QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled {
 #IndicatorButton:disabled {
     background-color: #bdc3c7;
 }
-#ParamRow {
+#ParamRow, #SourceRow {
     background-color: #ffffff;
     border-bottom: 1px solid #f0f0f0;
 }
-#ParamRow:hover {
+#ParamRow:hover, #SourceRow:hover {
     background-color: #fcfcfc;
 }
-#ResultsCard {
+#ResultsCard, #CredentialCard {
     background-color: #f1f2f6; 
     border: 1px solid #dcdde1; 
     border-radius: 6px;
 }
-#ResultsHeader {
+#ResultsHeader, #CardHeader {
     font-size: 10px; 
     font-weight: bold; 
     color: #7f8c8d; 
     text-transform: uppercase;
+}
+#AuthLink {
+    color: #3498db;
+    text-decoration: underline;
+}
+#StatusText {
+    font-size: 10px;
+    font-weight: bold;
 }
 #CalculateButton {
     background-color: #f8f9fa;
