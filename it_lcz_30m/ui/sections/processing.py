@@ -65,9 +65,9 @@ class ProcessingSection(QgsCollapsibleGroupBox):
         
         # Step 3: SVF
         self.row_svf, self.btn_svf, self.ind_svf = self._create_process_row(
-            "3", "Calcolo SVF", "Sky View Factor (SAGA GIS)", "mActionAlgorithm.svg"
+            "3", "Calcolo Sky View Factor", "Algoritmo Interno (FETCH Engine)", "mActionAlgorithm.svg"
         )
-        self.btn_svf.setToolTip("Calcola la frazione di cielo visibile utilizzando l'algoritmo SAGA")
+        self.btn_svf.setToolTip("Calcola la frazione di cielo visibile utilizzando l'algoritmo ottimizzato NumPy")
         self.pipeline_layout.addWidget(self.row_svf)
         
         self.main_layout.addWidget(self.pipeline_card)
