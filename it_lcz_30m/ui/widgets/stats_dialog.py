@@ -555,11 +555,18 @@ class AdvancedStatsDialog(QDialog):
         scroll.setWidget(content)
         layout.addWidget(scroll)
         
-        # We compare a few key parameters Before vs After
+        # We compare all 10 parameters Before vs After
         params_to_compare = [
             ('building_surface_fraction', 'Building Fraction (%)'),
             ('sky_view_factor', 'SVF (0-1)'),
-            ('surface_albedo', 'Albedo (0-1)')
+            ('impervious_surface_fraction', 'Impervious (%)'),
+            ('pervious_surface_fraction', 'Pervious (%)'),
+            ('height_roughness', 'Roughness H (m)'),
+            ('aspect_ratio', 'Aspect Ratio (H/W)'),
+            ('terrain_roughness', 'Terrain Roughness (z0)'),
+            ('surface_albedo', 'Albedo (0-1)'),
+            ('surface_admittance', 'Surface Admittance'),
+            ('anthropogenic_heat', 'Anthro. Heat (W/m²)')
         ]
         
         for p_id, p_label in params_to_compare:
@@ -768,27 +775,44 @@ class AdvancedStatsDialog(QDialog):
                             
                             ax.set_title(f"Evoluzione celle LCZ {orig_class}", fontsize=12, fontweight='bold')
                         
-                # 6. ESA Validation Summary
-                fig_val = Figure(figsize=(8.27, 11.69))
-                fig_val.suptitle("Validazione Post-Correzione ESA", fontsize=16, fontweight='bold', y=0.95)
+                # 6. ESA Validation Summary (All 10 params with pagination)
+                val_params = [
+                    ('building_surface_fraction', 'Building Fraction (%)'),
+                    ('sky_view_factor', 'SVF (0-1)'),
+                    ('impervious_surface_fraction', 'Impervious (%)'),
+                    ('pervious_surface_fraction', 'Pervious (%)'),
+                    ('height_roughness', 'Roughness H (m)'),
+                    ('aspect_ratio', 'Aspect Ratio (H/W)'),
+                    ('terrain_roughness', 'Terrain Roughness (z0)'),
+                    ('surface_albedo', 'Albedo (0-1)'),
+                    ('surface_admittance', 'Surface Admittance'),
+                    ('anthropogenic_heat', 'Anthro. Heat (W/m²)')
+                ]
                 
-                # Plot SVF Comparison in PDF
-                ax_v = fig_val.add_subplot(211)
-                p_id = 'sky_view_factor'
-                all_cls = sorted(list(set(self.stats['param_means'].keys()) | set(self.stats['param_means_pre'].keys())))
-                v_pre = [self.stats['param_means_pre'].get(l, {}).get(p_id, 0) for l in all_cls]
-                v_post = [self.stats['param_means'].get(l, {}).get(p_id, 0) for l in all_cls]
-                
-                x = np.arange(len(all_cls))
-                ax_v.bar(x-0.2, v_pre, 0.4, label='Originale', color='#bdc3c7')
-                ax_v.bar(x+0.2, v_post, 0.4, label='Corrected', color='#3498db')
-                ax_v.set_xticks(x)
-                ax_v.set_xticklabels(all_cls, fontsize=8)
-                ax_v.set_title("Confronto SVF (Prima vs Dopo)", fontsize=12)
-                ax_v.legend()
-                
-                pdf.savefig(fig_val)
-                plt.close(fig_val)
+                for i in range(0, len(val_params), 2): # 2 comparison charts per page
+                    fig_val = Figure(figsize=(8.27, 11.69))
+                    fig_val.suptitle(f"Validazione Post-ESA (Confronto Medie) - Parte {i//2 + 1}", fontsize=16, fontweight='bold', y=0.95)
+                    
+                    chunk = val_params[i:i+2]
+                    for k, (p_id, p_label) in enumerate(chunk):
+                        ax_v = fig_val.add_subplot(2, 1, k+1)
+                        all_cls = sorted(list(set(self.stats['param_means'].keys()) | set(self.stats['param_means_pre'].keys())))
+                        v_pre = [self.stats['param_means_pre'].get(l, {}).get(p_id, 0) for l in all_cls]
+                        v_post = [self.stats['param_means'].get(l, {}).get(p_id, 0) for l in all_cls]
+                        
+                        x = np.arange(len(all_cls))
+                        width = 0.35
+                        ax_v.bar(x - width/2, v_pre, width, label='Originale', color='#bdc3c7', alpha=0.7)
+                        ax_v.bar(x + width/2, v_post, width, label='Corrected', color='#3498db', alpha=0.8)
+                        
+                        ax_v.set_xticks(x)
+                        ax_v.set_xticklabels(all_cls, fontsize=8)
+                        ax_v.set_title(p_label, fontsize=12, fontweight='bold')
+                        ax_v.legend(fontsize=8)
+                    
+                    fig_val.tight_layout(rect=[0, 0.03, 1, 0.92])
+                    pdf.savefig(fig_val)
+                    plt.close(fig_val)
 
             from ...core.stats_aggregator import QgsMessageLog, Qgis # Using aggregator's alias
             QgsMessageLog.logMessage(f"Report PDF salvato correttamente in: {path}", "FETCH", Qgis.Success)
