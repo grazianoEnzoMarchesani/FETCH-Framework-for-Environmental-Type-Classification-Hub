@@ -156,3 +156,121 @@ def download_file_generic(url, local_path, auth=None):
         return True, "Success"
     except Exception as e:
         return False, str(e)
+
+
+# =============================================================================
+# Project Logger - Dual output to QGIS and file
+# =============================================================================
+
+from datetime import datetime
+from qgis.core import QgsMessageLog, Qgis
+
+
+class FetchLogger:
+    """
+    Dual-output logger for FETCH plugin.
+    
+    Writes simultaneously to:
+    - QgsMessageLog (immediate visibility in QGIS Log Messages panel)
+    - Persistent .log file in FETCH+ProjectName folder
+    
+    Usage:
+        from it_lcz_30m.core.utils import get_logger
+        log = get_logger()
+        log.info("Operation completed")
+        log.warning("Missing parameter")
+        log.critical("Fatal error")
+    """
+    
+    def __init__(self, log_name="FETCH"):
+        """
+        Initialize the logger.
+        
+        Args:
+            log_name: Name shown in QGIS Log Messages panel
+        """
+        self.log_name = log_name
+        self.log_file = None
+        self._setup_file_logger()
+    
+    def _setup_file_logger(self):
+        """Set up file logging to FETCH+ProjectName folder."""
+        try:
+            project_path = QgsProject.instance().fileName()
+            if project_path:
+                base_dir = os.path.dirname(project_path)
+                project_name = os.path.splitext(os.path.basename(project_path))[0]
+                data_dir = os.path.join(base_dir, f"FETCH+{project_name}")
+                os.makedirs(data_dir, exist_ok=True)
+                self.log_file = os.path.join(data_dir, "fetch_operations.log")
+        except Exception:
+            pass  # File logging not available
+    
+    def log(self, message, level=Qgis.Info):
+        """
+        Log a message to both QGIS and file.
+        
+        Args:
+            message: The message to log
+            level: Qgis.Info, Qgis.Warning, or Qgis.Critical
+        """
+        # QGIS Message Log
+        QgsMessageLog.logMessage(str(message), self.log_name, level)
+        
+        # File log
+        self._write_to_file(message, level)
+    
+    def info(self, message):
+        """Log an info message."""
+        self.log(message, Qgis.Info)
+    
+    def warning(self, message):
+        """Log a warning message."""
+        self.log(message, Qgis.Warning)
+    
+    def critical(self, message):
+        """Log a critical error message."""
+        self.log(message, Qgis.Critical)
+    
+    def success(self, message):
+        """Log a success message (shows as info with checkmark prefix)."""
+        self.log(f"✓ {message}", Qgis.Info)
+    
+    def _write_to_file(self, message, level):
+        """Write a log entry to the file."""
+        if not self.log_file:
+            self._setup_file_logger()
+        
+        if self.log_file:
+            try:
+                level_map = {
+                    Qgis.Info: "INFO",
+                    Qgis.Warning: "WARNING",
+                    Qgis.Critical: "CRITICAL",
+                    Qgis.Success: "SUCCESS"
+                }
+                level_str = level_map.get(level, "INFO")
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"[{timestamp}] [{level_str}] {message}\n")
+            except Exception:
+                pass  # Silently fail if file writing fails
+
+
+# Singleton logger instance
+_fetch_logger = None
+
+
+def get_logger():
+    """
+    Get or create the FETCH logger singleton instance.
+    
+    Returns:
+        FetchLogger: The shared logger instance
+    """
+    global _fetch_logger
+    if _fetch_logger is None:
+        _fetch_logger = FetchLogger()
+    return _fetch_logger
+

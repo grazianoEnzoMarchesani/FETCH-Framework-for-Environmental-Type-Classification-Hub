@@ -264,7 +264,7 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
         if not (needs_bld or needs_imp):
             return bsf_map, isf_map
 
-        log_local("Atomicità: Alcune frazioni morfologiche mancano. Avvio calcolo on-the-fly...")
+        log_local("⏳ BSF/ISF mancanti nel layer. Avvio calcolo dinamico (potrebbe richiedere più tempo)...")
         base_dir = self.dm.get_project_dir()
         unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
         
@@ -272,7 +272,7 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
         if needs_bld:
             bld_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
             if os.path.exists(bld_path):
-                log_local("Calcolo BSF dinamico da buildings_lod1.gpkg...")
+                log_local("⏳ Calcolo Building Surface Fraction (BSF) dai footprint edifici...")
                 bld_layer = QgsVectorLayer(bld_path, "bld", "ogr")
                 if bld_layer.isValid():
                     transform = QgsCoordinateTransform(bld_layer.crs(), layer.crs(), QgsProject.instance()) if bld_layer.crs() != layer.crs() else None
@@ -293,12 +293,13 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                                 inter = bg.intersection(geom)
                                 if inter: b_area += inter.area()
                         bsf_map[feat.attribute(idx_link)] = min(100.0, (b_area / cell_area) * 100)
+                log_local(f"✓ BSF calcolato dinamicamente per {len(bsf_map)} celle")
 
         # 2. Impervious Fraction (ISF) - Using HRL
         if needs_imp:
             hrl_path = os.path.join(unified_dir, "imperviousness_10m.tif")
             if os.path.exists(hrl_path):
-                log_local("Calcolo ISF dinamico da imperviousness_10m.tif (HRL)...")
+                log_local("⏳ Calcolo Impervious Surface Fraction (ISF) da raster impermeabilità...")
                 res_hrl = processing.run("native:zonalstatisticsfb", {
                     'INPUT': layer, 'INPUT_RASTER': hrl_path, 'COLUMN_PREFIX': '_dyn_hrl_', 'STATISTICS': [2], 'OUTPUT': 'TEMPORARY_OUTPUT'
                 })
@@ -310,5 +311,6 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                     b_f = bsf_map.get(lk, 0.0)
                     # HRL includes buildings, so ISF = HRL - BSF (Avoid double counting)
                     isf_map[lk] = max(0, raw_hrl - b_f)
+                log_local(f"✓ ISF calcolato dinamicamente per {len(isf_map)} celle")
 
         return bsf_map, isf_map

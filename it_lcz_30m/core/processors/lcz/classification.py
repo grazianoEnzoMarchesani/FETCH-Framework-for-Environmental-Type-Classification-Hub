@@ -366,7 +366,7 @@ class LCZClassificationProcessor:
         esa_majority_lookup = {}  # Dict mapping feature ID to ESA majority class
         
         if landuse_path and os.path.exists(landuse_path):
-            log_local(f"Calcolo statistiche zonali ESA WorldCover (Majority)...")
+            log_local("⏳ Calcolo statistiche zonali ESA WorldCover (potrebbe richiedere tempo per aree estese)...")
             esa_layer = self._compute_esa_majority_for_layer(layer, landuse_path, log_local)
             if esa_layer:
                 # Build lookup dictionary from temporary layer
@@ -380,7 +380,7 @@ class LCZClassificationProcessor:
                             except (ValueError, TypeError):
                                 pass
                     use_esa_correction = len(esa_majority_lookup) > 0
-                    log_local(f"Correzione ESA attiva: {len(esa_majority_lookup)} celle con classe ESA")
+                    log_local(f"✓ Correzione ESA attiva: {len(esa_majority_lookup)} celle analizzate")
                 else:
                     log_local("Campo esa_majority non trovato nel layer zonale", Qgis.Warning)
             else:
