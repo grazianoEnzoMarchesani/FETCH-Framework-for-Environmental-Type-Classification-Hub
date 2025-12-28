@@ -9,7 +9,7 @@ Includes automatic boundary layer creation on extent capture for OSM compatibili
 import os
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
-    QWidget, QVBoxLayout, QGridLayout, QLabel, 
+    QWidget, QVBoxLayout, QGridLayout, QHBoxLayout, QLabel, 
     QPushButton, QRadioButton
 )
 from qgis.core import (
@@ -32,7 +32,7 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
     extent_captured = pyqtSignal(object, str)  # extent, crs
     
     def __init__(self, iface, parent=None):
-        super().__init__("1. Project Setup", parent)
+        super().__init__("1. Configurazione Progetto", parent)
         self.iface = iface
         self.extent_val = None
         self.extent_crs = None
@@ -43,48 +43,86 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
     def _setup_ui(self):
         """Initialize the UI components."""
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(5, 10, 5, 10)
+        self.main_layout.setSpacing(10)
         
-        # AOI Selection Grid
-        self.aoi_grid = QGridLayout()
-        self.aoi_grid.setContentsMargins(0, 5, 0, 5)
+        # AOI Mode Selection
+        self.selection_container = QWidget()
+        self.selection_layout = QVBoxLayout(self.selection_container)
+        self.selection_layout.setContentsMargins(0, 0, 0, 0)
+        self.selection_layout.setSpacing(0)
         
-        # Vector Layer option
-        self.aoi_layer_radio = QRadioButton("Use Vector Layer")
+        # Row 1: Vector Layer
+        self.row_layer = QWidget()
+        self.row_layer.setObjectName("SourceRow")
+        layout_layer = QHBoxLayout(self.row_layer)
+        layout_layer.setContentsMargins(10, 5, 10, 5)
+        
+        self.aoi_layer_radio = QRadioButton("Usa Layer Vettoriale (AOI)")
+        self.aoi_layer_radio.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
         self.aoi_layer_radio.setChecked(True)
-        self.aoi_grid.addWidget(self.aoi_layer_radio, 0, 0)
+        layout_layer.addWidget(self.aoi_layer_radio)
+        
+        layout_layer.addStretch()
         
         self.aoi_combo = QgsMapLayerComboBox()
         self.aoi_combo.setFilters(QgsMapLayerProxyModel.VectorLayer)
-        self.aoi_grid.addWidget(self.aoi_combo, 0, 1)
+        self.aoi_combo.setFixedWidth(180)
+        layout_layer.addWidget(self.aoi_combo)
         
-        # Map Canvas Extent option
-        self.aoi_extent_radio = QRadioButton("Use Map Canvas Extent")
-        self.aoi_grid.addWidget(self.aoi_extent_radio, 1, 0)
+        self.selection_layout.addWidget(self.row_layer)
         
-        self.btn_current_extent = QPushButton("Capture Extent")
+        # Row 2: Map Canvas Extent
+        self.row_extent = QWidget()
+        self.row_extent.setObjectName("SourceRow")
+        layout_extent = QHBoxLayout(self.row_extent)
+        layout_extent.setContentsMargins(10, 5, 10, 5)
+        
+        self.aoi_extent_radio = QRadioButton("Usa Estensione Mappa")
+        self.aoi_extent_radio.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
+        layout_extent.addWidget(self.aoi_extent_radio)
+        
+        layout_extent.addStretch()
+        
+        self.btn_current_extent = QPushButton("Cattura")
         self.btn_current_extent.setObjectName("PrimaryButton")
+        self.btn_current_extent.setFixedWidth(100)
         self.btn_current_extent.setIcon(QgsApplication.getThemeIcon("mActionSelectExtent.svg"))
         self.btn_current_extent.setEnabled(False)
-        self.aoi_grid.addWidget(self.btn_current_extent, 1, 1)
+        layout_extent.addWidget(self.btn_current_extent)
         
-        self.main_layout.addLayout(self.aoi_grid)
+        self.selection_layout.addWidget(self.row_extent)
         
-        # Extent display label
-        self.extent_label = QLabel("No extent captured")
+        self.main_layout.addWidget(self.selection_container)
+        
+        # Area Details Card
+        self.details_card = QWidget()
+        self.details_card.setObjectName("ResultsCard")
+        self.details_layout = QVBoxLayout(self.details_card)
+        self.details_layout.setContentsMargins(12, 10, 12, 10)
+        self.details_layout.setSpacing(8)
+        
+        self.lbl_card_title = QLabel("DETTAGLI AREA SELEZIONATA")
+        self.lbl_card_title.setObjectName("ResultsHeader")
+        self.details_layout.addWidget(self.lbl_card_title)
+        
+        self.extent_label = QLabel("Nessun dato catturato")
         self.extent_label.setObjectName("ExtentLabel")
-        self.extent_label.setAlignment(Qt.AlignCenter)
-        self.main_layout.addWidget(self.extent_label)
+        self.extent_label.setWordWrap(True)
+        self.details_layout.addWidget(self.extent_label)
         
-        # Italy Validation Warning
+        # Warning (inside card)
         self.warning_label = QLabel("⚠ Area fuori dall'Italia. Alcuni dati potrebbero mancare.")
         self.warning_label.setObjectName("WarningLabel")
         self.warning_label.setWordWrap(True)
         self.warning_label.hide()
-        self.main_layout.addWidget(self.warning_label)
+        self.details_layout.addWidget(self.warning_label)
+        
+        self.main_layout.addWidget(self.details_card)
         
         # Output info
-        self.project_label = QLabel("Output: Saving to project directory")
-        self.project_label.setStyleSheet("font-size: 11px; color: #7f8c8d; margin-top: 5px;")
+        self.project_label = QLabel("Progetto: Salvataggio in cartella locale")
+        self.project_label.setStyleSheet("font-size: 10px; color: #7f8c8d; margin-left: 5px;")
         self.main_layout.addWidget(self.project_label)
         
     def _connect_signals(self):
@@ -120,7 +158,8 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         crs = canvas.mapSettings().destinationCrs().authid()
         self.extent_val = extent
         self.extent_crs = crs
-        self.extent_label.setText(f"Captured: {extent.toString(2)} ({crs})")
+        # Update details label in Italian
+        self.extent_label.setText(f"Catturata: {extent.toString(2)} ({crs})")
         within = is_within_italy(extent, crs)
         self.warning_label.setVisible(not within)
         
@@ -233,9 +272,9 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
     def set_project_path_status(self, saved, path=""):
         """Update the project path status label."""
         if saved:
-            self.project_label.setText("Output: Saving to project directory")
-            self.project_label.setStyleSheet("font-size: 11px; color: #7f8c8d; margin-top: 5px;")
+            self.project_label.setText("Progetto: Salvataggio in cartella locale")
+            self.project_label.setStyleSheet("font-size: 10px; color: #7f8c8d; margin-left: 5px;")
         else:
-            self.project_label.setText("Output: PROGETTO NON SALVATO")
-            self.project_label.setStyleSheet("font-style: italic; color: #c0392b; font-weight: bold;")
+            self.project_label.setText("Progetto: ATTENZIONE - NON SALVATO")
+            self.project_label.setStyleSheet("font-style: italic; color: #c0392b; font-weight: bold; margin-left: 5px;")
 
