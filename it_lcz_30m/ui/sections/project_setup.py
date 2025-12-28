@@ -3,14 +3,22 @@
 FETCH Dashboard - Project Setup Section
 
 Section 1: AOI selection, extent capture, and project info.
+Includes automatic boundary layer creation on extent capture for OSM compatibility.
 """
 
+import os
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QGridLayout, QLabel, 
     QPushButton, QRadioButton
 )
-from qgis.core import QgsMapLayerProxyModel, QgsApplication
+from qgis.core import (
+    QgsMapLayerProxyModel, QgsApplication, QgsProject,
+    QgsVectorLayer, QgsFeature, QgsGeometry, QgsField,
+    QgsVectorFileWriter, QgsFields, QgsWkbTypes,
+    QgsCoordinateReferenceSystem
+)
+from qgis.PyQt.QtCore import QVariant
 from qgis.gui import QgsMapLayerComboBox, QgsCollapsibleGroupBox
 
 from ...core.utils import is_within_italy
@@ -28,6 +36,7 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         self.iface = iface
         self.extent_val = None
         self.extent_crs = None
+        self.boundary_layer_path = None  # Path to generated boundary layer
         self._setup_ui()
         self._connect_signals()
         
@@ -105,7 +114,7 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         self.aoi_changed.emit()
             
     def _capture_extent(self):
-        """Capture the current map canvas extent."""
+        """Capture the current map canvas extent and create boundary layer."""
         canvas = self.iface.mapCanvas()
         extent = canvas.extent()
         crs = canvas.mapSettings().destinationCrs().authid()
@@ -114,7 +123,90 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         self.extent_label.setText(f"Captured: {extent.toString(2)} ({crs})")
         within = is_within_italy(extent, crs)
         self.warning_label.setVisible(not within)
+        
+        # Create boundary layer for OSM compatibility
+        self._create_boundary_layer(extent, crs)
+        
         self.extent_captured.emit(extent, crs)
+    
+    def _create_boundary_layer(self, extent, crs_authid):
+        """
+        Create a boundary polygon layer from the extent.
+        This serves as a fallback for OSM download which requires a vector layer.
+        
+        Args:
+            extent: QgsRectangle with the captured extent
+            crs_authid: CRS authority ID (e.g., "EPSG:32632")
+        """
+        try:
+            # Get project directory
+            project_path = QgsProject.instance().fileName()
+            if not project_path:
+                return  # Project not saved yet
+            
+            base_dir = os.path.dirname(project_path)
+            project_name = os.path.splitext(os.path.basename(project_path))[0]
+            data_dir = os.path.join(base_dir, f"FETCH+{project_name}")
+            os.makedirs(data_dir, exist_ok=True)
+            
+            boundary_path = os.path.join(data_dir, "boundary.gpkg")
+            
+            # Create polygon geometry from extent
+            polygon = QgsGeometry.fromRect(extent)
+            
+            # Set up fields
+            fields = QgsFields()
+            fields.append(QgsField("name", QVariant.String))
+            fields.append(QgsField("source", QVariant.String))
+            
+            # Create CRS
+            crs = QgsCoordinateReferenceSystem(crs_authid)
+            
+            # Set up writer options
+            save_options = QgsVectorFileWriter.SaveVectorOptions()
+            save_options.driverName = "GPKG"
+            save_options.fileEncoding = "UTF-8"
+            
+            # Create the writer
+            writer = QgsVectorFileWriter.create(
+                boundary_path,
+                fields,
+                QgsWkbTypes.Polygon,
+                crs,
+                QgsProject.instance().transformContext(),
+                save_options
+            )
+            
+            if writer.hasError() != QgsVectorFileWriter.NoError:
+                return
+            
+            # Create and add feature
+            feature = QgsFeature()
+            feature.setFields(fields)
+            feature.setGeometry(polygon)
+            feature.setAttribute("name", "Captured AOI Boundary")
+            feature.setAttribute("source", "Map Canvas Extent")
+            writer.addFeature(feature)
+            
+            del writer  # Close the writer
+            
+            # Check if layer already exists in project and remove it
+            existing = QgsProject.instance().mapLayersByName("Boundary AOI (auto)")
+            for lyr in existing:
+                QgsProject.instance().removeMapLayer(lyr.id())
+            
+            # Add to project
+            boundary_layer = QgsVectorLayer(boundary_path, "Boundary AOI (auto)", "ogr")
+            if boundary_layer.isValid():
+                QgsProject.instance().addMapLayer(boundary_layer)
+                self.boundary_layer_path = boundary_path
+                
+                # Select the new boundary layer in the combo
+                self.aoi_combo.setLayer(boundary_layer)
+                
+        except Exception as e:
+            # Silently fail - this is a convenience feature
+            pass
         
     def get_extent_and_crs(self):
         """Get the current AOI extent and CRS."""
@@ -133,6 +225,10 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
     def get_current_layer(self):
         """Get the currently selected AOI layer."""
         return self.aoi_combo.currentLayer() if self.aoi_layer_radio.isChecked() else None
+    
+    def get_boundary_layer_path(self):
+        """Get the path to the generated boundary layer."""
+        return self.boundary_layer_path
         
     def set_project_path_status(self, saved, path=""):
         """Update the project path status label."""
@@ -142,3 +238,4 @@ class ProjectSetupSection(QgsCollapsibleGroupBox):
         else:
             self.project_label.setText("Output: PROGETTO NON SALVATO")
             self.project_label.setStyleSheet("font-style: italic; color: #c0392b; font-weight: bold;")
+
