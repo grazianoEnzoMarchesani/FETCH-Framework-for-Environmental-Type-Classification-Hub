@@ -8,7 +8,8 @@ Provides methods for QGIS layer styling operations.
 from qgis.core import (
     QgsGraduatedSymbolRenderer, QgsRendererRange, 
     QgsFillSymbol, QgsStyle, QgsClassificationQuantile,
-    QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsSymbol
+    QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsSymbol,
+    QgsMessageLog, Qgis
 )
 from qgis.PyQt.QtGui import QColor
 
@@ -66,6 +67,25 @@ class StyleMixin:
                     palette = LCZMappings.COLORS
                     unique_values = grid_layer.uniqueValues(field_idx)
                     ordered_keys = sorted([str(v) for v in unique_values if v is not None])
+                elif config['field'] == 'lcz_matches':
+                    # Dynamic categories for Matches using Cividis ramp
+                    unique_values = grid_layer.uniqueValues(field_idx)
+                    ordered_keys = sorted([v for v in unique_values if v is not None])
+                    
+                    style = QgsStyle.defaultStyle()
+                    ramp = style.colorRamp('Cividis')
+                    if not ramp: ramp = style.colorRamp('Viridis')
+                    
+                    palette = {}
+                    for v in ordered_keys:
+                        try:
+                            # Normalize 0-10 (assuming max 10 matches)
+                            val_float = float(v)
+                            norm_val = min(max(val_float / 10.0, 0.0), 1.0)
+                            color = ramp.color(norm_val)
+                            palette[v] = color.name()
+                        except:
+                            palette[v] = '#bebebe'
                 else:
                     self.iface.messageBar().pushMessage("Errore", f"Mappatura non definita per renderer categorizzato: {field_name}", level=2)
                     return
@@ -92,7 +112,14 @@ class StyleMixin:
                     })
                     
                     label = LCZMappings.CLASSES.get(cat_value, cat_value) if config['field'] == 'lcz_class' else cat_value
-                    category = QgsRendererCategory(cat_value, symbol, label, True)
+                    # Check if cat_value is int for RendererCategory?
+                    # The issue was label type. Argument 3 is label (string).
+                    # But also QgsRendererCategory takes (value, symbol, label, render). 
+                    # If value is integer, we might need to cast it?
+                    # Actually, if the field is Integer, value should be int or str?
+                    # Usually QVariant accepts int. The error said "argument 3 has unexpected type 'int'". 
+                    # Argument 3 is label. So we MUST cast label to string.
+                    category = QgsRendererCategory(cat_value, symbol, str(label), True)
                     categories.append(category)
                 
                 renderer = QgsCategorizedSymbolRenderer(config['field'], categories)

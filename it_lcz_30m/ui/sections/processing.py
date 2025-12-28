@@ -27,6 +27,7 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
     
     def __init__(self, parent=None):
         super().__init__("3. Elaborazione Sequenziale", parent)
+        self.help_buttons = []
         self._setup_ui()
         self._connect_signals()
         
@@ -120,6 +121,7 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         if help_key:
             help_btn = self.create_help_button(help_key, HELP_PROCESSING)
             layout.addWidget(help_btn)
+            self.help_buttons.append(help_btn)
         
         # Action Button
         btn = QPushButton("ESEGUI")
@@ -162,3 +164,6 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         self.btn_unify.setEnabled(enabled)
         self.btn_dsm.setEnabled(enabled)
         self.btn_svf.setEnabled(enabled)
+        
+        for btn in self.help_buttons:
+            btn.setEnabled(enabled)

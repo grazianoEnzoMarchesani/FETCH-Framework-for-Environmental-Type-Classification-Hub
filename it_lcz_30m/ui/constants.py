@@ -21,7 +21,7 @@ PARAM_VISUALIZATION = {
     'lcz_class': {'field': 'lcz_class', 'label': 'Classe Local Climate Zone', 'renderer': 'categorized'},
     'lcz_vulnerability': {'field': 'lcz_vulnerability', 'label': 'Vulnerabilità Climatica', 'renderer': 'categorized'},
     'lcz_rmsep': {'field': 'lcz_rmsep', 'label': 'Errore Statistico (RMSEP)', 'ramp': 'Magma', 'min': 0, 'max': 1},
-    'lcz_matches': {'field': 'lcz_matches', 'label': 'Corrispondenze Trovate', 'ramp': 'Cividis', 'min': 0, 'max': 10},
+    'lcz_matches': {'field': 'lcz_matches', 'label': 'Corrispondenze Trovate', 'renderer': 'categorized'},
     'lcz_esa_fix': {'field': 'lcz_esa_fix', 'label': 'Rettifica ESA', 'renderer': 'categorized'},
 }
 
