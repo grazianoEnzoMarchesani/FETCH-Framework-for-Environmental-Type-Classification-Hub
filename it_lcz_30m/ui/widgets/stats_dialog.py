@@ -555,6 +555,81 @@ class AdvancedStatsDialog(QDialog):
         scroll.setWidget(content)
         layout.addWidget(scroll)
         
+        # --- Section 1: Scientific Consistency Index (The "Effective" Validation) ---
+        coherence_container = QWidget()
+        coh_layout = QVBoxLayout(coherence_container)
+        
+        coh_title = QLabel("Indice di Coerenza Scientifica (Stewart & Oke Compliance)")
+        coh_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1565c0; margin-top: 5px;")
+        coh_layout.addWidget(coh_title)
+        
+        coh_desc = QLabel("Questo indice misura la percentuale di celle i cui parametri ricadono nei range teorici. "
+                          "Un aumento dell'indice dopo la correzione ESA indica un miglioramento della qualità scientifica.")
+        coh_desc.setStyleSheet("font-size: 11px; color: #546e7a; margin-bottom: 10px;")
+        coh_layout.addWidget(coh_desc)
+        
+        coh_chart_frame = QFrame()
+        coh_chart_frame.setStyleSheet("background-color: #f8f9fa; border-radius: 8px; border: 2px solid #1565c0;")
+        coh_chart_frame.setMinimumHeight(350)
+        coh_chart_layout = QVBoxLayout(coh_chart_frame)
+        
+        coh_canvas = MplCanvas(self, width=8, height=4)
+        
+        # Calculate Global Coherence per LCZ (average across all 10 params)
+        all_lczs = sorted(list(set(self.stats['coherence_stats_pre'].keys()) | set(self.stats['coherence_stats_post'].keys())))
+        
+        global_pre = []
+        global_post = []
+        lcz_labels = []
+        
+        for lcz in all_lczs:
+            pre_p = self.stats['coherence_stats_pre'].get(lcz, {})
+            post_p = self.stats['coherence_stats_post'].get(lcz, {})
+            
+            if pre_p or post_p:
+                lcz_labels.append(lcz)
+                global_pre.append(np.mean(list(pre_p.values())) if pre_p else 0)
+                global_post.append(np.mean(list(post_p.values())) if post_p else 0)
+        
+        if lcz_labels:
+            x = np.arange(len(lcz_labels))
+            width = 0.35
+            
+            # Use distinct colors for quality
+            coh_canvas.axes.bar(x - width/2, global_pre, width, label='Qualità Originale (%)', color='#90a4ae', alpha=0.6)
+            coh_canvas.axes.bar(x + width/2, global_post, width, label='Qualità Post-ESA (%)', color='#1565c0', alpha=0.9)
+            
+            # Add Delta Markers (Arrows or text)
+            for i in range(len(lcz_labels)):
+                delta = global_post[i] - global_pre[i]
+                color = '#2e7d32' if delta >= 0 else '#c62828'
+                prefix = '+' if delta >= 0 else ''
+                coh_canvas.axes.text(x[i], max(global_pre[i], global_post[i]) + 2, f"{prefix}{delta:.1f}%", 
+                                     ha='center', va='bottom', fontsize=8, fontweight='bold', color=color)
+            
+            coh_canvas.axes.set_xticks(x)
+            coh_canvas.axes.set_xticklabels(lcz_labels)
+            coh_canvas.axes.set_ylabel("Coerenza Scientifica (%)")
+            coh_canvas.axes.set_ylim(0, 110)
+            coh_canvas.axes.grid(axis='y', linestyle='--', alpha=0.3)
+            coh_canvas.axes.legend(loc='upper right', fontsize=9, frameon=True)
+            
+            coh_chart_layout.addWidget(coh_canvas)
+            coh_layout.addWidget(coh_chart_frame)
+            content_layout.addWidget(coherence_container)
+            
+            # Separator
+            line = QFrame()
+            line.setFrameShape(QFrame.HLine)
+            line.setFrameShadow(QFrame.Sunken)
+            line.setStyleSheet("color: #cfd8dc; margin: 20px 0;")
+            content_layout.addWidget(line)
+
+        # --- Section 2: Detailed Mean Comparisons (The current charts) ---
+        detailed_title = QLabel("Confronto Medie Parametri (Pre vs Post)")
+        detailed_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50; margin-top: 10px;")
+        content_layout.addWidget(detailed_title)
+        
         # We compare all 10 parameters Before vs After
         params_to_compare = [
             ('building_surface_fraction', 'Building Fraction (%)'),
@@ -778,7 +853,31 @@ class AdvancedStatsDialog(QDialog):
                         fig_trans.tight_layout(rect=[0, 0.03, 1, 0.92])
                         pdf.savefig(fig_trans)
                         plt.close(fig_trans)
-                # 6. ESA Validation Summary (All 10 params with pagination)
+                # 6. Scientific Consistency Index Page (Validation Summary)
+                fig_coh = Figure(figsize=(8.27, 11.69))
+                fig_coh.suptitle("Indice di Coerenza Scientifica (Qualità Globale)", fontsize=16, fontweight='bold', y=0.95)
+                
+                ax_c = fig_coh.add_subplot(211)
+                all_l = sorted(list(set(self.stats['coherence_stats_pre'].keys()) | set(self.stats['coherence_stats_post'].keys())))
+                g_pre = [np.mean(list(self.stats['coherence_stats_pre'].get(l, {}).values())) if self.stats['coherence_stats_pre'].get(l) else 0 for l in all_l]
+                g_post = [np.mean(list(self.stats['coherence_stats_post'].get(l, {}).values())) if self.stats['coherence_stats_post'].get(l) else 0 for l in all_l]
+                
+                x = np.arange(len(all_l))
+                ax_c.bar(x - 0.2, g_pre, 0.4, label='Qualità Originale (%)', color='#90a4ae')
+                ax_c.bar(x + 0.2, g_post, 0.4, label='Qualità Post-ESA (%)', color='#1565c0')
+                ax_c.set_xticks(x)
+                ax_c.set_xticklabels(all_l, fontsize=8)
+                ax_c.set_ylabel("Coerenza (%)")
+                ax_c.set_title("Percentuale di celle nei range di Stewart & Oke", fontsize=12)
+                ax_c.legend()
+                
+                note_coh = "L'indice rappresenta il grado di conformità del modello alla teoria climatica. Un delta positivo indica una correzione efficace."
+                fig_coh.text(0.1, 0.45, "Commento Tecnico: " + note_coh, fontsize=10, style='italic', wrap=True)
+                
+                pdf.savefig(fig_coh)
+                plt.close(fig_coh)
+
+                # 7. ESA Validation Detailed (All 10 params with pagination)
                 val_params = [
                     ('building_surface_fraction', 'Building Fraction (%)'),
                     ('sky_view_factor', 'SVF (0-1)'),

@@ -38,6 +38,11 @@ class StatsAggregator:
         esa_transitions = {} # {original: {new: count}}
         param_data = {} # {class: {param: [values]}}
         param_data_pre = {} # {original_class: {param: [values]}}
+        
+        # Coherence tracking: {class: {param: [compliant_count, total_count]}}
+        coherence_pre = {}
+        coherence_post = {}
+        
         esa_corrected_count = 0
         total_valid_count = 0
 
@@ -90,21 +95,49 @@ class StatsAggregator:
                     # Post-ESA mapping
                     if p_name not in param_data[lcz]: param_data[lcz][p_name] = []
                     param_data[lcz][p_name].append(f_val)
-                    # Pre-ESA mapping
-                    if p_name not in param_data_pre[lcz_pre]: param_data_pre[lcz_pre][p_name] = []
-                    param_data_pre[lcz_pre][p_name].append(f_val)
+                    # Coherence check (Stewart & Oke Ranges)
+                    # Pre
+                    if lcz_pre not in coherence_pre: coherence_pre[lcz_pre] = {}
+                    if p_name not in coherence_pre[lcz_pre]: coherence_pre[lcz_pre][p_name] = [0, 0]
+                    
+                    ref_range_pre = LCZMappings.PARAMETERS.get(lcz_pre, {}).get(p_name)
+                    if ref_range_pre:
+                        p_min, p_max = ref_range_pre
+                        coherence_pre[lcz_pre][p_name][1] += 1
+                        if p_min <= f_val <= p_max:
+                            coherence_pre[lcz_pre][p_name][0] += 1
+                    
+                    # Post
+                    if lcz not in coherence_post: coherence_post[lcz] = {}
+                    if p_name not in coherence_post[lcz]: coherence_post[lcz][p_name] = [0, 0]
+                    
+                    ref_range_post = LCZMappings.PARAMETERS.get(lcz, {}).get(p_name)
+                    if ref_range_post:
+                        p_min, p_max = ref_range_post
+                        coherence_post[lcz][p_name][1] += 1
+                        if p_min <= f_val <= p_max:
+                            coherence_post[lcz][p_name][0] += 1
 
         # Calculate averages
         rmsep_stats = {lcz: np.mean(vals) for lcz, vals in rmsep_data.items() if vals}
         match_stats = {lcz: np.mean(vals) for lcz, vals in matches_data.items() if vals}
         
         param_means = {}
-        for l_orig, params in param_data.items():
-            param_means[l_orig] = {p: np.mean(vals) for p, vals in params.items() if vals}
+        for l_post, params in param_data.items():
+            param_means[l_post] = {p: np.mean(vals) for p, vals in params.items() if vals}
 
         param_means_pre = {}
-        for l_orig, params in param_data_pre.items():
-            param_means_pre[l_orig] = {p: np.mean(vals) for p, vals in params.items() if vals}
+        for l_pre, params in param_data_pre.items():
+            param_means_pre[l_pre] = {p: np.mean(vals) for p, vals in params.items() if vals}
+
+        # Calculate coherence percentages
+        coherence_stats_pre = {}
+        for lcz, params in coherence_pre.items():
+            coherence_stats_pre[lcz] = {p: (vals[0] / vals[1] * 100) if vals[1] > 0 else 0 for p, vals in params.items()}
+            
+        coherence_stats_post = {}
+        for lcz, params in coherence_post.items():
+            coherence_stats_post[lcz] = {p: (vals[0] / vals[1] * 100) if vals[1] > 0 else 0 for p, vals in params.items()}
 
         return {
             'lcz_counts': lcz_counts,
@@ -112,6 +145,8 @@ class StatsAggregator:
             'match_stats': match_stats,
             'param_means': param_means,
             'param_means_pre': param_means_pre,
+            'coherence_stats_pre': coherence_stats_pre,
+            'coherence_stats_post': coherence_stats_post,
             'esa_correction': {
                 'corrected': esa_corrected_count,
                 'total': total_valid_count,
