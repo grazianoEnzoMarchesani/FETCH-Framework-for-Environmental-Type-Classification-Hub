@@ -775,6 +775,9 @@ class AdvancedStatsDialog(QDialog):
                             
                             ax.set_title(f"Evoluzione celle LCZ {orig_class}", fontsize=12, fontweight='bold')
                         
+                        fig_trans.tight_layout(rect=[0, 0.03, 1, 0.92])
+                        pdf.savefig(fig_trans)
+                        plt.close(fig_trans)
                 # 6. ESA Validation Summary (All 10 params with pagination)
                 val_params = [
                     ('building_surface_fraction', 'Building Fraction (%)'),
