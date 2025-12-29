@@ -51,19 +51,22 @@ QPushButton:hover {
     background-color: #1a252f;
 }
 #AccentButton {
-    background-color: #9b59b6;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #a569bd, stop:1 #8e44ad);
+    border: 1px solid #7d3c98;
     color: white;
+    font-weight: bold;
 }
 #AccentButton:hover {
-    background-color: #8e44ad;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #bb8fce, stop:1 #a569bd);
 }
 #SuccessButton {
-    background-color: #27ae60;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2ecc71, stop:1 #27ae60);
+    border: 1px solid #219150;
     color: white;
     font-weight: bold;
 }
 #SuccessButton:hover {
-    background-color: #219150;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #34e883, stop:1 #2ecc71);
 }
 #WarningLabel {
     color: #d35400; 
@@ -188,6 +191,7 @@ QLineEdit:focus {
 #VisualButton:disabled {
     background-color: #f8f9fa;
     border: 1px dashed #ced4da;
+}
 #StepBadge {
     background-color: #2c3e50;
     color: white;

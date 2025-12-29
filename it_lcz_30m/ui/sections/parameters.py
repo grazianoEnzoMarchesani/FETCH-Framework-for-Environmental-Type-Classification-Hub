@@ -157,25 +157,35 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.results_grid.addWidget(help_lcz, 0, 2)
         
         self.main_layout.addWidget(self.results_card)
-        self.main_layout.addSpacing(10)
+        
+        # --- Final Actions Container ---
+        self.actions_container = QWidget()
+        actions_layout = QVBoxLayout(self.actions_container)
+        actions_layout.setContentsMargins(0, 15, 0, 5)
+        actions_layout.setSpacing(10)
         
         # Classification button
         self.btn_classify = QPushButton(" Esegui Classificazione Finale")
         self.btn_classify.setObjectName("SuccessButton")
         from qgis.core import QgsApplication
         self.btn_classify.setIcon(QgsApplication.getThemeIcon("mActionCheckHtml.svg"))
-        self.btn_classify.setMinimumHeight(40)
+        self.btn_classify.setMinimumHeight(42)
+        self.btn_classify.setCursor(Qt.PointingHandCursor)
         self.btn_classify.clicked.connect(self.classify_requested.emit)
-        self.main_layout.addWidget(self.btn_classify)
+        actions_layout.addWidget(self.btn_classify)
         
         # Advanced Statistics button
-        self.btn_stats = QPushButton("Statistiche Avanzate")
+        self.btn_stats = QPushButton(" Statistiche Avanzate")
         self.btn_stats.setObjectName("AccentButton")
+        self.btn_stats.setIcon(QgsApplication.getThemeIcon("mActionShowTable.svg")) # Statistics/Analysis look
         self.btn_stats.setToolTip("Visualizza statistiche e grafici avanzati della classificazione")
         self.btn_stats.setEnabled(False)
-        self.btn_stats.setMinimumHeight(35)
+        self.btn_stats.setMinimumHeight(42)
+        self.btn_stats.setCursor(Qt.PointingHandCursor)
         self.btn_stats.clicked.connect(self.stats_requested.emit)
-        self.main_layout.addWidget(self.btn_stats)
+        actions_layout.addWidget(self.btn_stats)
+        
+        self.main_layout.addWidget(self.actions_container)
         
     def set_indicator_enabled(self, field_name, enabled):
         """Enable/disable a specific indicator button."""
