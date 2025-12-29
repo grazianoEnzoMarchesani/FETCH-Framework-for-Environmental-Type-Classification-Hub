@@ -95,6 +95,11 @@ class StatsAggregator:
                     # Post-ESA mapping
                     if p_name not in param_data[lcz]: param_data[lcz][p_name] = []
                     param_data[lcz][p_name].append(f_val)
+                    
+                    # Pre-ESA mapping
+                    if p_name not in param_data_pre[lcz_pre]: param_data_pre[lcz_pre][p_name] = []
+                    param_data_pre[lcz_pre][p_name].append(f_val)
+                    
                     # Coherence check (Stewart & Oke Ranges)
                     # Pre
                     if lcz_pre not in coherence_pre: coherence_pre[lcz_pre] = {}
