@@ -24,6 +24,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     parameter_requested = pyqtSignal(str)  # parameter_id
     visualization_requested = pyqtSignal(str)  # field_name
     classify_requested = pyqtSignal()
+    stats_requested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__("5. Calcolo Parametri LCZ", parent)
@@ -167,6 +168,15 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.btn_classify.clicked.connect(self.classify_requested.emit)
         self.main_layout.addWidget(self.btn_classify)
         
+        # Advanced Statistics button
+        self.btn_stats = QPushButton("Statistiche Avanzate")
+        self.btn_stats.setObjectName("AccentButton")
+        self.btn_stats.setToolTip("Visualizza statistiche e grafici avanzati della classificazione")
+        self.btn_stats.setEnabled(False)
+        self.btn_stats.setMinimumHeight(35)
+        self.btn_stats.clicked.connect(self.stats_requested.emit)
+        self.main_layout.addWidget(self.btn_stats)
+        
     def set_indicator_enabled(self, field_name, enabled):
         """Enable/disable a specific indicator button."""
         if field_name in self.indicator_buttons:
@@ -185,6 +195,10 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     def set_classify_enabled(self, enabled):
         """Enable/disable the classification button."""
         self.btn_classify.setEnabled(enabled)
+        
+    def set_stats_enabled(self, enabled):
+        """Enable/disable the advanced statistics button."""
+        self.btn_stats.setEnabled(enabled)
         
     def set_enabled(self, enabled):
         """Enable or disable the entire section."""

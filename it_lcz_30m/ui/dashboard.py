@@ -88,14 +88,6 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.scroll_layout.addStretch()
         self.layout.addWidget(self.progress_section)
         
-        # Section 6: Advanced Statistics (Bottom Button)
-        self.stats_button = QPushButton("Statistiche Avanzate")
-        self.stats_button.setObjectName("AccentButton")
-        self.stats_button.setToolTip("Visualizza statistiche e grafici avanzati della classificazione")
-        self.stats_button.setEnabled(False)
-        self.stats_button.clicked.connect(self.show_advanced_stats)
-        self.layout.addWidget(self.stats_button)
-        
         self.setWidget(self.root)
         
         # =====================================================
@@ -122,6 +114,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.params_section.parameter_requested.connect(self.run_specific_lcz_param)
         self.params_section.visualization_requested.connect(self.apply_param_style)
         self.params_section.classify_requested.connect(self.run_classification)
+        self.params_section.stats_requested.connect(self.show_advanced_stats)
         
         # Project signals for dynamic UI gating
         QgsProject.instance().layersAdded.connect(self.check_layers_and_update_ui)
@@ -215,7 +208,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
                     # A more thorough check would be to check if any value != NULL/N/D.
                     has_stats = True
         
-        self.stats_button.setEnabled(has_stats)
+        self.params_section.set_stats_enabled(has_stats)
 
     # =========================================================================
     # Task Execution Methods
