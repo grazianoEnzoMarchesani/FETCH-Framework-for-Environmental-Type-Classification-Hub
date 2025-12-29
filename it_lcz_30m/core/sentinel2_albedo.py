@@ -23,9 +23,15 @@ import os
 import glob
 import logging
 import sys
+import shutil
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
 from datetime import datetime
+
+import numpy as np
+import rasterio
+from rasterio.enums import Resampling
+from rasterio.merge import merge
 
 # Apply platform-specific fixes (MacOS multiprocessing, PROJ_LIB)
 from .utils import apply_plugin_fixes
@@ -35,18 +41,14 @@ apply_plugin_fixes()
 os.environ['EODAG__COP_DATASPACE__DOWNLOAD__OUTPUTS_EXTENSION'] = '.zip'
 os.environ['EODAG__COP_DATASPACE__DOWNLOAD__EXTRACT'] = 'true'
 
-
-import numpy as np
-import rasterio
-from rasterio.enums import Resampling
-
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
 
 
 # ============================================================================
@@ -711,15 +713,39 @@ def main(
         max_cloud_cover=max_cloud_cover
     )
     
-    # Limit number of products to process
-    products_to_process = products[:max_products]
-    logger.info(f"\nProcessing {len(products_to_process)} product(s)...")
+    # Filter products: we want the best product (lowest cloud cover) for EACH tile
+    # found in the search results that intersects our AOI.
+    tiles_found = {}
+    for prod in products:
+        # Try to get tile ID from properties
+        tile_id = prod.properties.get('tileId') or prod.properties.get('granuleIdentifier')
+        if not tile_id:
+            # Fallback for EODAG results if tileId is missing
+            tile_id = prod.properties.get('id', 'unknown')
+            
+        if tile_id not in tiles_found:
+            tiles_found[tile_id] = prod
+            
+    products_to_process = list(tiles_found.values())
     
-    output_files = []
+    # Sort them by cloud cover again just to be sure
+    products_to_process.sort(key=lambda x: x.properties.get("cloudCover", 100))
+    
+    # If max_products is 1 but we found multiple tiles, we should probably allow 
+    # processing one per tile if they are different tiles.
+    # However, to avoid unintended massive downloads, we still respect max_products
+    # but as a limit of TILES if it's > 1.
+    if len(products_to_process) > max_products and max_products > 0:
+        logger.info(f"Limiting processing to the first {max_products} tiles out of {len(products_to_process)} found.")
+        products_to_process = products_to_process[:max_products]
+    
+    logger.info(f"\nProcessing {len(products_to_process)} product(s) across {len(tiles_found)} unique tiles...")
+    
+    individual_outputs = []
     
     for i, product in enumerate(products_to_process, 1):
         logger.info(f"\n{'='*60}")
-        logger.info(f"Processing product {i}/{len(products_to_process)}")
+        logger.info(f"Processing product {i}/{len(products_to_process)}: {product.properties.get('id')}")
         logger.info(f"{'='*60}")
         
         try:
@@ -730,7 +756,7 @@ def main(
             # Process albedo
             logger.info("\n[Phase 3] Processing albedo...")
             output_path = process_sentinel2_albedo(safe_path)
-            output_files.append(output_path)
+            individual_outputs.append(output_path)
             
             logger.info(f"\n✓ Product processed successfully: {output_path}")
             
@@ -738,9 +764,55 @@ def main(
             logger.error(f"Error processing product: {e}")
             continue
     
+    output_files = []
+    if len(individual_outputs) > 1:
+        logger.info("\n[Phase 4] Mosaicking multiple tiles...")
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            mosaic_path = Path(output_dir) / f"sentinel2_albedo_mosaic_{timestamp}.tif"
+            
+            src_files_to_mosaic = []
+            for fp in individual_outputs:
+                src = rasterio.open(fp)
+                src_files_to_mosaic.append(src)
+                
+            mosaic, out_trans = merge(src_files_to_mosaic)
+            
+            # Copy the profile from the first file
+            out_meta = src_files_to_mosaic[0].meta.copy()
+            out_meta.update({
+                "driver": "GTiff",
+                "height": mosaic.shape[1],
+                "width": mosaic.shape[2],
+                "transform": out_trans,
+                "compress": 'deflate'
+            })
+            
+            with rasterio.open(mosaic_path, "w", **out_meta) as dest:
+                dest.write(mosaic)
+                
+            # Close sources
+            for src in src_files_to_mosaic:
+                src.close()
+            
+            logger.info(f"✓ Mosaic created successfully: {mosaic_path}")
+            
+            # Use original expected filename if possible
+            final_path = Path(output_dir) / "sentinel2_albedo_10m.tif"
+            if final_path.exists():
+                final_path.unlink()
+            shutil.copy(mosaic_path, final_path)
+            output_files = [final_path]
+            
+        except Exception as e:
+            logger.error(f"Error during mosaicking: {e}")
+            output_files = individual_outputs
+    else:
+        output_files = individual_outputs
+    
     logger.info("\n" + "=" * 60)
     logger.info("PIPELINE COMPLETE")
-    logger.info(f"Processed {len(output_files)} product(s)")
+    logger.info(f"Processed {len(output_files)} output file(s)")
     for f in output_files:
         logger.info(f"  → {f}")
     logger.info("=" * 60)
@@ -761,6 +833,7 @@ def fetch_albedo_for_aoi(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     max_cloud_cover: int = 10,
+    max_products: int = 6,
     log_callback: Optional[callable] = None
 ) -> Tuple[bool, str, Optional[Path]]:
     """
@@ -823,7 +896,7 @@ def fetch_albedo_for_aoi(
             max_cloud_cover=max_cloud_cover,
             download_dir=download_dir,
             output_dir=output_dir,
-            max_products=1  # Get the best one
+            max_products=max_products
         )
         
         if output_files:

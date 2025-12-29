@@ -1,0 +1,19 @@
+.DS_Store
+README.md
+index.html
+interface_test
+prototype/LCZ classifier prototype.xlsx
+scripts/01_merge_fetch_files.py
+scripts/02_import raster files.py
+scripts/03_make grid.py
+scripts/04_make buildings.py
+scripts/05_make pervius 1.py
+scripts/06_make pervius 2.py
+scripts/07_make_dtm.py
+scripts/08_make-.dist.py
+scripts/09_median distance.py
+scripts/10_mediana altezze da correggere.py
+scripts/11.make h.py
+scripts/12_aspect ratio.py
+scripts/13_refine albedo.py
+scripts/14_rmsep.py
