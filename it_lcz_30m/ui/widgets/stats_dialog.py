@@ -613,7 +613,7 @@ class AdvancedStatsDialog(QDialog):
             coh_canvas.axes.set_ylabel("Coerenza Scientifica (%)")
             coh_canvas.axes.set_ylim(0, 110)
             coh_canvas.axes.grid(axis='y', linestyle='--', alpha=0.3)
-            coh_canvas.axes.legend(loc='upper right', fontsize=9, frameon=True)
+            coh_canvas.axes.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=2, fontsize=9, frameon=False)
             
             coh_chart_layout.addWidget(coh_canvas)
             coh_layout.addWidget(coh_chart_frame)
@@ -885,7 +885,7 @@ class AdvancedStatsDialog(QDialog):
                 ax_c.set_ylim(0, 110)
                 ax_c.grid(axis='y', linestyle='--', alpha=0.3)
                 ax_c.set_title("Percentuale di celle nei range di Stewart & Oke", fontsize=12)
-                ax_c.legend(fontsize=9)
+                ax_c.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=2, fontsize=9, frameon=False)
                 
                 note_coh = "L'indice rappresenta il grado di conformità del modello alla teoria climatica. Un delta positivo indica una correzione efficace."
                 fig_coh.text(0.1, 0.45, "Commento Tecnico: " + note_coh, fontsize=10, style='italic', wrap=True)
@@ -926,7 +926,7 @@ class AdvancedStatsDialog(QDialog):
                         ax_v.set_xticks(x)
                         ax_v.set_xticklabels(all_cls, fontsize=8)
                         ax_v.set_title(p_label, fontsize=12, fontweight='bold')
-                        ax_v.legend(fontsize=8)
+                        ax_v.legend(loc='upper center', bbox_to_anchor=(0.5, 1.2), ncol=2, fontsize=8, frameon=False)
                     
                     fig_val.tight_layout(rect=[0, 0.03, 1, 0.92])
                     pdf.savefig(fig_val)
