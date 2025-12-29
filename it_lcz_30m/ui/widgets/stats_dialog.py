@@ -868,13 +868,24 @@ class AdvancedStatsDialog(QDialog):
                 g_post = [np.mean(list(self.stats['coherence_stats_post'].get(l, {}).values())) if self.stats['coherence_stats_post'].get(l) else 0 for l in all_l]
                 
                 x = np.arange(len(all_l))
-                ax_c.bar(x - 0.2, g_pre, 0.4, label='Qualità Originale (%)', color='#90a4ae')
-                ax_c.bar(x + 0.2, g_post, 0.4, label='Qualità Post-ESA (%)', color='#1565c0')
+                ax_c.bar(x - 0.2, g_pre, 0.4, label='Qualità Originale (%)', color='#90a4ae', alpha=0.6)
+                ax_c.bar(x + 0.2, g_post, 0.4, label='Qualità Post-ESA (%)', color='#1565c0', alpha=0.9)
+                
+                # Add Delta Markers (Annotations)
+                for i in range(len(all_l)):
+                    delta = g_post[i] - g_pre[i]
+                    color = '#2e7d32' if delta >= 0 else '#c62828'
+                    prefix = '+' if delta >= 0 else ''
+                    ax_c.text(x[i], max(g_pre[i], g_post[i]) + 2, f"{prefix}{delta:.1f}%", 
+                             ha='center', va='bottom', fontsize=7, fontweight='bold', color=color)
+                
                 ax_c.set_xticks(x)
                 ax_c.set_xticklabels(all_l, fontsize=8)
                 ax_c.set_ylabel("Coerenza (%)")
+                ax_c.set_ylim(0, 110)
+                ax_c.grid(axis='y', linestyle='--', alpha=0.3)
                 ax_c.set_title("Percentuale di celle nei range di Stewart & Oke", fontsize=12)
-                ax_c.legend()
+                ax_c.legend(fontsize=9)
                 
                 note_coh = "L'indice rappresenta il grado di conformità del modello alla teoria climatica. Un delta positivo indica una correzione efficace."
                 fig_coh.text(0.1, 0.45, "Commento Tecnico: " + note_coh, fontsize=10, style='italic', wrap=True)
