@@ -10,7 +10,8 @@ from qgis.PyQt.QtWidgets import (
     QPushButton, QTabWidget, QWidget, QFrame, QScrollArea
 )
 from qgis.PyQt.QtGui import QColor, QFont
-
+from qgis.core import QgsMessageLog, Qgis, QgsProject
+import os
 import numpy as np
 
 try:
@@ -703,7 +704,11 @@ class AdvancedStatsDialog(QDialog):
         from qgis.PyQt.QtWidgets import QFileDialog
         import os
         
-        path, _ = QFileDialog.getSaveFileName(self, "Esporta Report Statistiche", "Report_FETCH_LCZ.pdf", "PDF Files (*.pdf)")
+        # Try to suggest a safe path (Home folder if possible)
+        home = os.path.expanduser("~")
+        default_path = os.path.join(home, "Report_FETCH_LCZ.pdf")
+        
+        path, _ = QFileDialog.getSaveFileName(self, "Esporta Report Statistiche", default_path, "PDF Files (*.pdf)")
         if not path:
             return
             
@@ -916,7 +921,6 @@ class AdvancedStatsDialog(QDialog):
                     pdf.savefig(fig_val)
                     plt.close(fig_val)
 
-            from ...core.stats_aggregator import QgsMessageLog, Qgis # Using aggregator's alias
             QgsMessageLog.logMessage(f"Report PDF salvato correttamente in: {path}", "FETCH", Qgis.Success)
             
         except Exception as e:
