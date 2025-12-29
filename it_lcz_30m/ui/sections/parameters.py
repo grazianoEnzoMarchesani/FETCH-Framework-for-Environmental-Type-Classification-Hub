@@ -5,7 +5,7 @@ FETCH Dashboard - Parameters Section
 Section 5: LCZ parameter calculation buttons and indicators.
 """
 
-from qgis.PyQt.QtCore import pyqtSignal
+from qgis.PyQt.QtCore import pyqtSignal, Qt
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
     QLabel, QPushButton
