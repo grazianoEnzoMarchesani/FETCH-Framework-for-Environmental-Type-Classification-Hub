@@ -174,6 +174,22 @@ class StyleMixin:
             grid_layer.setRenderer(renderer)
             grid_layer.triggerRepaint()
             
+            # --- Update Legend ---
+            legend_items = []
+            if config.get('renderer') == 'categorized':
+                for cat in categories:
+                    if cat.renderState():
+                        legend_items.append((cat.symbol().color().name(), cat.label()))
+            else:
+                for rng in ranges:
+                    if rng.renderState():
+                        legend_items.append((rng.symbol().color().name(), rng.label()))
+            
+            if hasattr(self, 'canvas_legend'):
+                # Format title: if it's longer than 25 chars, wrap it etc.
+                title = config.get('label', field_name)
+                self.canvas_legend.update_legend(title, legend_items)
+
             self.iface.messageBar().pushMessage(
                 "FETCH", 
                 f"Stile '{config['label']}' applicato alla griglia.", 

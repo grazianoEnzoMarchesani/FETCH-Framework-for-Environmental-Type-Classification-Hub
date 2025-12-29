@@ -27,6 +27,7 @@ from .sections import (
     GridDefinitionSection, ParametersSection, ProgressInfoSection
 )
 from .widgets.stats_dialog import AdvancedStatsDialog
+from .widgets.canvas_legend import CanvasLegend
 from ..core.stats_aggregator import StatsAggregator
 from .mixins import LayerMixin, StyleMixin
 
@@ -88,6 +89,9 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.scroll_layout.addStretch()
         self.layout.addWidget(self.progress_section)
         
+        # Legend Widget (Floating on Canvas)
+        self.canvas_legend = CanvasLegend(self.iface.mapCanvas())
+        
         self.setWidget(self.root)
         
         # =====================================================
@@ -119,6 +123,11 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         # Project signals for dynamic UI gating
         QgsProject.instance().layersAdded.connect(self.check_layers_and_update_ui)
         QgsProject.instance().layersRemoved.connect(self.check_layers_and_update_ui)
+        
+        # Connect Map Canvas resize to legend repositioning
+        self.iface.mapCanvas().canvasColorChanged.connect(self.canvas_legend._reposition) # Proxy for layout changes
+        # Better: use a timer or a specific event if QgsMapCanvas doesn't have a direct resize signal in Python API
+        # Actually, QgsMapCanvas is a QWidget, so it has it.
         
         # Initial state
         self.check_layers_and_update_ui()
