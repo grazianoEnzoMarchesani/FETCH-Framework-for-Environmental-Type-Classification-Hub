@@ -23,7 +23,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     # Signals
     parameter_requested = pyqtSignal(str)  # parameter_id
     visualization_requested = pyqtSignal(str)  # field_name
-    classify_requested = pyqtSignal(str) # method: 'standard' or 'legacy'
+    classify_requested = pyqtSignal(str) # method: 'stable' or 'experimental'
     stats_requested = pyqtSignal()
     
     def __init__(self, parent=None):
@@ -166,9 +166,13 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         
         # Classification Method Selector (added above button)
         self.classify_method_combo = QComboBox()
-        self.classify_method_combo.addItems(["Standard (v2.0)", "Legacy (Dec 29)"])
-        self.classify_method_combo.setToolTip("Scegli l'algoritmo di classificazione")
-        self.classify_method_combo.setStyleSheet("margin-bottom: 5px;")
+        self.classify_method_combo.addItems([
+            "Standard (Stable - Dec 29)", 
+            "Experimental (v2.0)"
+        ])
+        self.classify_method_combo.setToolTip("Scegli la logica di classificazione finale LCZ")
+        self.classify_method_combo.setFixedWidth(200)
+        self.classify_method_combo.setObjectName("ParamCombo")
         actions_layout.addWidget(self.classify_method_combo)
         
         # Classification button
@@ -198,7 +202,8 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     def _on_classify_clicked(self):
         """Handle classification button click with method selection."""
         idx = self.classify_method_combo.currentIndex()
-        method = 'standard' if idx == 0 else 'legacy'
+        # Index 0 is now the Stable (Dec 29) version
+        method = 'stable' if idx == 0 else 'experimental'
         self.classify_requested.emit(method)
 
     def set_indicator_enabled(self, field_name, enabled):

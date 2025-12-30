@@ -12,7 +12,7 @@ from ...core.exceptions import FetchError, FetchWarning, FetchCriticalError
 class ClassificationTask(QgsTask):
     """Task for running final LCZ classification in the background."""
     
-    def __init__(self, data_manager, grid_path, method='standard'):
+    def __init__(self, data_manager, grid_path, method='stable'):
         super().__init__("Classificazione LCZ Finale", QgsTask.CanCancel)
         self.data_manager = data_manager
         self.grid_path = grid_path

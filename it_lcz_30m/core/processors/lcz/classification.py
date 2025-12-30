@@ -305,21 +305,23 @@ class LCZClassificationProcessor:
         
         return lcz_class
     
-    def process(self, layer, log_callback=None, method='standard'):
+    def process(self, layer, log_callback=None, method='stable'):
         """
         Classify all features in the grid layer.
         Adds 'LCZ_Class' field with classification result.
         Applies ESA WorldCover correction for natural classes.
         Returns number of classified features.
         """
-        if method == 'legacy':
+        if method == 'stable':
             from .classification_legacy_dec29 import LCZClassificationProcessorLegacy
             if not self.legacy_processor:
                 self.legacy_processor = LCZClassificationProcessorLegacy(self.dm)
             if log_callback:
-                log_callback("⚠ Utilizzo classificatore LEGACY (dicembre 2025)...")
+                log_callback("⚠ Utilizzo classificatore STANDARD (Stable - Dec 29)...")
             return self.legacy_processor.process(layer, log_callback)
-
+        
+        if log_callback:
+            log_callback("🧪 Avvio classificazione LCZ (Experimental - v2.0)...")
         import os
         from qgis.core import QgsRasterLayer
         
