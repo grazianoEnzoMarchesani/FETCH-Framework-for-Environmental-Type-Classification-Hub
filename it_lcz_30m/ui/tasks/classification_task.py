@@ -12,10 +12,11 @@ from ...core.exceptions import FetchError, FetchWarning, FetchCriticalError
 class ClassificationTask(QgsTask):
     """Task for running final LCZ classification in the background."""
     
-    def __init__(self, data_manager, grid_path):
+    def __init__(self, data_manager, grid_path, method='standard'):
         super().__init__("Classificazione LCZ Finale", QgsTask.CanCancel)
         self.data_manager = data_manager
         self.grid_path = grid_path
+        self.method = method
         self.success = False
         self.message = ""
         self.output_path = ""
@@ -27,7 +28,8 @@ class ClassificationTask(QgsTask):
         try:
             self.success, self.message, self.output_path = self.data_manager.run_lcz_classification(
                 grid_path=self.grid_path,
-                log_callback=task_log
+                log_callback=task_log,
+                method=self.method
             )
             return self.success
         except FetchWarning as w:

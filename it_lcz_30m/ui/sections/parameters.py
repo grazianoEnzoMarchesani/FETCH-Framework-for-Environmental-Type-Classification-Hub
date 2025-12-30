@@ -8,7 +8,7 @@ Section 5: LCZ parameter calculation buttons and indicators.
 from qgis.PyQt.QtCore import pyqtSignal, Qt
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-    QLabel, QPushButton
+    QLabel, QPushButton, QComboBox
 )
 from qgis.gui import QgsCollapsibleGroupBox
 
@@ -23,7 +23,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     # Signals
     parameter_requested = pyqtSignal(str)  # parameter_id
     visualization_requested = pyqtSignal(str)  # field_name
-    classify_requested = pyqtSignal()
+    classify_requested = pyqtSignal(str) # method: 'standard' or 'legacy'
     stats_requested = pyqtSignal()
     
     def __init__(self, parent=None):
@@ -164,6 +164,13 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         actions_layout.setContentsMargins(0, 15, 0, 5)
         actions_layout.setSpacing(10)
         
+        # Classification Method Selector (added above button)
+        self.classify_method_combo = QComboBox()
+        self.classify_method_combo.addItems(["Standard (v2.0)", "Legacy (Dec 29)"])
+        self.classify_method_combo.setToolTip("Scegli l'algoritmo di classificazione")
+        self.classify_method_combo.setStyleSheet("margin-bottom: 5px;")
+        actions_layout.addWidget(self.classify_method_combo)
+        
         # Classification button
         self.btn_classify = QPushButton(" Esegui Classificazione Finale")
         self.btn_classify.setObjectName("SuccessButton")
@@ -171,7 +178,8 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.btn_classify.setIcon(QgsApplication.getThemeIcon("mActionCheckHtml.svg"))
         self.btn_classify.setMinimumHeight(42)
         self.btn_classify.setCursor(Qt.PointingHandCursor)
-        self.btn_classify.clicked.connect(self.classify_requested.emit)
+        
+        self.btn_classify.clicked.connect(self._on_classify_clicked)
         actions_layout.addWidget(self.btn_classify)
         
         # Advanced Statistics button
@@ -187,6 +195,12 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         
         self.main_layout.addWidget(self.actions_container)
         
+    def _on_classify_clicked(self):
+        """Handle classification button click with method selection."""
+        idx = self.classify_method_combo.currentIndex()
+        method = 'standard' if idx == 0 else 'legacy'
+        self.classify_requested.emit(method)
+
     def set_indicator_enabled(self, field_name, enabled):
         """Enable/disable a specific indicator button."""
         if field_name in self.indicator_buttons:
@@ -205,6 +219,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     def set_classify_enabled(self, enabled):
         """Enable/disable the classification button."""
         self.btn_classify.setEnabled(enabled)
+        self.classify_method_combo.setEnabled(enabled)
         
     def set_stats_enabled(self, enabled):
         """Enable/disable the advanced statistics button."""

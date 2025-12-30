@@ -108,6 +108,7 @@ class SkyViewFactorProcessor(LCZBaseProcessor):
         svf_array[~valid_mask] = 1.0
 
         driver = gdal.GetDriverByName('GTiff')
+        # Create the specific output
         out_ds = driver.Create(output_path, cols, rows, 1, gdal.GDT_Float32, options=['COMPRESS=DEFLATE'])
         out_ds.SetGeoTransform(geotransform)
         out_ds.SetProjection(dsm_ds.GetProjection())
@@ -115,6 +116,17 @@ class SkyViewFactorProcessor(LCZBaseProcessor):
         out_band.WriteArray(svf_array)
         out_ds = None
         
+        # KEY UPDATE: Force update of the canonical 'svf_10m.tif' layer used by zonal stats
+        # If the method is NOT ground (which already saves to svf_10m.tif), we overwrite svf_10m.tif
+        canonical_path = os.path.join(unified_dir, "svf_10m.tif")
+        if output_path != canonical_path:
+             import shutil
+             try:
+                 shutil.copy2(output_path, canonical_path)
+                 log_local(f"Aggiornato layer attivo 'svf_10m.tif' con i dati {method}")
+             except Exception as e:
+                 log_local(f"Errore aggiornamento layer attivo: {str(e)}")
+
         return True, f"Calcolo SVF {method} completato", output_path
 
     def process(self, layer, target_path, log_callback=None, method='ground'):

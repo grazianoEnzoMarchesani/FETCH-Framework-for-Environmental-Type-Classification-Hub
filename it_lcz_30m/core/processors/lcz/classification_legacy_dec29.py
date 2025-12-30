@@ -21,7 +21,7 @@ except ImportError:
 from ...constants import LCZMappings, FileNames, FolderNames, FieldNames
 
 
-class LCZClassifier:
+class LCZClassifierLegacy:
     """
     Classifies features into Local Climate Zones based on morphological parameters.
     Uses RMSEP (Root Mean Square Error Percentage) to find the best matching LCZ class.
@@ -137,26 +137,18 @@ class LCZClassifier:
         if total_params_available == 0:
             return {'lcz_class': 'N/D', 'rmsep': float('inf'), 'perfect_matches': 0, 'available_params': 0}
 
-        # Sort logic: 
-        # 1. Error threshold: Any class with RMSEP > 1.0 is considered a "Bad Match" 
-        #    unless it's the only option available.
-        # 2. Primary: Min RMSEP (the most important scientific metric)
-        # 3. Secondary: Max Perfect Matches (as tie-breaker)
-        
+        # Sort: max perfect matches first, then min RMSEP
         sorted_results = sorted(
             results.items(),
             key=lambda item: (
-                # Higher priority to RMSEP, but handle inf
-                1 if item[1]['rmsep'] > 1.0 else 0, # Penalty for high error
-                float('inf') if item[1]['rmsep'] == float('inf') else item[1]['rmsep'],
-                -item[1]['perfect_matches'] # Tie-breaker
+                -item[1]['perfect_matches'],
+                float('inf') if item[1]['rmsep'] == float('inf') else item[1]['rmsep']
             )
         )
 
         best_class_key, best_class_values = sorted_results[0]
 
-        # Final safety: if the best RMSEP is still too high or infinite, return N/D
-        if best_class_values['rmsep'] == float('inf') or best_class_values['rmsep'] > 1.5:
+        if best_class_values['rmsep'] == float('inf') and best_class_values['perfect_matches'] == 0:
             best_class_key = 'N/D'
 
         return {
@@ -172,8 +164,7 @@ class LCZClassifier:
         return cls.LCZ_CLASSES.get(lcz_class, "Unknown class")
 
 
-
-class LCZClassificationProcessor:
+class LCZClassificationProcessorLegacy:
     """
     Processor that applies LCZ classification to a grid layer.
     Includes ESA WorldCover-based correction for natural classes.
@@ -184,7 +175,6 @@ class LCZClassificationProcessor:
     
     def __init__(self, data_manager):
         self.dm = data_manager
-        self.legacy_processor = None
     
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "FETCH", level)
@@ -305,21 +295,13 @@ class LCZClassificationProcessor:
         
         return lcz_class
     
-    def process(self, layer, log_callback=None, method='standard'):
+    def process(self, layer, log_callback=None):
         """
         Classify all features in the grid layer.
         Adds 'LCZ_Class' field with classification result.
         Applies ESA WorldCover correction for natural classes.
         Returns number of classified features.
         """
-        if method == 'legacy':
-            from .classification_legacy_dec29 import LCZClassificationProcessorLegacy
-            if not self.legacy_processor:
-                self.legacy_processor = LCZClassificationProcessorLegacy(self.dm)
-            if log_callback:
-                log_callback("⚠ Utilizzo classificatore LEGACY (dicembre 2025)...")
-            return self.legacy_processor.process(layer, log_callback)
-
         import os
         from qgis.core import QgsRasterLayer
         
@@ -426,7 +408,7 @@ class LCZClassificationProcessor:
         log_local(f"Campi disponibili nel layer: {available_fields}")
         
         # Check which expected fields exist
-        expected_fields = list(LCZClassifier.FIELD_MAPPING.keys())
+        expected_fields = list(LCZClassifierLegacy.FIELD_MAPPING.keys())
         missing = [f for f in expected_fields if f not in available_fields]
         found = [f for f in expected_fields if f in available_fields]
         log_local(f"Campi LCZ trovati: {found}")
@@ -451,7 +433,7 @@ class LCZClassificationProcessor:
             
             # Extract parameters from feature fields
             parameters = {}
-            for field_name_src, param_name in LCZClassifier.FIELD_MAPPING.items():
+            for field_name_src, param_name in LCZClassifierLegacy.FIELD_MAPPING.items():
                 field_idx = layer.fields().indexFromName(field_name_src)
                 if field_idx != -1:
                     value = feature.attribute(field_idx)
@@ -489,7 +471,7 @@ class LCZClassificationProcessor:
                 esa_fix_status = '-'  # Default: no correction
                 
                 if any(v is not None for v in parameters.values()):
-                    classifier = LCZClassifier(parameters)
+                    classifier = LCZClassifierLegacy(parameters)
                     result = classifier.classify()
                     lcz_class = result['lcz_class']
                     # Store RMSEP: None only if inf, otherwise store the actual value (including 0)

@@ -82,9 +82,13 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         
         # Add SVF Method Selector
         self.svf_method_combo = QComboBox()
-        self.svf_method_combo.addItems(["Ground-Level (LCZ)", "Roof-Top (Legacy)"])
+        self.svf_method_combo.addItems([
+            "Ground-Level (LCZ)", 
+            "Legacy: Roof-Top", 
+            "Legacy: Heuristic (Dec 27)"
+        ])
         self.svf_method_combo.setToolTip("Scegli la prospettiva per il calcolo dell'SVF")
-        self.svf_method_combo.setFixedWidth(140)
+        self.svf_method_combo.setFixedWidth(180)
         self.svf_method_combo.setObjectName("ParamCombo")
         
         # Find the layout of raw_svf to insert the combo
@@ -159,7 +163,14 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
 
     def _on_svf_clicked(self):
         """Handle SVF button click with method selection."""
-        method = 'ground' if self.svf_method_combo.currentIndex() == 0 else 'legacy'
+        idx = self.svf_method_combo.currentIndex()
+        if idx == 0:
+            method = 'ground'
+        elif idx == 1:
+            method = 'legacy' 
+        else:
+            method = 'legacy_heuristic'
+            
         self.svf_requested.emit(method)
         
     def set_step_status(self, step_idx, completed):

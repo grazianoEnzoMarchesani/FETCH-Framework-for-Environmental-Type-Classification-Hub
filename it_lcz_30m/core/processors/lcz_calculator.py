@@ -123,7 +123,7 @@ class LCZCalculator:
 
         return True, f"Calcolo completato ({processed} celle)", target_path
 
-    def classify_lcz(self, grid_path, log_callback=None):
+    def classify_lcz(self, grid_path, log_callback=None, method='standard'):
         """Classifies grid cells into LCZ classes based on calculated parameters."""
         def log_local(msg, level=Qgis.Info):
             if log_callback: log_callback(msg)
@@ -140,7 +140,7 @@ class LCZCalculator:
         if not layer.isValid():
             return False, "Griglia non valida", None
 
-        log_local(f"Avvio classificazione LCZ su {target_path}")
-        processed = self.classification_proc.process(layer, log_callback)
+        log_local(f"Avvio classificazione LCZ ({method}) su {target_path}")
+        processed = self.classification_proc.process(layer, log_callback, method=method)
 
         return True, f"Classificazione completata ({processed} celle)", target_path

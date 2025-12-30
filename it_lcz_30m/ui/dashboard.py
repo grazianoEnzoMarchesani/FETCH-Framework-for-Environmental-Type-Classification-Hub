@@ -500,7 +500,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         QgsApplication.taskManager().addTask(task)
 
-    def run_classification(self):
+    def run_classification(self, method='standard'):
         """Run final LCZ classification."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
@@ -517,10 +517,10 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         grid_path = grid_layer.source()
         
         self.set_dashboard_enabled(False)
-        self.progress_section.set_status("Avvio classificazione LCZ finale...")
+        self.progress_section.set_status(f"Avvio classificazione LCZ finale ({method})...")
         self.progress_section.set_indeterminate(True)
         
-        task = ClassificationTask(self.data_manager, grid_path)
+        task = ClassificationTask(self.data_manager, grid_path, method=method)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
