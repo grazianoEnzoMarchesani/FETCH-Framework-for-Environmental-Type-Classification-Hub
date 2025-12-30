@@ -153,7 +153,8 @@ class LCZClassificationProcessorExperimental:
 
     def process(self, layer, log_callback=None):
         import os
-        from qgis.core import QgsRasterLayer, processing
+        import processing
+        from qgis.core import QgsRasterLayer
 
         def log_local(msg):
             if log_callback: log_callback(msg)
