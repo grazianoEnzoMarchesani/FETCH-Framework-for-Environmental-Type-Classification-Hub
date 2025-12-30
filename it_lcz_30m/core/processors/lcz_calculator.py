@@ -36,9 +36,9 @@ class LCZCalculator:
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "FETCH", level)
 
-    def calculate_svf(self, log_callback=None, search_radius=100, num_sectors=16, canopy_opacity=0.7):
+    def calculate_svf(self, log_callback=None, search_radius=100, num_sectors=16, canopy_opacity=0.7, method='ground'):
         """Calculates Sky View Factor (SVF) raster - delegated to specialized module."""
-        return self.svf_proc.calculate_raster(log_callback, search_radius, num_sectors, canopy_opacity)
+        return self.svf_proc.calculate_raster(log_callback, search_radius, num_sectors, canopy_opacity, method=method, overwrite=True)
 
     def calculate_parameters(self, grid_path, parameter_id=None, log_callback=None):
         """Calculates LCZ parameters for each grid cell - delegated to specialized modules."""
@@ -92,6 +92,12 @@ class LCZCalculator:
 
         processed = 0
         if parameter_id == 'sky_view_factor':
+            # Check if legacy SVF should be used instead of ground SVF
+            method = 'ground'
+            if os.path.exists(os.path.join(self.dm.get_project_dir(), self.dm.get_data_dir_name(), "unified", "svf_legacy_10m.tif")):
+                # If legacy exists but user is running LCZ classification, maybe we should ask?
+                # For now, let's keep it consistent: process() in sky_view_factor.py will be updated to take method.
+                pass
             processed = self.svf_proc.process(layer, target_path, log_callback)
 
         elif parameter_id == 'surface_albedo':

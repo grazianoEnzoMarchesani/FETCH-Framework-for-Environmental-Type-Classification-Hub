@@ -106,6 +106,7 @@ class FolderNames:
     HRL = "copernicus_hrl"
     INDUSTRY = "eprtr_industry"
     UNIFIED = "unified"
+    SNAPSHOTS = "snapshots"
 
 
 class LCZMappings:

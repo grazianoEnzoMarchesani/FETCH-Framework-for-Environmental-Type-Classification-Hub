@@ -7,11 +7,13 @@ Provides methods for QGIS layer styling operations.
 
 from qgis.core import (
     QgsGraduatedSymbolRenderer, QgsRendererRange, 
-    QgsFillSymbol, QgsStyle, QgsClassificationQuantile,
+    QgsFillSymbol, QgsStyle, QgsClassificationQuantile, QgsClassificationJenks,
     QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsSymbol,
-    QgsMessageLog, Qgis
+    QgsMessageLog, Qgis, QgsFeatureRequest
 )
+from qgis.PyQt.QtCore import QCoreApplication
 from qgis.PyQt.QtGui import QColor
+import random
 
 from ..constants import PARAM_VISUALIZATION
 from ...core.constants import LCZMappings
@@ -137,23 +139,35 @@ class StyleMixin:
                     self.iface.messageBar().pushMessage("Errore", "Nessuna rampa colore disponibile.", level=2)
                     return
                 
-                # Collect valid values
-                values = []
-                for feat in grid_layer.getFeatures():
+                # Collect valid values efficiently (no geometry, limited fields)
+                request = QgsFeatureRequest()
+                request.setFlags(QgsFeatureRequest.NoGeometry)
+                request.setSubsetOfAttributes([field_idx])
+                
+                all_values = []
+                for feat in grid_layer.getFeatures(request):
                     val = feat.attribute(field_idx)
                     if val is not None and str(val) not in ('NULL', ''):
                         try:
-                            values.append(float(val))
+                            all_values.append(float(val))
                         except (ValueError, TypeError):
                             pass
                 
-                if not values:
+                if not all_values:
                     self.iface.messageBar().pushMessage("Errore", f"Nessun valore valido nel campo {config['field']}.", level=2)
                     return
+
+                # Optimization: Limit values for Jenks algorithm (O(n^2) complexity)
+                # 20k points is more than enough for representative breaks
+                MAX_SAMPLES = 20000
+                if len(all_values) > MAX_SAMPLES:
+                    values = random.sample(all_values, MAX_SAMPLES)
+                else:
+                    values = all_values
                 
-                # Create quantile classification
+                # Create classification (Jenks/Natural Breaks is better for skewed distributions)
                 num_classes = 10
-                classifier = QgsClassificationQuantile()
+                classifier = QgsClassificationJenks()
                 classes = classifier.classes(values, num_classes)
                 
                 # Build renderer ranges
@@ -196,6 +210,30 @@ class StyleMixin:
                 level=3, duration=3
             )
             
+            # --- Auto-Snapshot Feature ---
+            # Automatically save a high-res snapshot to the project folder
+            try:
+                import os
+                snapshot_dir = self.data_manager.get_snapshot_dir()
+                if snapshot_dir:
+                    # Create a clean filename from the label
+                    clean_label = "".join([c if c.isalnum() else "_" for c in config.get('label', field_name)])
+                    # Remove multiple underscores
+                    while "__" in clean_label: clean_label = clean_label.replace("__", "_")
+                    
+                    filename = f"{clean_label}.png"
+                    auto_path = os.path.join(snapshot_dir, filename)
+                    
+                    # Force Qt to process UI events (ensure legend is updated and cleaned)
+                    # before taking the high-res snapshot
+                    QCoreApplication.processEvents()
+                    
+                    # We call the dashboard's method
+                    if hasattr(self, 'take_high_res_snapshot'):
+                        self.take_high_res_snapshot(auto_path=auto_path)
+            except Exception as e:
+                QgsMessageLog.logMessage(f"Errore auto-snapshot: {str(e)}", "FETCH", Qgis.Warning)
+                
         except Exception as e:
             import traceback
             QgsMessageLog.logMessage(f"Errore styling: {traceback.format_exc()}", "FETCH", Qgis.Critical)

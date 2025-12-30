@@ -67,6 +67,10 @@ class DataManager:
         if not os.path.exists(target_dir): os.makedirs(target_dir)
         return target_dir
 
+    def get_snapshot_dir(self):
+        """Returns the snapshots folder inside FETCH+ProjectName."""
+        return self.get_download_dir(FolderNames.SNAPSHOTS)
+
     # --- Backward compatibility wrappers for Dashboard.py ---
 
     def calculate_tinitaly_tiles(self, extent, crs_auth_id):
@@ -273,8 +277,8 @@ class DataManager:
     def create_synthetic_dsm(self, log_callback=None, overwrite=False):
         return self.raster_proc.create_synthetic_dsm(log_callback, overwrite)
 
-    def calculate_svf(self, log_callback=None, search_radius=100, num_sectors=16, canopy_opacity=0.7):
-        return self.lcz_calc.calculate_svf(log_callback, search_radius, num_sectors, canopy_opacity)
+    def calculate_svf(self, log_callback=None, search_radius=100, num_sectors=16, canopy_opacity=0.7, method='ground'):
+        return self.lcz_calc.calculate_svf(log_callback, search_radius, num_sectors, canopy_opacity, method=method)
 
     def create_lcz_grid(self, extent, crs_auth_id, cell_size=100, log_callback=None):
         return self.vector_proc.create_lcz_grid(extent, crs_auth_id, cell_size, log_callback)

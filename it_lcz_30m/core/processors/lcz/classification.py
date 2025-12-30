@@ -137,18 +137,26 @@ class LCZClassifier:
         if total_params_available == 0:
             return {'lcz_class': 'N/D', 'rmsep': float('inf'), 'perfect_matches': 0, 'available_params': 0}
 
-        # Sort: max perfect matches first, then min RMSEP
+        # Sort logic: 
+        # 1. Error threshold: Any class with RMSEP > 1.0 is considered a "Bad Match" 
+        #    unless it's the only option available.
+        # 2. Primary: Min RMSEP (the most important scientific metric)
+        # 3. Secondary: Max Perfect Matches (as tie-breaker)
+        
         sorted_results = sorted(
             results.items(),
             key=lambda item: (
-                -item[1]['perfect_matches'],
-                float('inf') if item[1]['rmsep'] == float('inf') else item[1]['rmsep']
+                # Higher priority to RMSEP, but handle inf
+                1 if item[1]['rmsep'] > 1.0 else 0, # Penalty for high error
+                float('inf') if item[1]['rmsep'] == float('inf') else item[1]['rmsep'],
+                -item[1]['perfect_matches'] # Tie-breaker
             )
         )
 
         best_class_key, best_class_values = sorted_results[0]
 
-        if best_class_values['rmsep'] == float('inf') and best_class_values['perfect_matches'] == 0:
+        # Final safety: if the best RMSEP is still too high or infinite, return N/D
+        if best_class_values['rmsep'] == float('inf') or best_class_values['rmsep'] > 1.5:
             best_class_key = 'N/D'
 
         return {

@@ -353,7 +353,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         QgsApplication.taskManager().addTask(task)
 
-    def run_svf_calculation(self):
+    def run_svf_calculation(self, method='ground'):
         """Calculate Sky View Factor from DSM."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
@@ -361,12 +361,12 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
             return
             
         self.set_dashboard_enabled(False)
-        self.progress_section.set_status("Avvio calcolo SVF... (può richiedere tempo)")
+        self.progress_section.set_status(f"Avvio calcolo SVF ({method})... (può richiedere tempo)")
         self.progress_section.set_indeterminate(True)
         
         data_dir = os.path.join(self.data_manager.get_project_dir(), self.data_manager.get_data_dir_name())
         
-        task = SVFTask(self.data_manager)
+        task = SVFTask(self.data_manager, method=method)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
@@ -557,6 +557,86 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
             
         dialog = AdvancedStatsDialog(stats, self)
         dialog.exec_()
+
+    def take_high_res_snapshot(self, auto_path=None):
+        """Take a high-resolution (300 DPI) snapshot of the map canvas."""
+        from qgis.PyQt.QtWidgets import QFileDialog
+        from qgis.PyQt.QtGui import QImage, QPainter
+        from qgis.PyQt.QtCore import QSize
+        from qgis.core import QgsMapSettings, QgsMapRendererCustomPainterJob
+        
+        if auto_path:
+            path = auto_path
+        else:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Salva Snapshot Alta Risoluzione", "snapshot_fetch.png", "PNG Files (*.png)"
+            )
+        
+        if not path:
+            return
+            
+        if not auto_path:
+            self.progress_section.set_status("Generazione snapshot HQ...", is_busy=True)
+        
+        canvas = self.iface.mapCanvas()
+        settings = canvas.mapSettings()
+        
+        # Increase resolution for professional output (300 DPI)
+        dpi = 300
+        scale_factor = dpi / 96.0 # Standard screen DPI is approx 96
+        
+        # Adjust size based on target DPI
+        size = settings.outputSize()
+        new_size = QSize(int(size.width() * scale_factor), int(size.height() * scale_factor))
+        settings.setOutputSize(new_size)
+        settings.setOutputDpi(dpi)
+        
+        # Prepare image buffer
+        image = QImage(new_size, QImage.Format_ARGB32_Premultiplied)
+        image.setDotsPerMeterX(int(dpi / 0.0254))
+        image.setDotsPerMeterY(int(dpi / 0.0254))
+        image.fill(Qt.transparent)
+        
+        # Render the map
+        painter = QPainter(image)
+        job = QgsMapRendererCustomPainterJob(settings, painter)
+        job.start()
+        job.waitForFinished()
+        
+        # Draw the legend overlay if visible
+        if hasattr(self, 'canvas_legend') and self.canvas_legend.isVisible():
+            # Use the specialized method to get the perfect size for HQ content
+            full_size = self.canvas_legend.prepare_for_snapshot()
+            full_w = full_size.width()
+            full_h = full_size.height()
+            
+            # Calculate position on HQ image (bottom-right)
+            margin = int(15 * scale_factor)
+            leg_w = int(full_w * scale_factor)
+            leg_h = int(full_h * scale_factor)
+            
+            x = new_size.width() - leg_w - margin
+            y = new_size.height() - leg_h - margin
+            
+            painter.save()
+            painter.translate(x, y)
+            painter.scale(scale_factor, scale_factor)
+            # Render the widget content onto the snapshot painter
+            self.canvas_legend.render(painter)
+            painter.restore()
+            
+            # Restore screen-appropriate size
+            if hasattr(self.canvas_legend, '_reposition'):
+                self.canvas_legend._reposition()
+            
+        painter.end()
+        
+        if image.save(path, "PNG"):
+            self.iface.messageBar().pushMessage("FETCH", f"Snapshot salvato: {os.path.basename(path)}", level=3)
+            self.progress_section.set_status("✓ Snapshot HQ salvato.")
+        else:
+            self.iface.messageBar().pushMessage("Errore", "Impossibile salvare lo snapshot.", level=2)
+            self.progress_section.set_status("✗ Errore salvataggio snapshot.", is_error=True)
 
     def closeEvent(self, event):
         """Handle close event."""

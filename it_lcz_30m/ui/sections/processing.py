@@ -8,7 +8,7 @@ Section 3: Sequential processing steps (Unify, DSM, SVF).
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QPushButton
+    QPushButton, QComboBox
 )
 from qgis.core import QgsApplication
 from qgis.gui import QgsCollapsibleGroupBox
@@ -23,7 +23,7 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
     # Signals
     unify_requested = pyqtSignal()
     dsm_requested = pyqtSignal()
-    svf_requested = pyqtSignal()
+    svf_requested = pyqtSignal(str) # method: 'ground' or 'legacy'
     
     def __init__(self, parent=None):
         super().__init__("3. Elaborazione Sequenziale", parent)
@@ -80,6 +80,18 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         )
         self.btn_svf.setToolTip("Calcola la frazione di cielo visibile utilizzando l'algoritmo ottimizzato NumPy")
         
+        # Add SVF Method Selector
+        self.svf_method_combo = QComboBox()
+        self.svf_method_combo.addItems(["Ground-Level (LCZ)", "Roof-Top (Legacy)"])
+        self.svf_method_combo.setToolTip("Scegli la prospettiva per il calcolo dell'SVF")
+        self.svf_method_combo.setFixedWidth(140)
+        self.svf_method_combo.setObjectName("ParamCombo")
+        
+        # Find the layout of raw_svf to insert the combo
+        svf_layout = self.row_svf.layout()
+        # Insert before the help button (which is before the action button)
+        # The structure is: Badge, Info, Stretch, Help, Action, Indicator
+        svf_layout.insertWidget(3, self.svf_method_combo)
         
         self.pipeline_layout.addWidget(self.row_svf)
         
@@ -143,7 +155,12 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         """Connect button signals."""
         self.btn_unify.clicked.connect(self.unify_requested.emit)
         self.btn_dsm.clicked.connect(self.dsm_requested.emit)
-        self.btn_svf.clicked.connect(self.svf_requested.emit)
+        self.btn_svf.clicked.connect(self._on_svf_clicked)
+
+    def _on_svf_clicked(self):
+        """Handle SVF button click with method selection."""
+        method = 'ground' if self.svf_method_combo.currentIndex() == 0 else 'legacy'
+        self.svf_requested.emit(method)
         
     def set_step_status(self, step_idx, completed):
         """Update step indicator color (1: Unify, 2: DSM, 3: SVF)."""
@@ -164,6 +181,7 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         self.btn_unify.setEnabled(enabled)
         self.btn_dsm.setEnabled(enabled)
         self.btn_svf.setEnabled(enabled)
+        self.svf_method_combo.setEnabled(enabled)
         
         for btn in self.help_buttons:
             btn.setEnabled(enabled)

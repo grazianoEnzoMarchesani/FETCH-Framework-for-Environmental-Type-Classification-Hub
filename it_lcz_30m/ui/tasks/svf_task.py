@@ -12,9 +12,10 @@ from ...core.exceptions import FetchError, FetchWarning, FetchCriticalError
 class SVFTask(QgsTask):
     """Task for calculating Sky View Factor in the background."""
     
-    def __init__(self, data_manager):
-        super().__init__("Calcolo SVF FETCH", QgsTask.CanCancel)
+    def __init__(self, data_manager, method='ground'):
+        super().__init__(f"Calcolo SVF FETCH ({method})", QgsTask.CanCancel)
         self.data_manager = data_manager
+        self.method = method
         self.success = False
         self.message = ""
         self.output_path = ""
@@ -25,7 +26,7 @@ class SVFTask(QgsTask):
         
         try:
             self.success, self.message, self.output_path = self.data_manager.calculate_svf(
-                log_callback=task_log, search_radius=100, num_sectors=16
+                log_callback=task_log, search_radius=100, num_sectors=16, method=self.method
             )
             return self.success
         except FetchWarning as w:

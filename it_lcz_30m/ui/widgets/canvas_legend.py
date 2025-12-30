@@ -116,7 +116,9 @@ class CanvasLegend(QFrame):
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             if item.widget():
-                item.widget().deleteLater()
+                w = item.widget()
+                w.setParent(None)
+                w.deleteLater()
         
         for color_hex, label in items:
             item_row = QWidget()
@@ -148,6 +150,26 @@ class CanvasLegend(QFrame):
         # Short delay to allow QGIS/Qt to settle the layout for accurate size hint
         from qgis.PyQt.QtCore import QTimer
         QTimer.singleShot(10, self._reposition)
+
+    def prepare_for_snapshot(self):
+        """Prepares the widget for HQ snapshot by expanding to full content height."""
+        # Calculate full required height for all items
+        self.content_widget.adjustSize()
+        content_h = self.content_widget.sizeHint().height()
+        
+        # Approximate other elements (header, margin)
+        header_h = 35 
+        line_h = 5
+        margins_h = self.main_layout.contentsMargins().top() + self.main_layout.contentsMargins().bottom()
+        spacing_h = self.main_layout.spacing() * 4
+        
+        required_h = content_h + header_h + line_h + margins_h + spacing_h + 10
+        
+        self.setMinimumHeight(0)
+        self.setMaximumHeight(16777215)
+        self.setFixedHeight(int(required_h))
+        self.adjustSize()
+        return self.size()
 
     def _reposition(self):
         """Anchor the widget to the bottom right of the canvas."""
