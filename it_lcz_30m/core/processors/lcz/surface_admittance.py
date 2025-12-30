@@ -33,16 +33,20 @@ class SurfaceAdmittanceProcessor(LCZBaseProcessor):
             log_local("Raster Land Use (ESA) mancante. Impossibile procedere con l'alta fedeltà.", Qgis.Warning)
             return 0
 
-        # 3. Scientific Coefficients (μ) - Derived from Stewart & Oke (2012) and Oke (1987)
+        # 3. Scientific Coefficients (μ) - J m⁻² s⁻¹ᐟ² K⁻¹
+        # Sources: 
+        # - Stewart & Oke (2012): "Local Climate Zones for Urban Temperature Studies"
+        # - Oke (1987): "Boundary Layer Climates"
+        # These values represent the thermal inertia of the materials.
         COEFFS = {
-            'building': 1650,    # Avg for LCZ 1-2
-            'h_50': 1400,        # ESA Impervious (Asphalt/Concrete)
-            'h_10': 1400,        # ESA Trees (LCZ B)
-            'h_30': 1400,        # ESA Grassland (LCZ D)
-            'h_40': 1400,        # ESA Cropland (LCZ D)
-            'h_20': 1100,        # ESA Scrubland (LCZ C)
-            'h_60': 1000,        # ESA Bare Soil (LCZ F)
-            'h_80': 1500,        # ESA Water (LCZ G)
+            'building': 1800,    # Stewart & Oke (2012): LCZ 1-3 range 1500-2500
+            'h_50': 1600,        # Stewart & Oke (2012): Paved surfaces/LCZ 8-10 range 1000-2000
+            'h_10': 1200,        # Stewart & Oke (2012): LCZ A-B range 1000-1800 (Trees)
+            'h_30': 1000,        # Stewart & Oke (2012): LCZ D range 1000-1800 (Low plants)
+            'h_40': 1000,        # Stewart & Oke (2012): LCZ D range (Cropland)
+            'h_20': 1100,        # Stewart & Oke (2012): LCZ C range (Scrubland)
+            'h_60': 600,         # Oke (1987): Dry bare soil ~600, Wet ~2000
+            'h_80': 1500,        # Oke (1987): Water surfaces ~1500-1600
         }
         
         # 4. Run Zonal Histogram for detailed ESA classes
