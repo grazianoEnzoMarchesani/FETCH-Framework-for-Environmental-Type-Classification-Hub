@@ -16,6 +16,7 @@ from .downloaders.osm import OSMDownloader
 from .downloaders.anas import ANASDownloader
 from .downloaders.hrl import HRLDownloader
 from .downloaders.industry import IndustryDownloader
+from .downloaders.corine import CorineDownloader
 from .processors.raster import RasterProcessor
 from .processors.vector import VectorProcessor
 from .processors.lcz_calculator import LCZCalculator
@@ -39,6 +40,7 @@ class DataManager:
         self.anas = ANASDownloader(self)
         self.hrl = HRLDownloader(self)
         self.industry = IndustryDownloader(self)
+        self.corine = CorineDownloader(self)
         
         self.raster_proc = RasterProcessor(self)
         self.vector_proc = VectorProcessor(self)
@@ -103,6 +105,10 @@ class DataManager:
     def fetch_eprtr_industrial(self, extent, crs_auth_id, log_callback=None):
         return self.industry.fetch_eprtr(extent, crs_auth_id, log_callback=log_callback)
 
+    def fetch_corine_landcover(self, extent, crs_auth_id, log_callback=None):
+        """Fetches CORINE Land Cover 2018 data for LCZ v3.0 industrial correction."""
+        return self.corine.fetch_corine(extent, crs_auth_id, log_callback=log_callback)
+
     def fetch_sentinel2_albedo(self, extent, crs_auth_id, username=None, password=None):
         # Keep original logic for albedo as it's already in its own file
         from .sentinel2_albedo import fetch_albedo_for_aoi
@@ -164,6 +170,7 @@ class DataManager:
             FolderNames.ANAS: {"pattern": "traffic_points.json", "output_name": FileNames.TRAFFIC, "type": "vector"},
             FolderNames.HRL: {"pattern": "*.tif", "output_name": FileNames.IMPERVIOUSNESS, "merge": True},
             FolderNames.INDUSTRY: {"pattern": "industrial_sites.json", "output_name": FileNames.INDUSTRY, "type": "vector"},
+            FolderNames.CORINE: {"pattern": "corine_clc2018.json", "output_name": FileNames.CORINE, "type": "vector"},
         }
         
         output_paths = []
@@ -198,6 +205,7 @@ class DataManager:
             FileNames.TRAFFIC: LayerNames.TRAFFIC,
             FileNames.IMPERVIOUSNESS: LayerNames.IMPERVIOUSNESS,
             FileNames.INDUSTRY: LayerNames.INDUSTRY,
+            FileNames.CORINE: LayerNames.CORINE,
         }
 
         # Determine optimal UTM projection from a reference layer (e.g. Buildings)
@@ -246,6 +254,24 @@ class DataManager:
             
         return layers
 
+    def load_corine_layer(self):
+        """Loads the downloaded CORINE Land Cover layer into the project."""
+        from qgis.core import QgsVectorLayer, QgsProject
+        path = self.corine.get_corine_path()
+        if path and os.path.exists(path):
+            from .constants import LayerNames
+            # Remove existing to force reload
+            existing = QgsProject.instance().mapLayersByName(LayerNames.CORINE)
+            for lyr_old in existing:
+                QgsProject.instance().removeMapLayer(lyr_old.id())
+                
+            layer = QgsVectorLayer(path, LayerNames.CORINE, "ogr")
+            if layer.isValid():
+                QgsProject.instance().addMapLayer(layer)
+                return True
+        return False
+
+
     def load_grid_layer(self, grid_path, layer_name=None, log_callback=None):
         """Loads the LCZ grid layer into the QGIS project."""
         if not os.path.exists(grid_path):
@@ -289,9 +315,9 @@ class DataManager:
     def calculate_lcz_parameters(self, grid_path=None, parameter_id=None, log_callback=None):
         return self.lcz_calc.calculate_parameters(grid_path, parameter_id, log_callback)
 
-    def run_lcz_classification(self, grid_path, log_callback=None, method='stable'):
+    def run_lcz_classification(self, grid_path, log_callback=None, method='stable', apply_smoothing=True):
         """Classifies grid cells into LCZ classes based on calculated parameters."""
-        return self.lcz_calc.classify_lcz(grid_path, log_callback, method=method)
+        return self.lcz_calc.classify_lcz(grid_path, log_callback, method=method, apply_smoothing=apply_smoothing)
 
     def _download_file_generic(self, url, local_path, auth=None):
         return download_file_generic(url, local_path, auth)

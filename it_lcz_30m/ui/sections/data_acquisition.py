@@ -70,7 +70,8 @@ class DataAcquisitionSection(QgsCollapsibleGroupBox, HelpMixin):
                 "OSM Roads (Vettoriale)": "osm",
                 "Traffic ANAS (Italia)": "anas",
                 "Copernicus HRL (10m)": "copernicus",
-                "Industrial Points (E-PRTR)": "industrial"
+                "Industrial Points (E-PRTR)": "industrial",
+                "CORINE Land Cover (EEA)": "corine"
             }
             row_layout.addStretch()
             

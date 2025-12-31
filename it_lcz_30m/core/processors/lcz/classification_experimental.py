@@ -8,8 +8,9 @@ Optimized sorting logic and RMSEP thresholds.
 """
 
 import numpy as np
-from qgis.core import QgsVectorLayer, QgsField, Qgis, QgsMessageLog
+from qgis.core import QgsVectorLayer, QgsField, Qgis, QgsMessageLog, QgsGeometry, QgsSpatialIndex
 from qgis.PyQt.QtCore import QMetaType
+from collections import Counter
 
 try:
     import statsmodels.tools.eval_measures as em
@@ -95,28 +96,44 @@ class LCZClassifierExperimental:
         return rmsep, perfect_matches, error_contributions, available_params_count
 
     def classify(self):
+        """
+        Classify into LCZ class using Balanced Score logic (v2.2).
+        Weights statistical proximity (RMSEP) against parameter match count.
+        """
         results = {}
         total_params_available = 0
         for lcz in self.LCZ_CLASSES.keys():
             rmsep, perfect_matches, error_contributions, available_params_count = self.calculate_rmsep(lcz)
-            results[lcz] = {'rmsep': rmsep, 'perfect_matches': perfect_matches}
+            results[lcz] = {
+                'rmsep': rmsep, 
+                'perfect_matches': perfect_matches
+            }
             if total_params_available == 0 and available_params_count > 0:
                 total_params_available = available_params_count
 
         if total_params_available == 0:
             return {'lcz_class': 'N/D', 'rmsep': float('inf'), 'perfect_matches': 0, 'available_params': 0}
 
+        # SORTING STRATEGY (v2.2 - Balanced Score):
+        # We calculate a score where lower is better. 
+        # Score = RMSEP - (Matches * Bonus)
+        # Bonus = 0.15 (A 15% reduction in perceived error for each parameter that falls perfectly within the range)
+        match_bonus = 0.15
+        
+        def calculate_score(vals):
+            if vals['rmsep'] == float('inf'):
+                return float('inf')
+            return vals['rmsep'] - (vals['perfect_matches'] * match_bonus)
+
         sorted_results = sorted(
             results.items(),
-            key=lambda item: (
-                1 if item[1]['rmsep'] > 1.0 else 0,
-                float('inf') if item[1]['rmsep'] == float('inf') else item[1]['rmsep'],
-                -item[1]['perfect_matches']
-            )
+            key=lambda item: calculate_score(item[1])
         )
 
         best_class_key, best_class_values = sorted_results[0]
-        if best_class_values['rmsep'] == float('inf') or best_class_values['rmsep'] > 1.5:
+        
+        # Rigidity check (v2.2): threshold increased to 2.5 to allow more valid urban types.
+        if best_class_values['rmsep'] == float('inf') or best_class_values['rmsep'] > 2.5:
             best_class_key = 'N/D'
 
         return {
@@ -140,18 +157,44 @@ class LCZClassificationProcessorExperimental:
         QgsMessageLog.logMessage(msg, "FETCH", level)
     
     def _apply_esa_correction(self, lcz_class, esa_class, impervious_frac=None):
+        """
+        Applies logic to reconcile the morphological classifier with ESA WorldCover.
+        Fixes cases where land is incorrectly classified as water ('G').
+        """
+        # 1. Base case: Built-up stays built-up unless ESA says water
         if lcz_class in [str(i) for i in range(1, 11)]:
-            if esa_class == 80: return 'G'
+            if esa_class == 80: 
+                return 'G'
             return lcz_class
-        if esa_class is None or lcz_class == 'N/D': return lcz_class
+            
+        if esa_class is None or lcz_class == 'N/D': 
+            return lcz_class
+            
         suggested = self.ESA_TO_LCZ.get(esa_class)
-        if suggested is None: return lcz_class
-        if esa_class == 10: return lcz_class if lcz_class in ['A', 'B'] else 'A'
-        if esa_class == 60: return 'E' if (impervious_frac and impervious_frac > 50) else 'F'
-        if esa_class == 80: return 'G'
+        
+        # 2. Safety: If it's classified as water ('G') but ESA says it's land
+        if lcz_class == 'G' and esa_class != 80:
+            if esa_class == 50: # Built-up
+                return '9' # Default to Sparsely Built if we thought it was open water
+            return suggested if suggested else 'D' # Fallback to Low Plants for other land types
+            
+        # 3. Standardization strategy
+        if suggested is None: 
+            return lcz_class
+            
+        if esa_class == 10: # Trees
+            return lcz_class if lcz_class in ['A', 'B'] else 'A'
+            
+        if esa_class == 60: # Bare
+            return 'E' if (impervious_frac and impervious_frac > 50) else 'F'
+            
+        if esa_class == 80: # Water
+            return 'G'
+            
+        # 4. Natural class overriding
         return suggested if lcz_class in ['A', 'B', 'C', 'D', 'E', 'F', 'G'] else lcz_class
 
-    def process(self, layer, log_callback=None):
+    def process(self, layer, log_callback=None, apply_smoothing=True):
         import os
         import processing
         from qgis.core import QgsRasterLayer
@@ -207,11 +250,74 @@ class LCZClassificationProcessorExperimental:
                         imp = float(feature.attribute(imp_idx)) if (imp_idx != -1 and feature.attribute(imp_idx) is not None) else None
                         lcz = self._apply_esa_correction(lcz, esa_lookup.get(fid), imp)
                     
+                    raw_rmsep = res['rmsep']
+                    rmsep_val = None if (raw_rmsep == float('inf') or raw_rmsep != raw_rmsep) else float(raw_rmsep)
+                    
                     layer.changeAttributeValue(fid, idx, lcz)
-                    layer.changeAttributeValue(fid, layer.fields().indexFromName('lcz_rmsep'), res['rmsep'])
+                    layer.changeAttributeValue(fid, layer.fields().indexFromName('lcz_rmsep'), rmsep_val)
                     layer.changeAttributeValue(fid, layer.fields().indexFromName('lcz_matches'), res['perfect_matches'])
                     layer.changeAttributeValue(fid, layer.fields().indexFromName('lcz_vulnerability'), LCZMappings.VULNERABILITY_MAPPING.get(lcz, 'Unknown'))
             except: pass
             
         layer.commitChanges()
+        
+        # Apply smoothing if requested
+        if apply_smoothing:
+            if log_callback:
+                log_callback("🧹 Applicazione smoothing spaziale (v2 - Regola 7/9)...")
+            self._apply_spatial_smoothing(layer, log_callback)
+            
         return layer.featureCount()
+
+    def _apply_spatial_smoothing(self, layer, log_callback=None):
+        """Unified smoothing for v2."""
+        from collections import Counter
+        idx_class = layer.fields().indexFromName('lcz_class')
+        idx_vuln = layer.fields().indexFromName('lcz_vulnerability')
+        if idx_class == -1: return
+        
+        spatial_index = QgsSpatialIndex(layer.getFeatures())
+        feature_dict = {}
+        for feat in layer.getFeatures():
+            feature_dict[feat.id()] = {
+                'lcz': feat.attribute(idx_class),
+                'geom': QgsGeometry(feat.geometry())
+            }
+        
+        smoothed = 0
+        updates = {}
+        MIN_NEIGHBOR_AGREEMENT = 7
+        
+        for fid, data in feature_dict.items():
+            cell_lcz = data['lcz']
+            if cell_lcz in ['N/D', 'ERRORE', None]: continue
+            
+            bbox = data['geom'].boundingBox()
+            bbox.grow(max(bbox.width(), bbox.height()) * 1.5)
+            candidates = spatial_index.intersects(bbox)
+            
+            neighbor_classes = []
+            for cand_id in candidates:
+                cand_data = feature_dict.get(cand_id)
+                if cand_data:
+                    l = cand_data['lcz']
+                    if l not in ['N/D', 'ERRORE', None]:
+                        neighbor_classes.append(l)
+            
+            if not neighbor_classes: continue
+            counter = Counter(neighbor_classes)
+            maj_class, maj_count = counter.most_common(1)[0]
+            if cell_lcz != maj_class and maj_count >= MIN_NEIGHBOR_AGREEMENT:
+                updates[fid] = maj_class
+                smoothed += 1
+        
+        if updates:
+            layer.startEditing()
+            for fid, new_lcz in updates.items():
+                layer.changeAttributeValue(fid, idx_class, new_lcz)
+                if idx_vuln != -1:
+                    layer.changeAttributeValue(fid, idx_vuln, 
+                        LCZMappings.VULNERABILITY_MAPPING.get(new_lcz, 'Unknown'))
+            layer.commitChanges()
+            if log_callback:
+                log_callback(f"✨ Smoothing completato: {smoothed} celle rettificate.")

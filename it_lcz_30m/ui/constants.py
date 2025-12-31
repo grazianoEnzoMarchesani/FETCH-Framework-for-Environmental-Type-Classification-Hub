@@ -23,6 +23,7 @@ PARAM_VISUALIZATION = {
     'lcz_rmsep': {'field': 'lcz_rmsep', 'label': 'Errore Statistico (RMSEP)', 'ramp': 'Magma', 'min': 0, 'max': 1},
     'lcz_matches': {'field': 'lcz_matches', 'label': 'Corrispondenze Trovate', 'renderer': 'categorized'},
     'lcz_esa_fix': {'field': 'lcz_esa_fix', 'label': 'Rettifica ESA', 'renderer': 'categorized'},
+    'lcz_corine_fix': {'field': 'lcz_corine_fix', 'label': 'Rettifica CORINE', 'renderer': 'categorized'},
 }
 
 # Data sources available for download
@@ -31,7 +32,8 @@ DATA_SOURCES = [
     "ETH (Alberi H 10m)", "ESA WorldCover (Land Use)",
     "Meta HRSL (Popolazione)", "S2GM (Albedo Sentinel-2)",
     "OSM Roads (Vettoriale)", "Traffic ANAS (Italia)",
-    "Copernicus HRL (10m)", "Industrial Points (E-PRTR)"
+    "Copernicus HRL (10m)", "Industrial Points (E-PRTR)",
+    "CORINE Land Cover (EEA)"
 ]
 
 # LCZ Parameter definitions: (id, display_name, tooltip, output_fields)

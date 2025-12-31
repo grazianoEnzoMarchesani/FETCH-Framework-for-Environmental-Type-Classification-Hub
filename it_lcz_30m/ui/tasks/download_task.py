@@ -30,7 +30,8 @@ class DownloadTask(QgsTask):
         "OSM Roads (Vettoriale)": "Download Strade OSM",
         "Traffic ANAS (Italia)": "Download Traffico ANAS",
         "Copernicus HRL (10m)": "Download Impermeabilità HRL",
-        "Industrial Points (E-PRTR)": "Download Industrie E-PRTR"
+        "Industrial Points (E-PRTR)": "Download Industrie E-PRTR",
+        "CORINE Land Cover (EEA)": "Download CORINE Land Cover"
     }
     
     def __init__(self, data_manager, selected_checks, extent, crs, cdse_user, cdse_pass, tiles):
@@ -176,6 +177,15 @@ class DownloadTask(QgsTask):
                 self.emit_progress("Industrial Points (E-PRTR)", current_step, total_steps)
                 task_log("Acquisizione Punti Industriali E-PRTR...")
                 self.data_manager.fetch_eprtr_industrial(self.extent, self.crs, log_callback=task_log)
+                self.setProgress(int(current_step / total_steps * 100))
+
+            # 11. CORINE Land Cover (EEA)
+            if self.selected_checks.get("CORINE Land Cover (EEA)"):
+                current_step += 1
+                if self.isCanceled(): return False
+                self.emit_progress("CORINE Land Cover (EEA)", current_step, total_steps)
+                task_log("Acquisizione CORINE Land Cover (EEA)...")
+                self.data_manager.fetch_corine_landcover(self.extent, self.crs, log_callback=task_log)
                 self.setProgress(int(current_step / total_steps * 100))
 
             self.success = True

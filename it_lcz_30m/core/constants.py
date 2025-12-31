@@ -29,6 +29,7 @@ class LayerNames:
     # Processing layers (from dashboard.py)
     DSM = "DSM Sintetico (10m)"
     SVF = "Sky View Factor (10m)"
+    CORINE = "CORINE Land Cover 2018"
     
     # Grid layer name templates
     GRID_TEMPLATE = "Griglia LCZ ({size}m)"
@@ -62,6 +63,7 @@ class FileNames:
     ROADS = "roads.gpkg"
     TRAFFIC = "traffic_points.gpkg"
     INDUSTRY = "industry_points.gpkg"
+    CORINE = "corine_clc2018.gpkg"
     
     # Processing outputs
     DSM = "dsm_10m.tif"
@@ -105,6 +107,7 @@ class FolderNames:
     ANAS = "anas_traffic"
     HRL = "copernicus_hrl"
     INDUSTRY = "eprtr_industry"
+    CORINE = "corine_clc2018"
     UNIFIED = "unified"
     SNAPSHOTS = "snapshots"
 
@@ -213,6 +216,61 @@ class LCZMappings:
         90: 'D',   # Herbaceous wetland → Low plants (near water)
         95: 'A',   # Mangroves → Dense trees
         100: 'D',  # Moss and lichen → Low plants
+    }
+    
+    # CORINE Land Cover 2018 class codes to LCZ mapping
+    # Used by v3.0 classifier for industrial area correction
+    # Reference: https://land.copernicus.eu/content/corine-land-cover-nomenclature-guidelines/html/
+    CORINE_TO_LCZ = {
+        # Artificial surfaces (1xx)
+        111: None,  # Continuous urban fabric → Keep RMSEP (high density built)
+        112: None,  # Discontinuous urban fabric → Keep RMSEP (medium density built)
+        121: '10',  # Industrial or commercial units → Heavy Industry / Large Lowrise
+        122: 'E',   # Road and rail networks → Bare rock or paved
+        123: 'E',   # Port areas → Bare rock or paved
+        124: 'E',   # Airports → Bare rock or paved
+        131: 'F',   # Mineral extraction sites → Bare soil
+        132: 'F',   # Dump sites → Bare soil
+        133: 'F',   # Construction sites → Bare soil
+        141: 'B',   # Green urban areas → Scattered trees
+        142: 'D',   # Sport and leisure facilities → Low plants
+        # Agricultural (2xx)
+        211: 'D',   # Non-irrigated arable land → Low plants
+        212: 'D',   # Permanently irrigated land → Low plants
+        213: 'D',   # Rice fields → Low plants
+        221: 'B',   # Vineyards → Scattered trees
+        222: 'B',   # Fruit trees → Scattered trees
+        223: 'B',   # Olive groves → Scattered trees
+        231: 'D',   # Pastures → Low plants
+        241: 'D',   # Annual crops associated with permanent crops → Low plants
+        242: 'D',   # Complex cultivation patterns → Low plants
+        243: 'D',   # Agriculture with natural vegetation → Low plants
+        244: 'D',   # Agro-forestry → Low plants
+        # Forest (3xx)
+        311: 'A',   # Broad-leaved forest → Dense trees
+        312: 'A',   # Coniferous forest → Dense trees
+        313: 'A',   # Mixed forest → Dense trees
+        321: 'D',   # Natural grasslands → Low plants
+        322: 'C',   # Moors and heathland → Bush, scrub
+        323: 'C',   # Sclerophyllous vegetation → Bush, scrub
+        324: 'B',   # Transitional woodland-shrub → Scattered trees
+        331: 'F',   # Beaches, dunes, sands → Bare soil
+        332: 'F',   # Bare rocks → Bare rock
+        333: 'F',   # Sparsely vegetated areas → Bare soil
+        334: 'F',   # Burnt areas → Bare soil
+        335: 'F',   # Glaciers and perpetual snow → Bare soil
+        # Wetlands (4xx)
+        411: 'D',   # Inland marshes → Low plants
+        412: 'D',   # Peat bogs → Low plants
+        421: 'D',   # Salt marshes → Low plants
+        422: 'D',   # Salines → Low plants
+        423: 'D',   # Intertidal flats → Low plants
+        # Water bodies (5xx)
+        511: 'G',   # Water courses → Water
+        512: 'G',   # Water bodies → Water
+        521: 'G',   # Coastal lagoons → Water
+        522: 'G',   # Estuaries → Water
+        523: 'G',   # Sea and ocean → Water
     }
     
     @classmethod

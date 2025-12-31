@@ -8,8 +8,9 @@ Based on Stewart & Oke (2012) LCZ classification scheme.
 """
 
 import numpy as np
-from qgis.core import QgsVectorLayer, QgsField, Qgis, QgsMessageLog
+from qgis.core import QgsVectorLayer, QgsField, Qgis, QgsMessageLog, QgsGeometry, QgsSpatialIndex
 from qgis.PyQt.QtCore import QMetaType
+from collections import Counter
 
 try:
     import statsmodels.tools.eval_measures as em
@@ -232,7 +233,11 @@ class LCZClassificationProcessorStandard:
             return None
     
     def _apply_esa_correction(self, lcz_class, esa_class, impervious_frac=None):
-        """Apply ESA correction."""
+        """
+        Applies logic to reconcile the morphological classifier with ESA WorldCover.
+        Fixes cases where land is incorrectly classified as water ('G').
+        """
+        # 1. Base case: Built-up stays built-up unless ESA says water
         if lcz_class in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
             if esa_class == 80:
                 return 'G'
@@ -242,9 +247,17 @@ class LCZClassificationProcessorStandard:
             return lcz_class
         
         suggested_lcz = self.ESA_TO_LCZ.get(esa_class)
+        
+        # 2. Safety: If it's classified as water ('G') but ESA says it's land
+        if lcz_class == 'G' and esa_class != 80:
+            if esa_class == 50: # Built-up
+                return '9' # Default to Sparsely Built if we thought it was open water
+            return suggested_lcz if suggested_lcz else 'D' # Fallback to Low Plants
+            
         if suggested_lcz is None:
             return lcz_class
         
+        # 3. Specific ESA logic
         if esa_class == 10:  # Tree cover
             if lcz_class in ['A', 'B']:
                 return lcz_class
@@ -258,12 +271,13 @@ class LCZClassificationProcessorStandard:
         if esa_class == 80:  # Water
             return 'G'
         
+        # 4. Final confirmation for natural classes
         if lcz_class in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
             return suggested_lcz
         
         return lcz_class
     
-    def process(self, layer, log_callback=None):
+    def process(self, layer, log_callback=None, apply_smoothing=True):
         """Main processing logic for Standard classification."""
         import os
         from qgis.core import QgsRasterLayer
@@ -395,4 +409,70 @@ class LCZClassificationProcessorStandard:
                 self.log(f"Errore feature {feat_id}: {e}", Qgis.Warning)
         
         layer.commitChanges()
+        
+        # 5. Apply Spatial Smoothing if requested
+        if apply_smoothing:
+            if log_callback:
+                log_callback("🧹 Applicazione smoothing spaziale (v1 - Regola 7/9)...")
+            self._apply_spatial_smoothing(layer, log_callback)
+            
         return processed_count
+
+    def _apply_spatial_smoothing(self, layer, log_callback=None):
+        """
+        Applies a 3x3 majority filter to clean 'salt and pepper' noise.
+        Since Standard v1 lacks confidence scores, it uses a strict 7/9 consensus.
+        """
+        from collections import Counter
+        
+        idx_class = layer.fields().indexFromName('lcz_class')
+        idx_vuln = layer.fields().indexFromName('lcz_vulnerability')
+        if idx_class == -1: return
+        
+        spatial_index = QgsSpatialIndex(layer.getFeatures())
+        feature_dict = {}
+        for feat in layer.getFeatures():
+            feature_dict[feat.id()] = {
+                'lcz': feat.attribute(idx_class),
+                'geom': QgsGeometry(feat.geometry())
+            }
+        
+        smoothed = 0
+        updates = {}
+        MIN_NEIGHBOR_AGREEMENT = 7  # Strict quorum for v1/v2
+        
+        for fid, data in feature_dict.items():
+            cell_lcz = data['lcz']
+            if cell_lcz in ['N/D', 'ERRORE', None]: continue
+            
+            bbox = data['geom'].boundingBox()
+            bbox.grow(max(bbox.width(), bbox.height()) * 1.5)
+            candidates = spatial_index.intersects(bbox)
+            
+            neighbor_classes = []
+            for cand_id in candidates:
+                cand_data = feature_dict.get(cand_id)
+                if cand_data:
+                    l = cand_data['lcz']
+                    if l not in ['N/D', 'ERRORE', None]:
+                        neighbor_classes.append(l)
+            
+            if not neighbor_classes: continue
+            
+            counter = Counter(neighbor_classes)
+            maj_class, maj_count = counter.most_common(1)[0]
+            
+            if cell_lcz != maj_class and maj_count >= MIN_NEIGHBOR_AGREEMENT:
+                updates[fid] = maj_class
+                smoothed += 1
+        
+        if updates:
+            layer.startEditing()
+            for fid, new_lcz in updates.items():
+                layer.changeAttributeValue(fid, idx_class, new_lcz)
+                if idx_vuln != -1:
+                    layer.changeAttributeValue(fid, idx_vuln, 
+                        LCZMappings.VULNERABILITY_MAPPING.get(new_lcz, 'Unknown'))
+            layer.commitChanges()
+            if log_callback:
+                log_callback(f"✨ Smoothing completato: {smoothed} celle rettificate.")

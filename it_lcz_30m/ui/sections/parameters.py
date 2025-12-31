@@ -8,7 +8,7 @@ Section 5: LCZ parameter calculation buttons and indicators.
 from qgis.PyQt.QtCore import pyqtSignal, Qt
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-    QLabel, QPushButton, QComboBox
+    QLabel, QPushButton, QComboBox, QCheckBox
 )
 from qgis.gui import QgsCollapsibleGroupBox
 
@@ -23,7 +23,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     # Signals
     parameter_requested = pyqtSignal(str)  # parameter_id
     visualization_requested = pyqtSignal(str)  # field_name
-    classify_requested = pyqtSignal(str) # method: 'stable' or 'experimental'
+    classify_requested = pyqtSignal(str, bool) # method: 'stable'/'experimental'/'v3', apply_smoothing
     stats_requested = pyqtSignal()
     
     def __init__(self, parent=None):
@@ -168,12 +168,29 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.classify_method_combo = QComboBox()
         self.classify_method_combo.addItems([
             "Standard (Stable - Dec 29)", 
-            "Experimental (v2.0)"
+            "Weighted Contextual (v1.1)",
+            "Experimental (v2.0)",
+            "Weighted Experimental (v2.1)",
+            "Advanced (v3.0)"
         ])
-        self.classify_method_combo.setToolTip("Scegli la logica di classificazione finale LCZ")
+        self.classify_method_combo.setToolTip("Scegli la logica di classificazione finale LCZ.\nv1.1/v2.1: media pesata dei parametri nel vicinato 3x3.\nAdvanced v3.0: include correzione CORINE e smoothing spaziale.")
         self.classify_method_combo.setFixedWidth(200)
         self.classify_method_combo.setObjectName("ParamCombo")
+        self.classify_method_combo.currentIndexChanged.connect(self._on_method_changed)
         actions_layout.addWidget(self.classify_method_combo)
+        
+        # Smoothing Toggle
+        self.chk_smoothing = QCheckBox("Applica Smoothing Spaziale (3x3)")
+        self.chk_smoothing.setChecked(True)
+        self.chk_smoothing.setToolTip("Riduce l'effetto 'salt & pepper' garantendo maggiore coerenza spaziale.\nNelle versioni v1 e v2 pulisce i pixel isolati basandosi sui 9 vicini.")
+        self.chk_smoothing.setStyleSheet("font-size: 11px; color: #34495e; padding: 5px;")
+        actions_layout.addWidget(self.chk_smoothing)
+        
+        # Recommendation Label (Hidden by default)
+        self.lbl_smoothing_rec = QLabel("💡 Consigliato disattivare lo smoothing con v1.1/v2.1")
+        self.lbl_smoothing_rec.setStyleSheet("color: #e67e22; font-size: 10px; font-weight: bold; margin-left: 20px;")
+        self.lbl_smoothing_rec.setVisible(False)
+        actions_layout.addWidget(self.lbl_smoothing_rec)
         
         # Classification button
         self.btn_classify = QPushButton(" Esegui Classificazione Finale")
@@ -199,12 +216,25 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         
         self.main_layout.addWidget(self.actions_container)
         
+    def _on_method_changed(self, index):
+        """Handle classification method change."""
+        # Index 1 is v1.1, Index 3 is v2.1
+        if index in [1, 3]:
+            self.lbl_smoothing_rec.setVisible(True)
+            self.chk_smoothing.setChecked(False)
+        else:
+            self.lbl_smoothing_rec.setVisible(False)
+            if index in [0, 2, 4]: # Stable, Experimental v2.0, Adv v3.0
+                 self.chk_smoothing.setChecked(True)
+
     def _on_classify_clicked(self):
         """Handle classification button click with method selection."""
         idx = self.classify_method_combo.currentIndex()
-        # Index 0 is now the Stable (Dec 29) version
-        method = 'stable' if idx == 0 else 'experimental'
-        self.classify_requested.emit(method)
+        # Mapping: 0:stable, 1:v1.1, 2:experimental, 3:v2.1, 4:v3
+        methods = ['stable', 'v1.1', 'experimental', 'v2.1', 'v3']
+        method = methods[idx] if idx < len(methods) else 'stable'
+        apply_smoothing = self.chk_smoothing.isChecked()
+        self.classify_requested.emit(method, apply_smoothing)
 
     def set_indicator_enabled(self, field_name, enabled):
         """Enable/disable a specific indicator button."""

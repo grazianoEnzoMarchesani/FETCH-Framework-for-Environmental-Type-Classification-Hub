@@ -134,6 +134,7 @@ class AdvancedStatsDialog(QDialog):
         self.tabs.addTab(self.create_physical_tab(), "Proprietà Fisiche")
         self.tabs.addTab(self.create_esa_tab(), "Correzione ESA")
         self.tabs.addTab(self.create_esa_comparison_tab(), "Validazione Post-ESA")
+        self.tabs.addTab(self.create_validation_tab(), "Validazione Globale")
         
         self.layout.addWidget(self.tabs)
         
@@ -699,6 +700,88 @@ class AdvancedStatsDialog(QDialog):
         ))
         
         return tab
+
+    def create_validation_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        header_box = QFrame()
+        header_box.setStyleSheet("background-color: #f1f2f6; border-radius: 8px; padding: 15px;")
+        h_layout = QVBoxLayout(header_box)
+        
+        title = QLabel("Modulo di Validazione Scientifica Globale")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
+        h_layout.addWidget(title)
+        
+        desc = QLabel("Questo modulo confronta i tuoi risultati FETCH con i benchmark globali standard della comunità scientifica (WUDAPT e AH4GUC).")
+        desc.setStyleSheet("color: #7f8c8d; font-size: 11px;")
+        desc.setWordWrap(True)
+        h_layout.addWidget(desc)
+        
+        self.run_val_btn = QPushButton("Esegui Validazione Globale (WUDAPT & AH4GUC)")
+        self.run_val_btn.setStyleSheet("""
+            QPushButton { background-color: #27ae60; color: white; border-radius: 4px; padding: 10px; font-weight: bold; margin-top: 10px; }
+            QPushButton:hover { background-color: #219150; }
+        """)
+        self.run_val_btn.clicked.connect(self.run_global_validation)
+        h_layout.addWidget(self.run_val_btn)
+        
+        layout.addWidget(header_box)
+        
+        # Results container
+        self.val_report_scroll = QScrollArea()
+        self.val_report_scroll.setWidgetResizable(True)
+        self.val_report_content = QLabel("Clicca sul pulsante sopra per avviare il confronto con i dataset globali.\nRegistra l'accordo spaziale con WUDAPT e la coerenza del calore antropogenico con AH4GUC.")
+        self.val_report_content.setStyleSheet("padding: 20px; color: #95a5a6; font-style: italic;")
+        self.val_report_content.setAlignment(Qt.AlignCenter)
+        self.val_report_scroll.setWidget(self.val_report_content)
+        
+        layout.addWidget(self.val_report_scroll)
+        
+        return tab
+
+    def run_global_validation(self):
+        """Runs the external validation logic."""
+        from ...core.processors.lcz.validator import LCZValidator
+        
+        grid_layer = self.parent().find_valid_grid_layer() if self.parent() else None
+        if not grid_layer:
+            self.val_report_content.setText("✗ Impossibile trovare il layer della griglia.")
+            return
+
+        self.run_val_btn.setEnabled(False)
+        self.run_val_btn.setText("Validazione in corso...")
+        
+        validator = LCZValidator(None)
+        success, results = validator.validate_layer(grid_layer)
+        
+        if success:
+            report_text = results['summary']
+            # Simple conversion to HTML for rich display in QLabel
+            report_html = "<html><body>"
+            for line in report_text.split('\n'):
+                if line.startswith('###'):
+                    report_html += f"<h2>{line[3:].strip()}</h2>"
+                elif line.startswith('**'):
+                    report_html += f"<b>{line.strip('* ')}</b><br>"
+                elif line.startswith('*'):
+                    report_html += f"<i>{line.strip('* ')}</i><br>"
+                elif line.startswith('✓'):
+                    report_html += f"<font color='green'>{line}</font><br>"
+                elif line.startswith('⚠'):
+                    report_html += f"<font color='orange'>{line}</font><br>"
+                else:
+                    report_html += f"{line}<br>"
+            report_html += "</body></html>"
+            
+            self.val_report_content.setText(report_html)
+            self.val_report_content.setStyleSheet("padding: 20px; color: #2c3e50; font-family: sans-serif;")
+            self.val_report_content.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        else:
+            self.val_report_content.setText(f"✗ Errore durante la validazione: {results}")
+
+        self.run_val_btn.setEnabled(True)
+        self.run_val_btn.setText("Esegui Nuova Validazione")
 
     def export_to_pdf(self):
         from qgis.PyQt.QtWidgets import QFileDialog
