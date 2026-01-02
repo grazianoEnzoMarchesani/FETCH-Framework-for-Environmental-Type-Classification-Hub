@@ -151,29 +151,27 @@ class LCZClassifierWZDV:
         if self.available_params_count < 3:
             return {'lcz_class': 'N/D', 'score': 0, 'confidence': 0}
 
+        # --- PRE-FILTER: BSF Physical Constraint ---
+        # "Built classes (1-10) only if BSF >= 10, else Natural (A-G)"
+        bsf = self.parameters.get('building_surface_fraction', 0)
+        built_classes = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+        natural_classes = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+        
+        if bsf >= 10:
+            candidate_classes = built_classes
+        else:
+            candidate_classes = natural_classes
+
         results = {}
         vetos = {}
 
-        # Hard BSF Constraint: Built classes (1-10) iff BSF >= 10%
-        bsf_val = self.parameters.get('building_surface_fraction', 0)
-        is_urban_bsf = bsf_val >= 10.0
-
-        for lcz_id in self.LCZ_CLASSES.keys():
+        for lcz_id in candidate_classes:
             score, vetoed = self.calculate_weighted_score(lcz_id, veto_count=veto_count)
-            
-            # Apply BSF-based split (Built vs Natural)
-            is_built_class = lcz_id in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
-            if is_urban_bsf:
-                if not is_built_class:
-                    vetoed = True
-            else:
-                if is_built_class:
-                    vetoed = True
-
             results[lcz_id] = score
             vetos[lcz_id] = vetoed
 
-        # Filter out vetoed classes
+        # Filter out vetoed classes if possible, but keep at least something?
+        # No, if vetoed, it's out.
         valid_results = {k: v for k, v in results.items() if not vetos[k] and v != float('inf')}
         
         if not valid_results:
