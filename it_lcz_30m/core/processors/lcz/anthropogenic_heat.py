@@ -119,29 +119,72 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                         ind_layer.changeAttributeValue(f.id(), idx_weight, weight)
                 ind_layer.commitChanges()
 
-                # 3. Sum weights per grid cell
-                res_ind = processing.run("native:joinattributesbylocation", {
-                    'INPUT': layer, 'JOIN': ind_layer, 'PREDICATE': [0], # Intersects
-                    'SUMMARY_FIELDS': ['heat_weight'], 'SUMMARIES': [1], # Sum
-                    'OUTPUT': 'TEMPORARY_OUTPUT'
-                })
+                # 3. Sum weights per grid cell (Updated: 150m influence radius redistributed to buildings)
+                log_local("Ridistribuzione calore industriale agli edifici nel raggio di 150m...")
                 
-                # Check for standard summary field names
-                out_fields = res_ind['OUTPUT'].fields()
-                idx_ind_sum = out_fields.indexFromName('heat_weight_sum')
-                if idx_ind_sum == -1:
-                    # Some versions might use a different separator or just the field name
-                    idx_ind_sum = out_fields.indexFromName('heat_weight')
+                # We need to intersect 150m buffers of points with the grid cells, 
+                # then distribute heat to each cell proportional to its building area.
                 
-                idx_temp_link = out_fields.indexFromName('_link_id')
+                # First, ensure we have CRCs and links for spatial operations
+                transform_ind = QgsCoordinateTransform(ind_layer.crs(), layer.crs(), QgsProject.instance()) if ind_layer.crs() != layer.crs() else None
                 
-                if idx_ind_sum != -1 and idx_temp_link != -1:
-                    for f in res_ind['OUTPUT'].getFeatures():
-                        lk = f.attribute(idx_temp_link)
-                        v = f.attribute(idx_ind_sum)
-                        if lk is not None: ind_weights[lk] = v
-                else:
-                    log_local(f"AVVISO: Join industriale incompleto. Sum index: {idx_ind_sum}, Link index: {idx_temp_link}", Qgis.Warning)
+                # Step A: Find all cells affected by 150m buffers of ind points
+                # To be efficient, we iterate points and find cells in range
+                for ind_feat in ind_layer.getFeatures():
+                    weight = float(ind_feat.attribute(idx_weight) or 0)
+                    if weight <= 0: continue
+                    
+                    point_geom = ind_feat.geometry()
+                    if transform_ind: point_geom.transform(transform_ind)
+                    
+                    # 150m buffer in project units (assuming meters)
+                    buffer_geom = point_geom.buffer(150.0, 8)
+                    
+                    # Find all intersecting grid cells
+                    affected_cells = []
+                    total_b_area_in_range = 0.0
+                    
+                    request = QgsFeatureRequest().setFilterRect(buffer_geom.boundingBox())
+                    for cell_feat in layer.getFeatures(request):
+                        cell_geom = cell_feat.geometry()
+                        if cell_geom.intersects(buffer_geom):
+                            lk = cell_feat.attribute(idx_link)
+                            
+                            # Get BSF for this cell (dynamic or from layer)
+                            bsf = float(cell_feat.attribute(idx_bld) or 0)
+                            if bsf == 0 and lk in bsf_dynamic: bsf = bsf_dynamic[lk]
+                            
+                            cell_area = cell_geom.area()
+                            b_area = (bsf / 100.0) * cell_area
+                            
+                            # Calculate intersection area to weight the influence? 
+                            # User said "influence all buildings in 150m", 
+                            # so we distribute total weight among all buildings found in that radius.
+                            intersection = cell_geom.intersection(buffer_geom)
+                            if intersection:
+                                # We only count building area that is actually inside the buffer
+                                # Approximation: BSF * intersection area
+                                active_b_area = (bsf / 100.0) * intersection.area()
+                                if active_b_area > 0:
+                                    affected_cells.append({
+                                        'link': lk,
+                                        'b_area': active_b_area
+                                    })
+                                    total_b_area_in_range += active_b_area
+                    
+                    # Step B: Distribute weight
+                    if total_b_area_in_range > 0:
+                        for item in affected_cells:
+                            share = (item['b_area'] / total_b_area_in_range) * weight
+                            ind_weights[item['link']] = ind_weights.get(item['link'], 0.0) + share
+                    else:
+                        # Fallback: if no buildings in 150m, assign to the cell containing the point
+                        res_cell = layer.getFeatures(QgsFeatureRequest().setFilterRect(point_geom.boundingBox()))
+                        for c in res_cell:
+                            if c.geometry().contains(point_geom):
+                                lk = c.attribute(idx_link)
+                                ind_weights[lk] = ind_weights.get(lk, 0.0) + weight
+                                break
 
         # --- Componente Traffico Punti (ANAS) ---
         traffic_path = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified", "traffic_points.gpkg")
