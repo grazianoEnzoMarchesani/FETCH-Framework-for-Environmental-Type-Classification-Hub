@@ -170,23 +170,30 @@ class LCZClassifierWZDV:
             results[lcz_id] = score
             vetos[lcz_id] = vetoed
 
-        # Filter out vetoed classes if possible, but keep at least something?
-        # No, if vetoed, it's out.
+        # 1. Try to find the best among non-vetoed classes in the allowed group
         valid_results = {k: v for k, v in results.items() if not vetos[k] and v != float('inf')}
         
+        fallback_active = False
         if not valid_results:
-            # If all classes are vetoed, fallback to the one with best score even if vetoed
-            # or just return N/D? Let's be strict for v6.0.
-            return {'lcz_class': 'N/D', 'score': 0, 'confidence': 0, 'method': 'WZDV_Veto_All'}
+            # FALLBACK: If all are vetoed in THE RESTRICTED GROUP, we use all of them
+            # to avoid the "Sea of N/D" seen when filters are too strict.
+            # This mimics the "best effort" behavior of version 1.1 within the chosen world.
+            valid_results = {k: v for k, v in results.items() if v != float('inf')}
+            fallback_active = True
+            
+            if not valid_results:
+                 return {'lcz_class': 'N/D', 'score': 0, 'confidence': 0, 'method': 'WZDV_Empty'}
 
         sorted_results = sorted(valid_results.items(), key=lambda x: x[1])
         best_id, best_score = sorted_results[0]
         
         # Confidence logic: inverse of distance
-        # best_score = 0 means perfect weighted match. 
-        # Let's map score to [0, 1] confidence
         confidence = 1.0 / (1.0 + best_score)
         
+        # Penalize confidence if fallback was triggered
+        if fallback_active:
+             confidence *= 0.5 
+
         # Tie-breaker logic (Perfect matches count)
         if len(sorted_results) > 1:
             second_id, second_score = sorted_results[1]
@@ -198,8 +205,8 @@ class LCZClassifierWZDV:
                     best_id = second_id
                     best_score = second_score
 
-        # Final Rejection
-        if confidence < 0.3:
+        # Final Rejection (Lowered threshold from 0.3 to 0.15 for better edge coverage)
+        if confidence < 0.15:
             return {
                 'lcz_class': 'N/D', 
                 'score': round(best_score, 3), 
@@ -212,7 +219,7 @@ class LCZClassifierWZDV:
             'score': round(best_score, 3), 
             'confidence': round(confidence, 2),
             'perfect_matches': self._count_perfect_matches(best_id),
-            'method': 'WZDV'
+            'method': 'WZDV_Fallback' if fallback_active else 'WZDV'
         }
 
     def _count_perfect_matches(self, lcz_id):
