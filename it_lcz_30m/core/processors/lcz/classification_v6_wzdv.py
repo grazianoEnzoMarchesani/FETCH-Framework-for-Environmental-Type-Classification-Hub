@@ -59,26 +59,25 @@ class LCZClassifierWZDV:
         'anthro_heat': 'anthropogenic_heat'
     }
 
-    # Definizione dei Leader "Veto" (Il parametro che NON puoi sbagliare)
-    # If the error on this parameter is too high (> 0.5), the class is rejected.
-    VETO_PARAMS = {
-        '1': 'aspect_ratio',
-        '2': 'surface_admittance',
-        '3': 'building_surface_fraction',
-        '4': 'height_roughness',
-        '5': 'height_roughness',
-        '6': 'sky_view_factor',
-        '7': 'building_surface_fraction',
-        '8': 'pervious_surface_fraction',
-        '9': 'aspect_ratio',
-        '10': 'anthropogenic_heat',
-        'A': 'terrain_roughness',
-        'B': 'pervious_surface_fraction',
-        'C': 'surface_admittance',
-        'D': 'pervious_surface_fraction',
-        'E': 'impervious_surface_fraction',
-        'F': 'surface_admittance',
-        'G': 'surface_albedo'
+    # Class-wise ranking of parameters for Veto logic (from I to X)
+    VETO_RANKING = {
+        '1':  ['aspect_ratio', 'height_roughness', 'sky_view_factor', 'anthropogenic_heat', 'terrain_roughness', 'pervious_surface_fraction', 'building_surface_fraction', 'impervious_surface_fraction', 'surface_albedo', 'surface_admittance'],
+        '2':  ['surface_admittance', 'building_surface_fraction', 'aspect_ratio', 'height_roughness', 'pervious_surface_fraction', 'sky_view_factor', 'surface_albedo', 'terrain_roughness', 'impervious_surface_fraction', 'anthropogenic_heat'],
+        '3':  ['building_surface_fraction', 'sky_view_factor', 'aspect_ratio', 'surface_albedo', 'pervious_surface_fraction', 'terrain_roughness', 'anthropogenic_heat', 'height_roughness', 'impervious_surface_fraction', 'surface_admittance'],
+        '4':  ['height_roughness', 'terrain_roughness', 'aspect_ratio', 'pervious_surface_fraction', 'surface_admittance', 'sky_view_factor', 'impervious_surface_fraction', 'building_surface_fraction', 'anthropogenic_heat', 'surface_albedo'],
+        '5':  ['height_roughness', 'surface_admittance', 'pervious_surface_fraction', 'impervious_surface_fraction', 'anthropogenic_heat', 'aspect_ratio', 'terrain_roughness', 'building_surface_fraction', 'sky_view_factor', 'surface_albedo'],
+        '6':  ['sky_view_factor', 'height_roughness', 'anthropogenic_heat', 'impervious_surface_fraction', 'aspect_ratio', 'terrain_roughness', 'pervious_surface_fraction', 'building_surface_fraction', 'surface_admittance', 'surface_albedo'],
+        '7':  ['building_surface_fraction', 'sky_view_factor', 'aspect_ratio', 'surface_admittance', 'surface_albedo', 'height_roughness', 'pervious_surface_fraction', 'impervious_surface_fraction', 'terrain_roughness', 'anthropogenic_heat'],
+        '8':  ['pervious_surface_fraction', 'aspect_ratio', 'impervious_surface_fraction', 'building_surface_fraction', 'surface_albedo', 'height_roughness', 'sky_view_factor', 'surface_admittance', 'anthropogenic_heat', 'terrain_roughness'],
+        '9':  ['aspect_ratio', 'sky_view_factor', 'building_surface_fraction', 'pervious_surface_fraction', 'anthropogenic_heat', 'impervious_surface_fraction', 'surface_admittance', 'height_roughness', 'terrain_roughness', 'surface_albedo'],
+        '10': ['anthropogenic_heat', 'surface_admittance', 'aspect_ratio', 'surface_albedo', 'sky_view_factor', 'terrain_roughness', 'pervious_surface_fraction', 'building_surface_fraction', 'height_roughness', 'impervious_surface_fraction'],
+        'A':  ['terrain_roughness', 'sky_view_factor', 'pervious_surface_fraction', 'impervious_surface_fraction', 'height_roughness', 'building_surface_fraction', 'surface_albedo', 'anthropogenic_heat', 'aspect_ratio', 'surface_admittance'],
+        'B':  ['pervious_surface_fraction', 'impervious_surface_fraction', 'building_surface_fraction', 'anthropogenic_heat', 'surface_admittance', 'surface_albedo', 'aspect_ratio', 'terrain_roughness', 'sky_view_factor', 'height_roughness'],
+        'C':  ['surface_admittance', 'pervious_surface_fraction', 'impervious_surface_fraction', 'building_surface_fraction', 'surface_albedo', 'height_roughness', 'sky_view_factor', 'anthropogenic_heat', 'terrain_roughness', 'aspect_ratio'],
+        'D':  ['pervious_surface_fraction', 'sky_view_factor', 'aspect_ratio', 'height_roughness', 'impervious_surface_fraction', 'building_surface_fraction', 'terrain_roughness', 'anthropogenic_heat', 'surface_admittance', 'surface_albedo'],
+        'E':  ['impervious_surface_fraction', 'terrain_roughness', 'surface_admittance', 'pervious_surface_fraction', 'sky_view_factor', 'height_roughness', 'aspect_ratio', 'building_surface_fraction', 'surface_albedo', 'anthropogenic_heat'],
+        'F':  ['surface_admittance', 'surface_albedo', 'terrain_roughness', 'pervious_surface_fraction', 'sky_view_factor', 'height_roughness', 'aspect_ratio', 'impervious_surface_fraction', 'building_surface_fraction', 'anthropogenic_heat'],
+        'G':  ['surface_albedo', 'terrain_roughness', 'pervious_surface_fraction', 'sky_view_factor', 'height_roughness', 'aspect_ratio', 'impervious_surface_fraction', 'building_surface_fraction', 'anthropogenic_heat', 'surface_admittance']
     }
 
     def __init__(self, parameters):
@@ -89,14 +88,17 @@ class LCZClassifierWZDV:
         self.parameters = {k: v for k, v in parameters.items() if v is not None}
         self.available_params_count = len(self.parameters)
 
-    def calculate_weighted_score(self, lcz_id):
+    def calculate_weighted_score(self, lcz_id, veto_count=1):
         """
         Calculates a Weighted Z-Distance Score.
         Returns: (score, veto_triggered)
         """
         params_definition = self.LCZ_PARAMETERS[lcz_id]
         class_weights_z = self.Z_WEIGHTS.get(lcz_id, {})
-        veto_param = self.VETO_PARAMS.get(lcz_id)
+        
+        # Determine the set of parameters that can trigger a Veto
+        veto_params_ranked = self.VETO_RANKING.get(lcz_id, [])
+        veto_active_set = set(veto_params_ranked[:veto_count])
         
         weighted_error_sum = 0
         total_weight = 0
@@ -123,8 +125,8 @@ class LCZClassifierWZDV:
                 error = abs(current_val - target_val) / target_val
 
             # 3. VETO TRIGGER
-            if param_name_internal == veto_param:
-                # If Leader error > 50%, veto the class
+            if param_name_internal in veto_active_set:
+                # If statistical leader error > 50%, veto the class
                 if error > 0.5:
                     veto_triggered = True
 
@@ -142,7 +144,7 @@ class LCZClassifierWZDV:
         score = np.sqrt(weighted_error_sum / total_weight)
         return score, veto_triggered
 
-    def classify(self):
+    def classify(self, veto_count=1):
         """
         Main classification logic.
         """
@@ -153,7 +155,7 @@ class LCZClassifierWZDV:
         vetos = {}
 
         for lcz_id in self.LCZ_CLASSES.keys():
-            score, vetoed = self.calculate_weighted_score(lcz_id)
+            score, vetoed = self.calculate_weighted_score(lcz_id, veto_count=veto_count)
             results[lcz_id] = score
             vetos[lcz_id] = vetoed
 
@@ -271,7 +273,7 @@ class LCZClassificationProcessorV6:
         if lcz_class in ['A', 'B', 'C', 'D', 'E', 'F', 'G']: return suggested_lcz
         return lcz_class
 
-    def process(self, layer, log_callback=None, apply_smoothing=False):
+    def process(self, layer, log_callback=None, apply_smoothing=False, veto_count=1):
         import os
         
         def log_local(msg):
@@ -279,7 +281,7 @@ class LCZClassificationProcessorV6:
             self.log(msg)
 
         log_local("🧪 Avvio classificazione WEIGHTED Z-DISTANCE WITH VETO (v6.0)...")
-        log_local("⚖️ Pesi variabili basati su leadership statistica (Z-Score^2).")
+        log_local(f"⚖️ Pesi variabili basati su leadership statistica (Z-Score^2). Veto attivi: {veto_count}")
 
         # --- ESA Setup ---
         landuse_path = self._get_landuse_raster_path()
@@ -345,7 +347,7 @@ class LCZClassificationProcessorV6:
                 params[p_name] = float(v) if (v is not None and str(v) not in ('NULL', '')) else None
             
             if any(v is not None for v in params.values()):
-                res = LCZClassifierWZDV(params).classify()
+                res = LCZClassifierWZDV(params).classify(veto_count=veto_count)
                 lcz = res['lcz_class']
                 esa_status = '-'
                 

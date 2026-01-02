@@ -22,7 +22,7 @@ class LCZClassificationProcessor:
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "FETCH", level)
     
-    def process(self, layer, log_callback=None, method='stable', apply_smoothing=True, is_training=False):
+    def process(self, layer, log_callback=None, method='stable', apply_smoothing=True, is_training=False, veto_count=1):
         """
         Dispatches processing to the selected method.
         
@@ -32,6 +32,7 @@ class LCZClassificationProcessor:
             method: 'stable', 'experimental', or 'v3' (advanced)
             apply_smoothing: Whether to apply spatial smoothing
             is_training: Whether to add new samples to the knowledge base (v5 only)
+            veto_count: Number of parameters for Veto logic (v6 only)
         """
         if method == 'stable' or method == 'standard':
             from .classification_standard import LCZClassificationProcessorStandard
@@ -111,7 +112,7 @@ class LCZClassificationProcessor:
             if log_callback:
                 log_callback("🧪 Avvio classificazione WEIGHTED Z-DISTANCE WITH VETO (v6.0)...")
             
-            return self.v6_proc.process(layer, log_callback, apply_smoothing=apply_smoothing)
+            return self.v6_proc.process(layer, log_callback, apply_smoothing=apply_smoothing, veto_count=veto_count)
             
         else:
             if log_callback:

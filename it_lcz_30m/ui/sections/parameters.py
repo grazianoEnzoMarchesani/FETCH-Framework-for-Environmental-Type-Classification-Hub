@@ -8,7 +8,7 @@ Section 5: LCZ parameter calculation buttons and indicators.
 from qgis.PyQt.QtCore import pyqtSignal, Qt
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-    QLabel, QPushButton, QComboBox, QCheckBox
+    QLabel, QPushButton, QComboBox, QCheckBox, QSpinBox
 )
 from qgis.gui import QgsCollapsibleGroupBox
 
@@ -23,7 +23,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     # Signals
     parameter_requested = pyqtSignal(str)  # parameter_id
     visualization_requested = pyqtSignal(str)  # field_name
-    classify_requested = pyqtSignal(str, bool, bool) # method: 'stable'/'experimental'/'v3', apply_smoothing, is_training
+    classify_requested = pyqtSignal(str, bool, bool, int) # method, smoothing, training, veto_count
     stats_requested = pyqtSignal()
     
     def __init__(self, parent=None):
@@ -214,6 +214,28 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.chk_training.toggled.connect(self._on_training_toggled)
         actions_layout.addWidget(self.chk_training)
         
+        # Veto Count Selector (v6 only)
+        self.veto_container = QWidget()
+        veto_layout = QHBoxLayout(self.veto_container)
+        veto_layout.setContentsMargins(5, 5, 5, 5)
+        veto_layout.setSpacing(10)
+        
+        lbl_veto = QLabel("Parametri Veto (V6):")
+        lbl_veto.setStyleSheet("font-size: 11px; color: #2c3e50; font-weight: bold;")
+        veto_layout.addWidget(lbl_veto)
+        
+        self.spin_veto = QSpinBox()
+        self.spin_veto.setRange(1, 10)
+        self.spin_veto.setValue(1)
+        self.spin_veto.setFixedWidth(60)
+        self.spin_veto.setObjectName("ParamCombo") # Reuse style
+        self.spin_veto.setToolTip("Numero di parametri statistici 'Leader' usati per scartare una classe.\nPiù alto è il numero, più la classificazione è restrittiva.")
+        veto_layout.addWidget(self.spin_veto)
+        veto_layout.addStretch()
+        
+        self.veto_container.setVisible(False)
+        actions_layout.addWidget(self.veto_container)
+        
         # Classification button
         self.btn_classify = QPushButton(" Esegui Classificazione Finale")
         self.btn_classify.setObjectName("SuccessButton")
@@ -257,6 +279,9 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         # Traditionally WZDV is a local classifier, smoothing is good for noise.
         if index == 7:
             self.chk_smoothing.setChecked(True)
+            self.veto_container.setVisible(True)
+        else:
+            self.veto_container.setVisible(False)
 
         # Handle Score/Confidence visibility
         # Methods with Score/Confidence: v3(4), v4(5), v5(6), v6(7)
@@ -287,7 +312,8 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         method = methods[idx] if idx < len(methods) else 'stable'
         apply_smoothing = self.chk_smoothing.isChecked()
         is_training = self.chk_training.isChecked() if idx == 6 else False
-        self.classify_requested.emit(method, apply_smoothing, is_training)
+        veto_count = self.spin_veto.value() if idx == 7 else 1
+        self.classify_requested.emit(method, apply_smoothing, is_training, veto_count)
 
     def set_indicator_enabled(self, field_name, enabled):
         """Enable/disable a specific indicator button."""
