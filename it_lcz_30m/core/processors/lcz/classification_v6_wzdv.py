@@ -62,15 +62,22 @@ class LCZClassifierWZDV:
     # Definizione dei Leader "Veto" (Il parametro che NON puoi sbagliare)
     # If the error on this parameter is too high (> 0.5), the class is rejected.
     VETO_PARAMS = {
-        '1': 'height_roughness',
-        '2': 'building_surface_fraction',
+        '1': 'aspect_ratio',
+        '2': 'surface_admittance',
         '3': 'building_surface_fraction',
         '4': 'height_roughness',
+        '5': 'height_roughness',
+        '6': 'sky_view_factor',
         '7': 'building_surface_fraction',
+        '8': 'pervious_surface_fraction',
+        '9': 'aspect_ratio',
         '10': 'anthropogenic_heat',
         'A': 'terrain_roughness',
+        'B': 'pervious_surface_fraction',
+        'C': 'surface_admittance',
+        'D': 'pervious_surface_fraction',
         'E': 'impervious_surface_fraction',
-        'F': 'pervious_surface_fraction',
+        'F': 'surface_admittance',
         'G': 'surface_albedo'
     }
 
