@@ -1,0 +1,376 @@
+# -*- coding: utf-8 -*-
+"""
+LCZ Classification Module - WEIGHTED Z-DISTANCE WITH VETO (v6.0)
+
+Implements a statistically weighted classification method.
+Weights are derived from the Z-score leadership table (Z^2).
+Includes a Veto mechanism for dominant parameters.
+"""
+
+import numpy as np
+from qgis.core import QgsVectorLayer, QgsField, Qgis, QgsMessageLog
+from qgis.PyQt.QtCore import QMetaType
+
+# Centralized constants
+from ...constants import LCZMappings, FileNames, FolderNames, FieldNames
+
+
+class LCZClassifierWZDV:
+    """
+    Classifies features using Weighted Z-Distance and Veto logic.
+    """
+    
+    LCZ_CLASSES = LCZMappings.CLASSES
+    LCZ_PARAMETERS = LCZMappings.PARAMETERS
+    
+    # Weights calculated as Z^2 from the leadership table
+    # Values represent the statistical "importance" of each parameter for that class
+    Z_WEIGHTS = {
+        '1':  {'aspect_ratio': 5.36, 'z_h': 3.65, 'svf': 2.96, 'anthro_heat': 2.57, 'terrain_rough': 2.00, 'pervious_frac': 1.73, 'building_frac': 1.15, 'impervious_frac': 0.96, 'albedo': 0.51, 'admittance': 0.40},
+        '2':  {'admittance': 2.06, 'building_frac': 1.73, 'aspect_ratio': 1.52, 'z_h': 1.03, 'pervious_frac': 1.00, 'svf': 1.00, 'albedo': 0.51, 'terrain_rough': 0.50, 'impervious_frac': 0.25, 'anthro_heat': 0.11},
+        '3':  {'building_frac': 1.73, 'svf': 1.54, 'aspect_ratio': 0.64, 'albedo': 0.51, 'pervious_frac': 0.47, 'terrain_rough': 0.22, 'anthro_heat': 0.11, 'z_h': 0.09, 'impervious_frac': 0.07, 'admittance': 0.00},
+        '4':  {'z_h': 3.65, 'terrain_rough': 1.39, 'aspect_ratio': 0.34, 'pervious_frac': 0.28, 'admittance': 0.19, 'svf': 0.08, 'impervious_frac': 0.07, 'building_frac': 0.01, 'anthro_heat': 0.00, 'albedo': 0.00},
+        '5':  {'z_h': 1.03, 'admittance': 0.70, 'pervious_frac': 0.47, 'impervious_frac': 0.25, 'anthro_heat': 0.09, 'aspect_ratio': 0.06, 'terrain_rough': 0.06, 'building_frac': 0.01, 'svf': 0.00, 'albedo': 0.00},
+        '6':  {'svf': 0.19, 'z_h': 0.09, 'anthro_heat': 0.09, 'impervious_frac': 0.07, 'aspect_ratio': 0.06, 'terrain_rough': 0.06, 'pervious_frac': 0.05, 'building_frac': 0.01, 'admittance': 0.00, 'albedo': 0.00},
+        '7':  {'building_frac': 5.25, 'svf': 2.19, 'aspect_ratio': 2.10, 'admittance': 1.85, 'albedo': 1.84, 'z_h': 0.51, 'pervious_frac': 0.47, 'impervious_frac': 0.20, 'terrain_rough': 0.06, 'anthro_heat': 0.03},
+        '8':  {'pervious_frac': 1.00, 'aspect_ratio': 0.65, 'impervious_frac': 0.55, 'building_frac': 0.34, 'albedo': 0.10, 'z_h': 0.09, 'svf': 0.04, 'admittance': 0.00, 'anthro_heat': 0.00, 'terrain_rough': 0.00},
+        '9':  {'aspect_ratio': 0.72, 'svf': 0.46, 'building_frac': 0.40, 'pervious_frac': 0.31, 'anthro_heat': 0.23, 'impervious_frac': 0.20, 'admittance': 0.13, 'z_h': 0.09, 'terrain_rough': 0.06, 'albedo': 0.00},
+        '10': {'anthro_heat': 10.15, 'admittance': 1.07, 'aspect_ratio': 0.30, 'albedo': 0.26, 'svf': 0.19, 'terrain_rough': 0.06, 'pervious_frac': 0.05, 'building_frac': 0.02, 'z_h': 0.01, 'impervious_frac': 0.00},
+        'A':  {'terrain_rough': 2.00, 'svf': 1.54, 'pervious_frac': 1.40, 'impervious_frac': 0.85, 'z_h': 0.80, 'building_frac': 0.76, 'albedo': 0.51, 'anthro_heat': 0.37, 'aspect_ratio': 0.34, 'admittance': 0.00},
+        'B':  {'pervious_frac': 1.40, 'impervious_frac': 0.85, 'building_frac': 0.76, 'anthro_heat': 0.37, 'admittance': 0.13, 'albedo': 0.10, 'aspect_ratio': 0.08, 'terrain_rough': 0.06, 'svf': 0.00, 'z_h': 0.00},
+        'C':  {'admittance': 2.43, 'pervious_frac': 1.40, 'impervious_frac': 0.85, 'building_frac': 0.76, 'albedo': 0.71, 'z_h': 0.70, 'svf': 0.46, 'anthro_heat': 0.37, 'terrain_rough': 0.06, 'aspect_ratio': 0.00},
+        'D':  {'pervious_frac': 1.40, 'svf': 1.34, 'aspect_ratio': 0.96, 'z_h': 0.91, 'impervious_frac': 0.85, 'building_frac': 0.76, 'terrain_rough': 0.50, 'anthro_heat': 0.37, 'admittance': 0.13, 'albedo': 0.10},
+        'E':  {'impervious_frac': 8.28, 'terrain_rough': 2.72, 'admittance': 2.06, 'pervious_frac': 1.73, 'svf': 1.34, 'z_h': 1.09, 'aspect_ratio': 0.96, 'building_frac': 0.76, 'albedo': 0.71, 'anthro_heat': 0.37},
+        'F':  {'admittance': 3.84, 'albedo': 3.52, 'terrain_rough': 2.72, 'pervious_frac': 1.40, 'svf': 1.34, 'z_h': 1.09, 'aspect_ratio': 0.96, 'impervious_frac': 0.85, 'building_frac': 0.76, 'anthro_heat': 0.37},
+        'G':  {'albedo': 6.63, 'terrain_rough': 3.56, 'pervious_frac': 1.40, 'svf': 1.34, 'z_h': 1.16, 'aspect_ratio': 0.96, 'impervious_frac': 0.85, 'building_frac': 0.76, 'anthro_heat': 0.37, 'admittance': 0.00}
+    }
+
+    # Internal mapping between Z-score keys and LCZMappings keys
+    PARAM_MAP = {
+        'svf': 'sky_view_factor',
+        'aspect_ratio': 'aspect_ratio',
+        'building_frac': 'building_surface_fraction',
+        'impervious_frac': 'impervious_surface_fraction',
+        'pervious_frac': 'pervious_surface_fraction',
+        'z_h': 'height_roughness',
+        'terrain_rough': 'terrain_roughness',
+        'admittance': 'surface_admittance',
+        'albedo': 'surface_albedo',
+        'anthro_heat': 'anthropogenic_heat'
+    }
+
+    # Definizione dei Leader "Veto" (Il parametro che NON puoi sbagliare)
+    # If the error on this parameter is too high (> 0.5), the class is rejected.
+    VETO_PARAMS = {
+        '1': 'height_roughness',
+        '2': 'building_surface_fraction',
+        '3': 'building_surface_fraction',
+        '4': 'height_roughness',
+        '7': 'building_surface_fraction',
+        '10': 'anthropogenic_heat',
+        'A': 'terrain_roughness',
+        'E': 'impervious_surface_fraction',
+        'F': 'pervious_surface_fraction',
+        'G': 'surface_albedo'
+    }
+
+    def __init__(self, parameters):
+        """
+        Args:
+            parameters: dict with parameter names (internal) and values
+        """
+        self.parameters = {k: v for k, v in parameters.items() if v is not None}
+        self.available_params_count = len(self.parameters)
+
+    def calculate_weighted_score(self, lcz_id):
+        """
+        Calculates a Weighted Z-Distance Score.
+        Returns: (score, veto_triggered)
+        """
+        params_definition = self.LCZ_PARAMETERS[lcz_id]
+        class_weights_z = self.Z_WEIGHTS.get(lcz_id, {})
+        veto_param = self.VETO_PARAMS.get(lcz_id)
+        
+        weighted_error_sum = 0
+        total_weight = 0
+        veto_triggered = False
+
+        for param_name_internal, current_val in self.parameters.items():
+            if param_name_internal not in params_definition:
+                continue
+                
+            min_val, max_val = params_definition[param_name_internal]
+            
+            # 1. Target Value (Center of range)
+            if max_val == float('inf'):
+                target_val = min_val * 1.5 # Heuristic for open ranges
+            else:
+                target_val = (min_val + max_val) / 2
+            
+            if target_val <= 0: target_val = 0.001
+            
+            # 2. Normalized Error
+            if min_val <= current_val <= max_val:
+                error = 0
+            else:
+                error = abs(current_val - target_val) / target_val
+
+            # 3. VETO TRIGGER
+            if param_name_internal == veto_param:
+                # If Leader error > 50%, veto the class
+                if error > 0.5:
+                    veto_triggered = True
+
+            # 4. Weight (Z^2)
+            # Find the Z-name for this internal name
+            z_name = next((k for k, v in self.PARAM_MAP.items() if v == param_name_internal), None)
+            weight = class_weights_z.get(z_name, 1.0)
+            
+            weighted_error_sum += weight * (error ** 2)
+            total_weight += weight
+
+        if total_weight == 0:
+            return float('inf'), False
+
+        score = np.sqrt(weighted_error_sum / total_weight)
+        return score, veto_triggered
+
+    def classify(self):
+        """
+        Main classification logic.
+        """
+        if self.available_params_count < 3:
+            return {'lcz_class': 'N/D', 'score': 0, 'confidence': 0}
+
+        results = {}
+        vetos = {}
+
+        for lcz_id in self.LCZ_CLASSES.keys():
+            score, vetoed = self.calculate_weighted_score(lcz_id)
+            results[lcz_id] = score
+            vetos[lcz_id] = vetoed
+
+        # Filter out vetoed classes if possible, but keep at least something?
+        # No, if vetoed, it's out.
+        valid_results = {k: v for k, v in results.items() if not vetos[k] and v != float('inf')}
+        
+        if not valid_results:
+            # If all classes are vetoed, fallback to the one with best score even if vetoed
+            # or just return N/D? Let's be strict for v6.0.
+            return {'lcz_class': 'N/D', 'score': 0, 'confidence': 0, 'method': 'WZDV_Veto_All'}
+
+        sorted_results = sorted(valid_results.items(), key=lambda x: x[1])
+        best_id, best_score = sorted_results[0]
+        
+        # Confidence logic: inverse of distance
+        # best_score = 0 means perfect weighted match. 
+        # Let's map score to [0, 1] confidence
+        confidence = 1.0 / (1.0 + best_score)
+        
+        # Tie-breaker logic (Perfect matches count)
+        if len(sorted_results) > 1:
+            second_id, second_score = sorted_results[1]
+            if abs(best_score - second_score) < 0.05:
+                # Check actual range matches for tie-breaking
+                m1 = self._count_perfect_matches(best_id)
+                m2 = self._count_perfect_matches(second_id)
+                if m2 > m1:
+                    best_id = second_id
+                    best_score = second_score
+
+        # Final Rejection
+        if confidence < 0.3:
+            return {
+                'lcz_class': 'N/D', 
+                'score': round(best_score, 3), 
+                'confidence': round(confidence, 2),
+                'perfect_matches': self._count_perfect_matches('N/D')
+            }
+
+        return {
+            'lcz_class': best_id, 
+            'score': round(best_score, 3), 
+            'confidence': round(confidence, 2),
+            'perfect_matches': self._count_perfect_matches(best_id),
+            'method': 'WZDV'
+        }
+
+    def _count_perfect_matches(self, lcz_id):
+        if lcz_id == 'N/D': return 0
+        count = 0
+        params_def = self.LCZ_PARAMETERS[lcz_id]
+        for p, val in self.parameters.items():
+            if p in params_def:
+                low, high = params_def[p]
+                if low <= val <= high:
+                    count += 1
+        return count
+
+
+class LCZClassificationProcessorV6:
+    """
+    Processor for WZDV (v6.0). 
+    Includes ESA WorldCover-based correction (same as Standard).
+    """
+    
+    ESA_TO_LCZ = LCZMappings.ESA_TO_LCZ
+    
+    def __init__(self, data_manager):
+        self.dm = data_manager
+
+    def log(self, msg, level=Qgis.Info):
+        QgsMessageLog.logMessage(msg, "FETCH", level)
+
+    def _get_landuse_raster_path(self):
+        import os
+        base_dir = self.dm.get_project_dir()
+        if not base_dir: return None
+        unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), FolderNames.UNIFIED)
+        landuse_path = os.path.join(unified_dir, FileNames.LANDUSE)
+        return landuse_path if os.path.exists(landuse_path) else None
+
+    def _compute_esa_majority(self, layer, raster_path, log_callback=None):
+        import processing
+        try:
+            result = processing.run('native:zonalstatisticsfb', {
+                'INPUT': layer,
+                'INPUT_RASTER': raster_path,
+                'RASTER_BAND': 1,
+                'COLUMN_PREFIX': 'esa_',
+                'STATISTICS': [9], # Majority
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            return result['OUTPUT']
+        except Exception as e:
+            self.log(f"ESA Stats Error: {e}", Qgis.Warning)
+            return None
+
+    def _apply_esa_correction(self, lcz_class, esa_class, impervious_frac=None):
+        """Applies logic to reconcile the morphological classifier with ESA WorldCover."""
+        if lcz_class in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
+            if esa_class == 80: return 'G'
+            return lcz_class
+        if esa_class is None or lcz_class == 'N/D': return lcz_class
+        suggested_lcz = self.ESA_TO_LCZ.get(esa_class)
+        if lcz_class == 'G' and esa_class != 80:
+            if esa_class == 50: return '9'
+            return suggested_lcz if suggested_lcz else 'D'
+        if suggested_lcz is None: return lcz_class
+        if esa_class == 10: # Trees
+            return lcz_class if lcz_class in ['A', 'B'] else 'A'
+        if esa_class == 60: # Bare
+            return 'E' if (impervious_frac is not None and impervious_frac > 50) else 'F'
+        if esa_class == 80: return 'G'
+        if lcz_class in ['A', 'B', 'C', 'D', 'E', 'F', 'G']: return suggested_lcz
+        return lcz_class
+
+    def process(self, layer, log_callback=None, apply_smoothing=False):
+        import os
+        
+        def log_local(msg):
+            if log_callback: log_callback(msg)
+            self.log(msg)
+
+        log_local("🧪 Avvio classificazione WEIGHTED Z-DISTANCE WITH VETO (v6.0)...")
+        log_local("⚖️ Pesi variabili basati su leadership statistica (Z-Score^2).")
+
+        # --- ESA Setup ---
+        landuse_path = self._get_landuse_raster_path()
+        use_esa_correction = False
+        esa_majority_lookup = {}
+        
+        if landuse_path:
+            log_local("⏳ Analisi ESA WorldCover per rettifica fisica (v6.0)...")
+            esa_layer = self._compute_esa_majority(layer, landuse_path, log_local)
+            if esa_layer:
+                idx_esa_maj = esa_layer.fields().indexFromName('esa_majority')
+                if idx_esa_maj != -1:
+                    for feat in esa_layer.getFeatures():
+                        val = feat.attribute(idx_esa_maj)
+                        if val is not None and str(val) not in ('NULL', ''):
+                            try: esa_majority_lookup[feat.id()] = int(float(val))
+                            except: pass
+                    use_esa_correction = len(esa_majority_lookup) > 0
+
+        # --- Field Setup ---
+        field_defs = [
+            ('lcz_class', QMetaType.QString, 10),
+            ('lcz_score', QMetaType.Double, 0),
+            ('lcz_rmsep', QMetaType.Double, 0),
+            ('lcz_confidence', QMetaType.Double, 0),
+            ('lcz_matches', QMetaType.Int, 0),
+            ('lcz_vulnerability', QMetaType.QString, 20),
+            ('lcz_esa_fix', QMetaType.QString, 12)
+        ]
+        
+        layer.startEditing()
+        fields_added = False
+        for f, t, l in field_defs:
+            if layer.fields().indexFromName(f) == -1:
+                layer.dataProvider().addAttributes([QgsField(f, t, len=l)])
+                fields_added = True
+        
+        if fields_added:
+            layer.updateFields()
+        
+        # Re-fetch field indices after update
+        idx_class = layer.fields().lookupField('lcz_class')
+        idx_score = layer.fields().lookupField('lcz_score')
+        idx_rmsep = layer.fields().lookupField('lcz_rmsep')
+        idx_conf = layer.fields().lookupField('lcz_confidence')
+        idx_matches = layer.fields().lookupField('lcz_matches')
+        idx_vuln = layer.fields().lookupField('lcz_vulnerability')
+        idx_esa_f = layer.fields().lookupField('lcz_esa_fix')
+        
+        # Try to find impervious fraction efficiently
+        idx_imp = layer.fields().indexFromName('impervious_surface_fraction')
+        if idx_imp == -1:
+             idx_imp = layer.fields().indexFromName(FieldNames.IMPERVIOUS_FRAC)
+
+        processed = 0
+        corrected = 0
+        total_count = layer.featureCount()
+        
+        for feat in layer.getFeatures():
+            params = {}
+            for f_src, p_name in LCZMappings.FIELD_TO_PARAM.items():
+                v = feat.attribute(f_src)
+                params[p_name] = float(v) if (v is not None and str(v) not in ('NULL', '')) else None
+            
+            if any(v is not None for v in params.values()):
+                res = LCZClassifierWZDV(params).classify()
+                lcz = res['lcz_class']
+                esa_status = '-'
+                
+                # ESA Correction
+                if use_esa_correction and lcz != 'N/D':
+                    esa_class = esa_majority_lookup.get(feat.id())
+                    imp_f = None
+                    if idx_imp != -1:
+                        iv = feat.attribute(idx_imp)
+                        try: imp_f = float(iv) if iv is not None else None
+                        except: pass
+                    
+                    original_lcz = lcz
+                    lcz = self._apply_esa_correction(lcz, esa_class, imp_f)
+                    if lcz != original_lcz:
+                        corrected += 1
+                        esa_status = f"{original_lcz} → {lcz}"
+
+                layer.changeAttributeValue(feat.id(), idx_class, lcz)
+                if idx_score != -1: layer.changeAttributeValue(feat.id(), idx_score, float(res.get('score', 0)))
+                if idx_rmsep != -1: layer.changeAttributeValue(feat.id(), idx_rmsep, float(res.get('score', 0))) # Fill both for compatibility
+                if idx_conf != -1: layer.changeAttributeValue(feat.id(), idx_conf, float(res.get('confidence', 0)))
+                if idx_matches != -1: layer.changeAttributeValue(feat.id(), idx_matches, res.get('perfect_matches', 0))
+                if idx_vuln != -1: layer.changeAttributeValue(feat.id(), idx_vuln, LCZMappings.VULNERABILITY_MAPPING.get(lcz, 'Unknown'))
+                if idx_esa_f != -1: layer.changeAttributeValue(feat.id(), idx_esa_f, esa_status)
+                
+                processed += 1
+                
+                if processed % 50000 == 0:
+                    perc = (processed / total_count) * 100
+                    log_local(f"⏳ Avanzamento V6.0: {processed:,} / {total_count:,} celle ({perc:.1f}%)")
+        
+        layer.commitChanges()
+        log_local(f"✓ Classificazione v6.0 completata: {processed} celle ({corrected} rettifiche ESA).")
+        return processed

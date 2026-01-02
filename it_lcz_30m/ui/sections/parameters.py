@@ -23,7 +23,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     # Signals
     parameter_requested = pyqtSignal(str)  # parameter_id
     visualization_requested = pyqtSignal(str)  # field_name
-    classify_requested = pyqtSignal(str, bool) # method: 'stable'/'experimental'/'v3', apply_smoothing
+    classify_requested = pyqtSignal(str, bool, bool) # method: 'stable'/'experimental'/'v3', apply_smoothing, is_training
     stats_requested = pyqtSignal()
     
     def __init__(self, parent=None):
@@ -115,42 +115,52 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.lbl_results_header.setObjectName("ResultsHeader")
         self.results_grid.addWidget(self.lbl_results_header, 0, 0, 1, 2)
         
-        # Helper nested function to create result items with indicators on the right (consistent with top list)
+        # Helper nested function to create result items with indicators on the LEFT (more compact)
         def add_result_item(field, label, tooltip, row, col, span=1):
             container = QWidget()
             layout = QHBoxLayout(container)
-            layout.setContentsMargins(5, 2, 5, 2)
-            layout.setSpacing(10)
+            layout.setContentsMargins(0, 2, 0, 2)
+            layout.setSpacing(6)
             
-            lbl = QLabel(label)
-            lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #34495e;")
-            layout.addWidget(lbl)
-            
-            layout.addStretch()
-            
-            # Indicator Dot (same style as above)
+            # Indicator Dot (LEFT aligned)
             btn = QPushButton()
             btn.setObjectName("VisualButton")
-            btn.setFixedSize(18, 18)
+            btn.setFixedSize(16, 16)
             btn.setEnabled(False)
             btn.setToolTip(tooltip)
             btn.clicked.connect(lambda: self.visualization_requested.emit(field))
             layout.addWidget(btn)
             
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-size: 10px; font-weight: bold; color: #34495e;")
+            layout.addWidget(lbl)
+            
+            layout.addStretch() # Pushes the label-dot pair to stay left-aligned
+            
             self.results_grid.addWidget(container, row, col, 1, span)
             self.indicator_buttons[field] = btn
+            self.result_containers[field] = container
             return btn
 
-        # Row 1
+        self.result_containers = {}
+        # Triple column layout for very compact view
+        # Row 1: Primary 
         self.ind_lcz = add_result_item('lcz_class', "LCZ", "Visualizza Classi LCZ", 1, 0)
-        self.ind_rmsep = add_result_item('lcz_rmsep', "ERRORE", "Visualizza Errore (RMSEP)", 1, 1)
+        self.ind_matches = add_result_item('lcz_matches', "MATCH", "Visualizza Corrispondenze", 1, 1)
+        self.ind_esa = add_result_item('lcz_esa_fix', "FIX ESA", "Visualizza Rettifica ESA", 1, 2)
         
-        # Row 2
-        self.ind_matches = add_result_item('lcz_matches', "MATCH", "Visualizza Corrispondenze", 2, 0)
-        self.ind_esa = add_result_item('lcz_esa_fix', "FIX ESA", "Visualizza Rettifica ESA", 2, 1)
+        # Row 2: Metrics
+        self.ind_score = add_result_item('lcz_score', "SCORE", "Visualizza Punteggio (Score)", 2, 0)
+        self.ind_confidence = add_result_item('lcz_confidence', "CONFIDENCE", "Visualizza Grado di Confidenza", 2, 1)
+        self.ind_rmsep = add_result_item('lcz_rmsep', "ERRORE", "Visualizza Errore (RMSEP)", 2, 2)
         
-        # Row 3 (Full width for longer label)
-        self.ind_vuln = add_result_item('lcz_vulnerability', "VULNERABILITÀ", "Visualizza Vulnerabilità", 3, 0, 2)
+        # Row 3: Full width for Vulnerability
+        self.ind_vuln = add_result_item('lcz_vulnerability', "VULNERABILITÀ", "Visualizza Vulnerabilità", 3, 0, 3)
+        
+        # Initial Visibility
+        self.result_containers['lcz_score'].setVisible(False)
+        self.result_containers['lcz_confidence'].setVisible(False)
+        self.result_containers['lcz_rmsep'].setVisible(True) # Visible for stable by default
         
         # Add help to class results
         help_lcz = self.create_help_button("lcz_class", HELP_PARAMETERS)
@@ -171,9 +181,12 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
             "Weighted Contextual (v1.1)",
             "Experimental (v2.0)",
             "Weighted Experimental (v2.1)",
-            "Advanced (v3.0)"
+            "Advanced (v3.0)",
+            "Fuzzy Archetype (v4.0 - FAD)",
+            "Mahalanobis Adaptive (v5.0)",
+            "Weighted Z-Distance (v6.0)"
         ])
-        self.classify_method_combo.setToolTip("Scegli la logica di classificazione finale LCZ.\nv1.1/v2.1: media pesata dei parametri nel vicinato 3x3.\nAdvanced v3.0: include correzione CORINE e smoothing spaziale.")
+        self.classify_method_combo.setToolTip("Scegli la logica di classificazione finale LCZ.\nv1.1/v2.1: media pesata dei parametri nel vicinato 3x3.\nv3.0: correzione CORINE e smoothing.\nv4.0 (FAD): Logica Fuzzy.\nv5.0: Distanza di Mahalanobis.\nv6.0 (WZDV): Pesi Z-Score e VETO.")
         self.classify_method_combo.setFixedWidth(200)
         self.classify_method_combo.setObjectName("ParamCombo")
         self.classify_method_combo.currentIndexChanged.connect(self._on_method_changed)
@@ -191,6 +204,15 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.lbl_smoothing_rec.setStyleSheet("color: #e67e22; font-size: 10px; font-weight: bold; margin-left: 20px;")
         self.lbl_smoothing_rec.setVisible(False)
         actions_layout.addWidget(self.lbl_smoothing_rec)
+        
+        # Training Toggle
+        self.chk_training = QCheckBox("Contribuisci alla Knowledge Base (Addestramento)")
+        self.chk_training.setChecked(True)
+        self.chk_training.setToolTip("Se attivato, i nuovi campioni puri verranno salvati nel database per migliorare le future classificazioni.")
+        self.chk_training.setStyleSheet("font-size: 11px; color: #2980b9; font-weight: bold; padding: 5px;")
+        self.chk_training.setVisible(False) # Only visible for v5
+        self.chk_training.toggled.connect(self._on_training_toggled)
+        actions_layout.addWidget(self.chk_training)
         
         # Classification button
         self.btn_classify = QPushButton(" Esegui Classificazione Finale")
@@ -218,23 +240,54 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         
     def _on_method_changed(self, index):
         """Handle classification method change."""
-        # Index 1 is v1.1, Index 3 is v2.1
-        if index in [1, 3]:
-            self.lbl_smoothing_rec.setVisible(True)
+        # Index 1 is v1.1, Index 3 is v2.1, Index 6 is v5.0
+        # For these, we prefer smoothing OFF (or forced OFF for training)
+        if index in [1, 3, 6]:
             self.chk_smoothing.setChecked(False)
+            self.lbl_smoothing_rec.setVisible(index in [1, 3])
         else:
             self.lbl_smoothing_rec.setVisible(False)
-            if index in [0, 2, 4]: # Stable, Experimental v2.0, Adv v3.0
+            if index in [0, 2, 4, 5]: # Stable, Experimental v2.0, Adv v3.0, FAD v4.0
                  self.chk_smoothing.setChecked(True)
+        
+        # Show/hide training checkbox for Mahalanobis Adaptive (v5.0 is index 6)
+        self.chk_training.setVisible(index == 6)
+        
+        # v6.0 (index 7) also prefers smoothing ON or OFF?
+        # Traditionally WZDV is a local classifier, smoothing is good for noise.
+        if index == 7:
+            self.chk_smoothing.setChecked(True)
+
+        # Handle Score/Confidence visibility
+        # Methods with Score/Confidence: v3(4), v4(5), v5(6), v6(7)
+        show_metrics = index >= 4
+        self.result_containers['lcz_score'].setVisible(show_metrics)
+        self.result_containers['lcz_confidence'].setVisible(show_metrics)
+        
+        # Hide RMSEP for v4, v5, v6 as it's redundant (equal to Score)
+        self.result_containers['lcz_rmsep'].setVisible(index < 5)
+        
+        # Update labels for v3 (RMSEP Norm instead of raw RMSEP)
+        if index == 4:
+            # For v3, Score is technically rmsep_norm
+            # But we'll keep the indicator as 'lcz_score' for signals, 
+            # and just handle the mapping if necessary. Actually classification_v3 writes both.
+            pass
+
+    def _on_training_toggled(self, checked):
+        """If training is enabled, force smoothing OFF to ensure data purity."""
+        if checked:
+            self.chk_smoothing.setChecked(False)
 
     def _on_classify_clicked(self):
         """Handle classification button click with method selection."""
         idx = self.classify_method_combo.currentIndex()
-        # Mapping: 0:stable, 1:v1.1, 2:experimental, 3:v2.1, 4:v3
-        methods = ['stable', 'v1.1', 'experimental', 'v2.1', 'v3']
+        # Mapping: 0:stable, 1:v1.1, 2:experimental, 3:v2.1, 4:v3, 5:v4, 6:v5, 7:v6
+        methods = ['stable', 'v1.1', 'experimental', 'v2.1', 'v3', 'v4', 'v5', 'v6']
         method = methods[idx] if idx < len(methods) else 'stable'
         apply_smoothing = self.chk_smoothing.isChecked()
-        self.classify_requested.emit(method, apply_smoothing)
+        is_training = self.chk_training.isChecked() if idx == 6 else False
+        self.classify_requested.emit(method, apply_smoothing, is_training)
 
     def set_indicator_enabled(self, field_name, enabled):
         """Enable/disable a specific indicator button."""

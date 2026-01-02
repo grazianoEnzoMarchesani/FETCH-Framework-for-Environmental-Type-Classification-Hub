@@ -23,11 +23,16 @@ class StatsAggregator:
         if not layer or not layer.isValid():
             return None
 
-        # Fields we care about
-        lcz_field = 'lcz_class'
-        rmsep_field = 'lcz_rmsep'
-        matches_field = 'lcz_matches'
-        esa_fix_field = 'lcz_esa_fix'
+        # Fields we care about (Dynamic lookup)
+        lcz_idx = layer.fields().lookupField('lcz_class')
+        
+        # Support both 'lcz_rmsep' (v1-v4) and 'lcz_score' (v5-v6)
+        rmsep_idx = layer.fields().lookupField('lcz_rmsep')
+        if rmsep_idx == -1:
+            rmsep_idx = layer.fields().lookupField('lcz_score')
+            
+        matches_idx = layer.fields().lookupField('lcz_matches')
+        esa_fix_idx = layer.fields().lookupField('lcz_esa_fix')
         
         # Mapping for parameters
         param_fields = LCZMappings.FIELD_TO_PARAM # {field_name: param_internal_name}
@@ -47,8 +52,11 @@ class StatsAggregator:
         total_valid_count = 0
 
         for feat in layer.getFeatures():
-            lcz = feat.attribute(lcz_field)
-            if lcz is None or str(lcz) == 'NULL' or lcz == 'ERRORE':
+            # Mandatory check for LCZ class
+            if lcz_idx == -1: break
+            
+            lcz = feat.attribute(lcz_idx)
+            if lcz in (None, 'NULL', 'ERRORE', ''):
                 continue
             
             total_valid_count += 1
@@ -56,33 +64,35 @@ class StatsAggregator:
             lcz_counts[lcz] = lcz_counts.get(lcz, 0) + 1
             
             # ESA Fix
-            esa_fix = feat.attribute(esa_fix_field)
-            if esa_fix not in (None, 'NULL', '-', 'ERRORE'):
-                esa_corrected_count += 1
-                if ' → ' in str(esa_fix):
-                    try:
-                        orig, new = str(esa_fix).split(' → ')
-                        lcz_pre = orig
-                        if orig not in esa_transitions: esa_transitions[orig] = {}
-                        esa_transitions[orig][new] = esa_transitions[orig].get(new, 0) + 1
-                    except Exception:
-                        lcz_pre = lcz
-                else:
-                    lcz_pre = lcz
-            else:
-                lcz_pre = lcz
-                
-            # RMSEP
-            r_val = feat.attribute(rmsep_field)
-            if r_val not in (None, 'NULL'):
-                if lcz not in rmsep_data: rmsep_data[lcz] = []
-                rmsep_data[lcz].append(float(r_val))
+            lcz_pre = lcz
+            if esa_fix_idx != -1:
+                esa_fix = feat.attribute(esa_fix_idx)
+                if esa_fix not in (None, 'NULL', '-', 'ERRORE', ''):
+                    esa_corrected_count += 1
+                    if ' → ' in str(esa_fix):
+                        try:
+                            orig, new = str(esa_fix).split(' → ')
+                            lcz_pre = orig
+                            if orig not in esa_transitions: esa_transitions[orig] = {}
+                            esa_transitions[orig][new] = esa_transitions[orig].get(new, 0) + 1
+                        except Exception:
+                            pass
+            
+            # RMSEP / Score
+            if rmsep_idx != -1:
+                r_val = feat.attribute(rmsep_idx)
+                if r_val not in (None, 'NULL', ''):
+                    if lcz not in rmsep_data: rmsep_data[lcz] = []
+                    try: rmsep_data[lcz].append(float(r_val))
+                    except: pass
                 
             # Matches
-            m_val = feat.attribute(matches_field)
-            if m_val not in (None, 'NULL'):
-                if lcz not in matches_data: matches_data[lcz] = []
-                matches_data[lcz].append(int(m_val))
+            if matches_idx != -1:
+                m_val = feat.attribute(matches_idx)
+                if m_val not in (None, 'NULL', ''):
+                    if lcz not in matches_data: matches_data[lcz] = []
+                    try: matches_data[lcz].append(int(m_val))
+                    except: pass
                 
             # Parameter means (Post-ESA)
             if lcz not in param_data: param_data[lcz] = {}

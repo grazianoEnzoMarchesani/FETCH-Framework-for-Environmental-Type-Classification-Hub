@@ -6,6 +6,7 @@ from qgis.core import (
     QgsProject, QgsCoordinateReferenceSystem, 
     QgsCoordinateTransform, Qgis, QgsMessageLog, QgsGeometry
 )
+from ..constants import LCZMappings
 
 class VectorProcessor:
     def __init__(self, data_manager):
@@ -142,11 +143,13 @@ class VectorProcessor:
         from qgis.core import QgsField
         from qgis.PyQt.QtCore import QVariant, QMetaType
         fields = [
-            QgsField("lcz_class", QMetaType.QString, len=10),  # String for LCZ codes: "1"-"10", "A"-"G"
-            QgsField("lcz_vulnerability", QMetaType.QString, len=20), # UHI Vulnerability: "Very High" to "Very Low"
-            QgsField("lcz_rmsep", QMetaType.Double),           # RMSEP value for classification quality
-            QgsField("lcz_matches", QMetaType.Int),            # Number of perfect parameter matches
-            QgsField("lcz_esa_fix", QMetaType.QString, len=12), # ESA correction: "original → new" (e.g., "C → D") or "-"
+            QgsField("lcz_class", QMetaType.QString, len=10),
+            QgsField("lcz_vulnerability", QMetaType.QString, len=20),
+            QgsField("lcz_score", QMetaType.Double),
+            QgsField("lcz_rmsep", QMetaType.Double),
+            QgsField("lcz_confidence", QMetaType.Double),
+            QgsField("lcz_matches", QMetaType.Int),
+            QgsField("lcz_esa_fix", QMetaType.QString, len=12),
             QgsField("svf_mean", QMetaType.Double),
             QgsField("building_frac", QMetaType.Double),
             QgsField("impervious_frac", QMetaType.Double),
@@ -158,6 +161,11 @@ class VectorProcessor:
             QgsField("anthro_heat", QMetaType.Double),
             QgsField("albedo", QMetaType.Double)
         ]
+        
+        # Add Distance fields for diagnostic analysis
+        for lcz_id in LCZMappings.CLASSES.keys():
+            fields.append(QgsField(f"dist_{lcz_id}", QMetaType.Double))
+            
         grid_layer.dataProvider().addAttributes(fields)
         grid_layer.updateFields()
         

@@ -32,7 +32,18 @@ class StyleMixin:
         
         for param_id, config in PARAM_VISUALIZATION.items():
             field_name = config['field']
-            has_data = self._field_has_values(grid_layer, field_name)
+            
+            # Support both 'lcz_rmsep' and 'lcz_score' for the Error indicator
+            if field_name == 'lcz_rmsep':
+                # First check if lcz_rmsep has any data
+                has_data = self._field_has_values(grid_layer, 'lcz_rmsep')
+                if not has_data:
+                    # If empty, try lcz_score
+                    if grid_layer.fields().indexFromName('lcz_score') != -1:
+                        has_data = self._field_has_values(grid_layer, 'lcz_score')
+            else:
+                has_data = self._field_has_values(grid_layer, field_name)
+                
             self.params_section.set_indicator_enabled(param_id, has_data)
 
     def apply_param_style(self, field_name):
@@ -41,15 +52,20 @@ class StyleMixin:
         if not grid_layer:
             self.iface.messageBar().pushMessage("Errore", "Nessuna griglia trovata.", level=2)
             return
-        
         config = PARAM_VISUALIZATION.get(field_name)
         if not config:
             self.iface.messageBar().pushMessage("Errore", f"Configurazione non trovata per {field_name}.", level=2)
             return
+            
+        target_field = config['field']
+        # Fallback to lcz_score for Error indicator if lcz_rmsep is missing
+        if target_field == 'lcz_rmsep' and grid_layer.fields().indexFromName('lcz_rmsep') == -1:
+            if grid_layer.fields().indexFromName('lcz_score') != -1:
+                target_field = 'lcz_score'
         
-        field_idx = grid_layer.fields().indexFromName(config['field'])
+        field_idx = grid_layer.fields().indexFromName(target_field)
         if field_idx == -1:
-            self.iface.messageBar().pushMessage("Errore", f"Campo {config['field']} non trovato nella griglia.", level=2)
+            self.iface.messageBar().pushMessage("Errore", f"Campo {target_field} non trovato nella griglia.", level=2)
             return
         
         try:
@@ -57,19 +73,19 @@ class StyleMixin:
             if config.get('renderer') == 'categorized':
                 categories = []
                 
-                if config['field'] == 'lcz_class':
+                if target_field == 'lcz_class':
                     palette = LCZMappings.COLORS
                     # Standard LCZ order 1-10, A-G
                     ordered_keys = list(LCZMappings.CLASSES.keys()) + ['N/D']
-                elif config['field'] == 'lcz_vulnerability':
+                elif target_field == 'lcz_vulnerability':
                     palette = LCZMappings.VULNERABILITY_COLORS
                     ordered_keys = LCZMappings.VULNERABILITY_ORDER
-                elif config['field'] == 'lcz_esa_fix':
+                elif target_field == 'lcz_esa_fix':
                     # Dynamic categories for ESA Fix (transitions like "C → D")
                     palette = LCZMappings.COLORS
                     unique_values = grid_layer.uniqueValues(field_idx)
                     ordered_keys = sorted([str(v) for v in unique_values if v is not None])
-                elif config['field'] == 'lcz_matches':
+                elif target_field == 'lcz_matches':
                     # Dynamic categories for Matches using Cividis ramp
                     unique_values = grid_layer.uniqueValues(field_idx)
                     ordered_keys = sorted([v for v in unique_values if v is not None])
@@ -94,7 +110,7 @@ class StyleMixin:
 
                 for cat_value in ordered_keys:
                     color_hex = None
-                    if config['field'] == 'lcz_esa_fix':
+                    if target_field == 'lcz_esa_fix':
                         if cat_value == '-':
                             color_hex = '#bebebe' # Gray for no fix
                         elif ' → ' in cat_value:
@@ -113,18 +129,12 @@ class StyleMixin:
                         'outline_style': 'no'
                     })
                     
-                    label = LCZMappings.CLASSES.get(cat_value, cat_value) if config['field'] == 'lcz_class' else cat_value
-                    # Check if cat_value is int for RendererCategory?
-                    # The issue was label type. Argument 3 is label (string).
-                    # But also QgsRendererCategory takes (value, symbol, label, render). 
-                    # If value is integer, we might need to cast it?
-                    # Actually, if the field is Integer, value should be int or str?
-                    # Usually QVariant accepts int. The error said "argument 3 has unexpected type 'int'". 
-                    # Argument 3 is label. So we MUST cast label to string.
+                    label = LCZMappings.CLASSES.get(cat_value, cat_value) if target_field == 'lcz_class' else cat_value
+                    # ...
                     category = QgsRendererCategory(cat_value, symbol, str(label), True)
                     categories.append(category)
                 
-                renderer = QgsCategorizedSymbolRenderer(config['field'], categories)
+                renderer = QgsCategorizedSymbolRenderer(target_field, categories)
             
             else:
                 # Graduated renderer (original logic)
@@ -154,7 +164,7 @@ class StyleMixin:
                             pass
                 
                 if not all_values:
-                    self.iface.messageBar().pushMessage("Errore", f"Nessun valore valido nel campo {config['field']}.", level=2)
+                    self.iface.messageBar().pushMessage("Errore", f"Nessun valore valido nel campo {target_field}.", level=2)
                     return
 
                 # Optimization: Limit values for Jenks algorithm (O(n^2) complexity)
@@ -182,7 +192,7 @@ class StyleMixin:
                     range_item = QgsRendererRange(cls.lowerBound(), cls.upperBound(), symbol, label)
                     ranges.append(range_item)
                 
-                renderer = QgsGraduatedSymbolRenderer(config['field'], ranges)
+                renderer = QgsGraduatedSymbolRenderer(target_field, ranges)
 
             # Apply renderer
             grid_layer.setRenderer(renderer)

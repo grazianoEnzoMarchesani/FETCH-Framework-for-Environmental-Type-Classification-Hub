@@ -110,6 +110,7 @@ class FolderNames:
     CORINE = "corine_clc2018"
     UNIFIED = "unified"
     SNAPSHOTS = "snapshots"
+    KNOWLEDGE_BASE = "knowledge_base"
 
 
 class LCZMappings:

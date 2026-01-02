@@ -84,6 +84,7 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         self.svf_method_combo = QComboBox()
         self.svf_method_combo.addItems([
             "Ground-Level (LCZ)", 
+            "Ground-level (no building)",
             "Legacy: Roof-Top"
         ])
         self.svf_method_combo.setToolTip("Scegli la prospettiva per il calcolo dell'SVF")
@@ -165,6 +166,8 @@ class ProcessingSection(QgsCollapsibleGroupBox, HelpMixin):
         idx = self.svf_method_combo.currentIndex()
         if idx == 0:
             method = 'ground'
+        elif idx == 1:
+            method = 'ground_no_building'
         else:
             method = 'legacy'
             

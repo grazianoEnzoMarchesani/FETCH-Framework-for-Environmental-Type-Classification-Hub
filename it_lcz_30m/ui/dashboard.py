@@ -500,7 +500,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         QgsApplication.taskManager().addTask(task)
 
-    def run_classification(self, method='stable', apply_smoothing=True):
+    def run_classification(self, method='stable', apply_smoothing=True, is_training=False):
         """Run final LCZ classification."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
@@ -520,7 +520,9 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         method_labels = {
             'stable': "Standard (Stable)",
             'experimental': "Experimental (v2.0)",
-            'v3': "Advanced (v3.0)"
+            'v3': "Advanced (v3.0)",
+            'v4': "Fuzzy Archetype (v4.0)",
+            'v5': "Mahalanobis Adaptive (v5.0)"
         }
         method_label = method_labels.get(method, method)
         
@@ -528,7 +530,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.progress_section.set_status(f"Avvio classificazione LCZ finale ({method_label})...")
         self.progress_section.set_indeterminate(True)
         
-        task = ClassificationTask(self.data_manager, grid_path, method=method, apply_smoothing=apply_smoothing)
+        task = ClassificationTask(self.data_manager, grid_path, method=method, apply_smoothing=apply_smoothing, is_training=is_training)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
@@ -539,8 +541,13 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
                 self.progress_section.set_status("✓ Classificazione LCZ completata!")
                 self.iface.messageBar().pushMessage("FETCH", "Classificazione LCZ completata con successo!", level=3)
                 
-                # Just refresh the existing layer - classification modifies it in place
+                # Refresh the layer structure and data
+                grid_layer.updateFields()
                 grid_layer.triggerRepaint()
+                # Required to make new columns visible in some QGIS versions without manual refresh
+                if hasattr(grid_layer, 'dataProvider'):
+                    grid_layer.dataProvider().forceReload()
+                
                 self.iface.mapCanvas().refresh()
                 self.update_param_indicators()
             else:

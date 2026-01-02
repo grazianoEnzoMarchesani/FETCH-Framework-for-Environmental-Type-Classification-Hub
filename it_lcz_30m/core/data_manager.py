@@ -315,9 +315,9 @@ class DataManager:
     def calculate_lcz_parameters(self, grid_path=None, parameter_id=None, log_callback=None):
         return self.lcz_calc.calculate_parameters(grid_path, parameter_id, log_callback)
 
-    def run_lcz_classification(self, grid_path, log_callback=None, method='stable', apply_smoothing=True):
+    def run_lcz_classification(self, grid_path, log_callback=None, method='stable', apply_smoothing=True, is_training=False):
         """Classifies grid cells into LCZ classes based on calculated parameters."""
-        return self.lcz_calc.classify_lcz(grid_path, log_callback, method=method, apply_smoothing=apply_smoothing)
+        return self.lcz_calc.classify_lcz(grid_path, log_callback, method=method, apply_smoothing=apply_smoothing, is_training=is_training)
 
     def _download_file_generic(self, url, local_path, auth=None):
         return download_file_generic(url, local_path, auth)

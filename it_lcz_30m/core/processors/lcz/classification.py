@@ -22,7 +22,7 @@ class LCZClassificationProcessor:
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "FETCH", level)
     
-    def process(self, layer, log_callback=None, method='stable', apply_smoothing=True):
+    def process(self, layer, log_callback=None, method='stable', apply_smoothing=True, is_training=False):
         """
         Dispatches processing to the selected method.
         
@@ -30,6 +30,8 @@ class LCZClassificationProcessor:
             layer: QgsVectorLayer to classify
             log_callback: Function for UI logging
             method: 'stable', 'experimental', or 'v3' (advanced)
+            apply_smoothing: Whether to apply spatial smoothing
+            is_training: Whether to add new samples to the knowledge base (v5 only)
         """
         if method == 'stable' or method == 'standard':
             from .classification_standard import LCZClassificationProcessorStandard
@@ -80,6 +82,36 @@ class LCZClassificationProcessor:
                 log_callback("🚀 Avvio classificazione LCZ ADVANCED (v3.0)...")
             
             return self.v3_proc.process(layer, log_callback, apply_smoothing=apply_smoothing)
+            
+        elif method == 'v4' or method == 'fad':
+            from .classification_v4_fad import LCZClassificationProcessorFAD
+            if not hasattr(self, 'fad_proc') or not self.fad_proc:
+                self.fad_proc = LCZClassificationProcessorFAD(self.dm)
+            
+            if log_callback:
+                log_callback("🧪 Avvio classificazione LCZ FAD (Fuzzy-Archetype v4.0)...")
+            
+            return self.fad_proc.process(layer, log_callback, apply_smoothing=apply_smoothing)
+
+        elif method == 'v5' or method == 'mahalanobis':
+            from .classification_v5_mahalanobis import LCZClassificationProcessorV5
+            if not hasattr(self, 'v5_proc') or not self.v5_proc:
+                self.v5_proc = LCZClassificationProcessorV5(self.dm)
+            
+            if log_callback:
+                log_callback("🧠 Avvio classificazione MAHALANOBIS ADAPTIVE (v5.0)...")
+            
+            return self.v5_proc.process(layer, log_callback, apply_smoothing=apply_smoothing, is_training=is_training)
+            
+        elif method == 'v6' or method == 'wzdv':
+            from .classification_v6_wzdv import LCZClassificationProcessorV6
+            if not hasattr(self, 'v6_proc') or not self.v6_proc:
+                self.v6_proc = LCZClassificationProcessorV6(self.dm)
+            
+            if log_callback:
+                log_callback("🧪 Avvio classificazione WEIGHTED Z-DISTANCE WITH VETO (v6.0)...")
+            
+            return self.v6_proc.process(layer, log_callback, apply_smoothing=apply_smoothing)
             
         else:
             if log_callback:

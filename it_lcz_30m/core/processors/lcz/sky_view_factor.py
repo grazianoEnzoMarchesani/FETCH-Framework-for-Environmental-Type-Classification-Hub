@@ -2,7 +2,7 @@
 
 import os
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, ogr
 from .base import LCZBaseProcessor
 
 class SkyViewFactorProcessor(LCZBaseProcessor):
@@ -23,7 +23,12 @@ class SkyViewFactorProcessor(LCZBaseProcessor):
         canopy_path = os.path.join(unified_dir, "canopy_height_10m.tif")
         
         # Output path depends on method
-        filename = "svf_10m.tif" if method == 'ground' else "svf_legacy_10m.tif"
+        mapping = {
+            'ground': "svf_10m.tif",
+            'ground_no_building': "svf_no_building_10m.tif",
+            'legacy': "svf_legacy_10m.tif"
+        }
+        filename = mapping.get(method, "svf_10m.tif")
         output_path = os.path.join(unified_dir, filename)
 
         if os.path.exists(output_path) and not overwrite:
@@ -49,13 +54,49 @@ class SkyViewFactorProcessor(LCZBaseProcessor):
             is_tree = canopy_array > 0.5
             canopy_ds = None
 
-        # Identify building pixels for ground mode
-        total_height = dsm_array - dtm_array
-        is_building = (total_height > 0.5) & (~is_tree)
-        
+        # Metadata for rasterization and shifting
         geotransform = dsm_ds.GetGeoTransform()
         pixel_size = abs(geotransform[1])
         r_pix = int(search_radius / pixel_size)
+
+        # Identify building pixels for ground modes
+        is_building = np.zeros_like(dsm_array, dtype=bool)
+        buildings_vec_path = os.path.join(unified_dir, "buildings_lod1.gpkg")
+        
+        if os.path.exists(buildings_vec_path):
+            log_local("Utilizzo maschera vettoriale edifici per il calcolo...")
+            try:
+                # Rasterize building footprints
+                mem_driver = gdal.GetDriverByName('MEM')
+                mask_ds = mem_driver.Create('', cols, rows, 1, gdal.GDT_Byte)
+                mask_ds.SetGeoTransform(geotransform)
+                mask_ds.SetProjection(dsm_ds.GetProjection())
+                
+                vector_ds = ogr.Open(buildings_vec_path)
+                if vector_ds:
+                    v_layer = vector_ds.GetLayer()
+                    if v_layer.GetFeatureCount() > 0:
+                        gdal.RasterizeLayer(mask_ds, [1], v_layer, burn_values=[1])
+                        is_building = mask_ds.GetRasterBand(1).ReadAsArray().astype(bool)
+                        log_local(f"Identificati {np.sum(is_building)} pixel come edifici dal vettoriale.")
+                    else:
+                        log_local("Sorgente edifici vuota, fallback su altezza.")
+                        total_height = dsm_array - dtm_array
+                        is_building = (total_height > 0.5) & (~is_tree)
+                else:
+                    log_local("Impossibile aprire il vettoriale edifici, fallback su altezza.")
+                    total_height = dsm_array - dtm_array
+                    is_building = (total_height > 0.5) & (~is_tree)
+                mask_ds = None
+                vector_ds = None
+            except Exception as e:
+                 log_local(f"Errore maschera edifici: {e}. Fallback su altezza.")
+                 total_height = dsm_array - dtm_array
+                 is_building = (total_height > 0.5) & (~is_tree)
+        else:
+            log_local("Vettoriale edifici non trovato, fallback su altezza.")
+            total_height = dsm_array - dtm_array
+            is_building = (total_height > 0.5) & (~is_tree)
         
         total_cos2_sum = np.zeros_like(dsm_array, dtype=np.float32)
         angles = np.linspace(0, 2 * np.pi, num_sectors, endpoint=False)
@@ -87,7 +128,7 @@ class SkyViewFactorProcessor(LCZBaseProcessor):
                     tree_shifted[r1_s:r2_s, c1_s:c2_s] = is_tree[r1_o:r2_o, c1_o:c2_o]
                 
                 # POV selection
-                if method == 'ground':
+                if method in ['ground', 'ground_no_building']:
                     # Observer is AT GROUND (dtm_array), obstacles are dsm_shifted
                     tan = (dsm_shifted - dtm_array) / dist
                 else:
@@ -104,6 +145,10 @@ class SkyViewFactorProcessor(LCZBaseProcessor):
         if method == 'ground':
             # Set SVF to 0.0 for building footprints in ground mode
             svf_array[is_building] = 0.0
+        elif method == 'ground_no_building':
+            # Set SVF to NaN for building footprints
+            log_local(f"Mascheramento {np.sum(is_building)} pixel edifici come NoData...")
+            svf_array[is_building] = np.nan
             
         svf_array[~valid_mask] = 1.0
 
@@ -113,6 +158,14 @@ class SkyViewFactorProcessor(LCZBaseProcessor):
         out_ds.SetGeoTransform(geotransform)
         out_ds.SetProjection(dsm_ds.GetProjection())
         out_band = out_ds.GetRasterBand(1)
+        
+        # Set NoData value explicitly for NaN support if needed
+        if method == 'ground_no_building':
+             out_band.SetNoDataValue(-9999.0) # We'll use this for real NoData, and buildings as NaN or -9999
+             # Actually, GDAL handles NaN if we write it, but better to use a standard NoData
+             svf_array[np.isnan(svf_array)] = -9999.0
+             out_band.SetNoDataValue(-9999.0)
+        
         out_band.WriteArray(svf_array)
         out_ds = None
         
@@ -131,12 +184,12 @@ class SkyViewFactorProcessor(LCZBaseProcessor):
 
     def process(self, layer, target_path, log_callback=None, method='ground'):
         base_dir = self.dm.get_project_dir()
-        filename = "svf_10m.tif" if method == 'ground' else "svf_legacy_10m.tif"
+        mapping = {
+            'ground': "svf_10m.tif",
+            'ground_no_building': "svf_no_building_10m.tif",
+            'legacy': "svf_legacy_10m.tif"
+        }
+        filename = mapping.get(method, "svf_10m.tif")
         svf_path = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified", filename)
         return self._calc_zonal_mean(layer, target_path, svf_path, 'svf_mean', 'svf', log_callback)
 
-
-    def process(self, layer, target_path, log_callback=None):
-        base_dir = self.dm.get_project_dir()
-        svf_path = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified", "svf_10m.tif")
-        return self._calc_zonal_mean(layer, target_path, svf_path, 'svf_mean', 'svf', log_callback)
