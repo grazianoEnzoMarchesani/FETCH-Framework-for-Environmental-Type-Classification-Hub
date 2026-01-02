@@ -103,7 +103,7 @@ class StyleMixin:
                             color = ramp.color(norm_val)
                             palette[v] = color.name()
                         except:
-                            palette[v] = '#bebebe'
+                            palette[v] = '#ff00ff'
                 else:
                     self.iface.messageBar().pushMessage("Errore", f"Mappatura non definita per renderer categorizzato: {field_name}", level=2)
                     return
@@ -115,9 +115,9 @@ class StyleMixin:
                             color_hex = '#bebebe' # Gray for no fix
                         elif ' → ' in cat_value:
                             target_lcz = cat_value.split(' → ')[-1]
-                            color_hex = palette.get(target_lcz, '#bebebe')
+                            color_hex = palette.get(target_lcz, '#ff00ff')
                         else:
-                            color_hex = palette.get(cat_value, '#bebebe')
+                            color_hex = palette.get(cat_value, '#ff00ff')
                     else:
                         color_hex = palette.get(cat_value)
                     

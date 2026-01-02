@@ -200,7 +200,7 @@ class AdvancedStatsDialog(QDialog):
         
         labels = sorted(self.stats['lcz_counts'].keys())
         counts = [self.stats['lcz_counts'][l] for l in labels]
-        colors = [LCZMappings.COLORS.get(l, '#bebebe') for l in labels]
+        colors = [LCZMappings.COLORS.get(l, '#ff00ff') for l in labels]
         
         # Bar chart
         bars = canvas.axes.bar(labels, counts, color=colors, edgecolor='#555555', linewidth=0.5)
@@ -241,7 +241,7 @@ class AdvancedStatsDialog(QDialog):
         
         labels = sorted(self.stats['rmsep_stats'].keys())
         rmseps = [self.stats['rmsep_stats'][l] for l in labels]
-        colors = [LCZMappings.COLORS.get(l, '#bebebe') for l in labels]
+        colors = [LCZMappings.COLORS.get(l, '#ff00ff') for l in labels]
         
         canvas.axes.barh(labels, rmseps, color=colors, alpha=0.8, edgecolor='black')
         canvas.axes.set_title("Qualità della Classificazione (RMSEP medio per classe)", fontsize=12, fontweight='bold')
@@ -308,7 +308,7 @@ class AdvancedStatsDialog(QDialog):
                 if p_id in self.stats['param_means'][lcz]:
                     valid_classes.append(lcz)
                     values.append(self.stats['param_means'][lcz][p_id])
-                    colors.append(LCZMappings.COLORS.get(lcz, '#bebebe'))
+                    colors.append(LCZMappings.COLORS.get(lcz, '#ff00ff'))
             
             if values:
                 # Plot actual values
@@ -402,7 +402,7 @@ class AdvancedStatsDialog(QDialog):
                 if p_id in self.stats['param_means'][lcz]:
                     valid_classes.append(lcz)
                     values.append(self.stats['param_means'][lcz][p_id])
-                    colors.append(LCZMappings.COLORS.get(lcz, '#bebebe'))
+                    colors.append(LCZMappings.COLORS.get(lcz, '#ff00ff'))
             
             if values:
                 canvas.axes.bar(valid_classes, values, color=colors, alpha=0.7, edgecolor='#333', linewidth=0.5, label='Media Sito')
@@ -509,7 +509,7 @@ class AdvancedStatsDialog(QDialog):
                     pct = (count / total_orig) * 100
                     legend_labels.append(f"→ LCZ {target_class}: {count} ({pct:.1f}%)")
                     sizes.append(count)
-                    colors.append(LCZMappings.COLORS.get(target_class, '#bebebe'))
+                    colors.append(LCZMappings.COLORS.get(target_class, '#ff00ff'))
                 
                 # Plot without internal labels to avoid overlapping
                 wedges, _ = canvas_t.axes.pie(sizes, 
@@ -827,7 +827,7 @@ class AdvancedStatsDialog(QDialog):
                 ax = fig_dist.add_subplot(211)
                 labels = sorted(self.stats['lcz_counts'].keys())
                 counts_list = [self.stats['lcz_counts'][l] for l in labels]
-                colors = [LCZMappings.COLORS.get(l, '#bebebe') for l in labels]
+                colors = [LCZMappings.COLORS.get(l, '#ff00ff') for l in labels]
                 ax.bar(labels, counts_list, color=colors, edgecolor='black', linewidth=0.5)
                 ax.set_title("Distribuzione Classi LCZ (Frequenza)", fontsize=14, fontweight='bold', pad=20)
                 ax.set_ylabel("Numero di celle")
@@ -873,7 +873,7 @@ class AdvancedStatsDialog(QDialog):
                                 if p_id in self.stats['param_means'][lcz]:
                                     valid_classes.append(lcz)
                                     values.append(self.stats['param_means'][lcz][p_id])
-                                    colors_p.append(LCZMappings.COLORS.get(lcz, '#bebebe'))
+                                    colors_p.append(LCZMappings.COLORS.get(lcz, '#ff00ff'))
                             
                             if values:
                                 ax.bar(valid_classes, values, color=colors_p, alpha=0.7)
@@ -927,7 +927,7 @@ class AdvancedStatsDialog(QDialog):
                                 pct = (count / total_orig) * 100
                                 legend_labels.append(f"→ LCZ {target_class}: {count} ({pct:.1f}%)")
                                 sizes.append(count)
-                                colors_t.append(LCZMappings.COLORS.get(target_class, '#bebebe'))
+                                colors_t.append(LCZMappings.COLORS.get(target_class, '#ff00ff'))
                             
                             wedges, _ = ax.pie(sizes, startangle=140, colors=colors_t, 
                                              wedgeprops={'edgecolor': 'white', 'linewidth': 1})

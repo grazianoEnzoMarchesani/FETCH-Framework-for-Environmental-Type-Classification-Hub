@@ -174,7 +174,7 @@ class LCZMappings:
         '5': '#ff6600', '6': '#ff9957', '7': '#f9ef00', '8': '#bcbcbc',
         '9': '#fecca9', '10': '#555555', 'A': '#016901', 'B': '#06aa02',
         'C': '#638526', 'D': '#badb7a', 'E': '#000000', 'F': '#fbf5ad',
-        'G': '#6a6afe', 'N/D': '#bebebe'
+        'G': '#6a6afe', 'N/D': '#ff00ff'
     }
 
     # LCZ class to UHI Vulnerability mapping (based on user's schema)
@@ -195,7 +195,7 @@ class LCZMappings:
         'Low-Medium': '#d9f2d0',
         'Low': '#c0f0c8',
         'Very Low': '#c1e4f5',
-        'Unknown/Other': '#bebebe'
+        'Unknown/Other': '#ff00ff'
     }
     
     # Desired order for vulnerability legend

@@ -97,8 +97,11 @@ class LCZClassifierWZDV:
         class_weights_z = self.Z_WEIGHTS.get(lcz_id, {})
         
         # Determine the set of parameters that can trigger a Veto
+        # veto_count can be an integer (global) or a dictionary (per-class)
+        current_veto_count = veto_count.get(lcz_id, 1) if isinstance(veto_count, dict) else veto_count
+        
         veto_params_ranked = self.VETO_RANKING.get(lcz_id, [])
-        veto_active_set = set(veto_params_ranked[:veto_count])
+        veto_active_set = set(veto_params_ranked[:current_veto_count])
         
         weighted_error_sum = 0
         total_weight = 0
@@ -151,49 +154,31 @@ class LCZClassifierWZDV:
         if self.available_params_count < 3:
             return {'lcz_class': 'N/D', 'score': 0, 'confidence': 0}
 
-        # --- PRE-FILTER: BSF Physical Constraint ---
-        # "Built classes (1-10) only if BSF >= 10, else Natural (A-G)"
-        bsf = self.parameters.get('building_surface_fraction', 0)
-        built_classes = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
-        natural_classes = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
-        
-        if bsf >= 10:
-            candidate_classes = built_classes
-        else:
-            candidate_classes = natural_classes
-
         results = {}
         vetos = {}
 
-        for lcz_id in candidate_classes:
+        for lcz_id in self.LCZ_CLASSES.keys():
             score, vetoed = self.calculate_weighted_score(lcz_id, veto_count=veto_count)
             results[lcz_id] = score
             vetos[lcz_id] = vetoed
 
-        # 1. Try to find the best among non-vetoed classes in the allowed group
+        # Filter out vetoed classes if possible, but keep at least something?
+        # No, if vetoed, it's out.
         valid_results = {k: v for k, v in results.items() if not vetos[k] and v != float('inf')}
         
-        fallback_active = False
         if not valid_results:
-            # FALLBACK: If all are vetoed in THE RESTRICTED GROUP, we use all of them
-            # to avoid the "Sea of N/D" seen when filters are too strict.
-            # This mimics the "best effort" behavior of version 1.1 within the chosen world.
-            valid_results = {k: v for k, v in results.items() if v != float('inf')}
-            fallback_active = True
-            
-            if not valid_results:
-                 return {'lcz_class': 'N/D', 'score': 0, 'confidence': 0, 'method': 'WZDV_Empty'}
+            # If all classes are vetoed, fallback to the one with best score even if vetoed
+            # or just return N/D? Let's be strict for v6.0.
+            return {'lcz_class': 'N/D', 'score': 0, 'confidence': 0, 'method': 'WZDV_Veto_All'}
 
         sorted_results = sorted(valid_results.items(), key=lambda x: x[1])
         best_id, best_score = sorted_results[0]
         
         # Confidence logic: inverse of distance
+        # best_score = 0 means perfect weighted match. 
+        # Let's map score to [0, 1] confidence
         confidence = 1.0 / (1.0 + best_score)
         
-        # Penalize confidence if fallback was triggered
-        if fallback_active:
-             confidence *= 0.5 
-
         # Tie-breaker logic (Perfect matches count)
         if len(sorted_results) > 1:
             second_id, second_score = sorted_results[1]
@@ -205,8 +190,8 @@ class LCZClassifierWZDV:
                     best_id = second_id
                     best_score = second_score
 
-        # Final Rejection (Lowered threshold from 0.3 to 0.15 for better edge coverage)
-        if confidence < 0.15:
+        # Final Rejection
+        if confidence < 0.3:
             return {
                 'lcz_class': 'N/D', 
                 'score': round(best_score, 3), 
@@ -219,7 +204,7 @@ class LCZClassifierWZDV:
             'score': round(best_score, 3), 
             'confidence': round(confidence, 2),
             'perfect_matches': self._count_perfect_matches(best_id),
-            'method': 'WZDV_Fallback' if fallback_active else 'WZDV'
+            'method': 'WZDV'
         }
 
     def _count_perfect_matches(self, lcz_id):
@@ -272,22 +257,37 @@ class LCZClassificationProcessorV6:
             self.log(f"ESA Stats Error: {e}", Qgis.Warning)
             return None
 
-    def _apply_esa_correction(self, lcz_class, esa_class, impervious_frac=None):
+    def _apply_esa_correction(self, lcz_class, esa_class, impervious_frac=None, building_frac=None):
         """Applies logic to reconcile the morphological classifier with ESA WorldCover."""
-        if lcz_class in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
-            if esa_class == 80: return 'G'
-            return lcz_class
+        # 1. Protection for Water
+        if esa_class == 80: return 'G'
+        
+        # 2. Rejection Fallback
         if esa_class is None or lcz_class == 'N/D': return lcz_class
+        
         suggested_lcz = self.ESA_TO_LCZ.get(esa_class)
+        
+        # 3. BUILT -> NATURAL Correction (Critical for LCZ 9 misclassification)
+        # If morphology chose a built class (1-10) but buildings are nearly absent, trust ESA.
+        if lcz_class in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
+            if building_frac is not None and building_frac <= 10:
+                # If building density is <= 10%, morphology is likely picking up trees or terrain
+                if suggested_lcz in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
+                    return suggested_lcz
+            return lcz_class
+            
+        # 4. NATURAL -> NATURAL/URBAN Correction
         if lcz_class == 'G' and esa_class != 80:
             if esa_class == 50: return '9'
             return suggested_lcz if suggested_lcz else 'D'
+            
         if suggested_lcz is None: return lcz_class
+        
         if esa_class == 10: # Trees
             return lcz_class if lcz_class in ['A', 'B'] else 'A'
         if esa_class == 60: # Bare
             return 'E' if (impervious_frac is not None and impervious_frac > 50) else 'F'
-        if esa_class == 80: return 'G'
+            
         if lcz_class in ['A', 'B', 'C', 'D', 'E', 'F', 'G']: return suggested_lcz
         return lcz_class
 
@@ -378,8 +378,10 @@ class LCZClassificationProcessorV6:
                         try: imp_f = float(iv) if iv is not None else None
                         except: pass
                     
+                    b_f = params.get('building_surface_fraction', 0)
+                    
                     original_lcz = lcz
-                    lcz = self._apply_esa_correction(lcz, esa_class, imp_f)
+                    lcz = self._apply_esa_correction(lcz, esa_class, imp_f, b_f)
                     if lcz != original_lcz:
                         corrected += 1
                         esa_status = f"{original_lcz} → {lcz}"

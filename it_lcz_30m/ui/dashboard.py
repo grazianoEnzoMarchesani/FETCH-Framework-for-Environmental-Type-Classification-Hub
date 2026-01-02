@@ -528,7 +528,8 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         method_label = method_labels.get(method, method)
         
         self.set_dashboard_enabled(False)
-        self.progress_section.set_status(f"Avvio classificazione LCZ finale ({method_label})... Veto: {veto_count}")
+        veto_display = "Custom" if isinstance(veto_count, dict) else str(veto_count)
+        self.progress_section.set_status(f"Avvio classificazione LCZ finale ({method_label})... Veto: {veto_display}")
         self.progress_section.set_indeterminate(True)
         
         task = ClassificationTask(self.data_manager, grid_path, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count)

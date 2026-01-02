@@ -23,13 +23,15 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     # Signals
     parameter_requested = pyqtSignal(str)  # parameter_id
     visualization_requested = pyqtSignal(str)  # field_name
-    classify_requested = pyqtSignal(str, bool, bool, int) # method, smoothing, training, veto_count
+    classify_requested = pyqtSignal(str, bool, bool, object) # method, smoothing, training, veto_count (int or dict)
     stats_requested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__("5. Calcolo Parametri LCZ", parent)
         self.param_buttons = {}
         self.indicator_buttons = {}
+        # Custom Veto Configuration for V6 (None means use global spinbox)
+        self.custom_veto_config = None
         self._setup_ui()
         
     def _setup_ui(self):
@@ -228,9 +230,17 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.spin_veto.setRange(1, 10)
         self.spin_veto.setValue(1)
         self.spin_veto.setFixedWidth(60)
-        self.spin_veto.setObjectName("ParamCombo") # Reuse style
         self.spin_veto.setToolTip("Numero di parametri statistici 'Leader' usati per scartare una classe.\nPiù alto è il numero, più la classificazione è restrittiva.")
+        self.spin_veto.valueChanged.connect(self._on_global_veto_changed)
         veto_layout.addWidget(self.spin_veto)
+        
+        self.btn_veto_adv = QPushButton("⚙️")
+        self.btn_veto_adv.setFixedWidth(30)
+        self.btn_veto_adv.setToolTip("Configurazione avanzata: imposta veto differenti per ogni classe.")
+        self.btn_veto_adv.setStyleSheet("font-size: 14px; background: #ecf0f1; border: 1px solid #bdc3c7;")
+        self.btn_veto_adv.clicked.connect(self._on_veto_adv_clicked)
+        veto_layout.addWidget(self.btn_veto_adv)
+        
         veto_layout.addStretch()
         
         self.veto_container.setVisible(False)
@@ -304,6 +314,23 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         if checked:
             self.chk_smoothing.setChecked(False)
 
+    def _on_global_veto_changed(self, value):
+        """Reset custom config if global spinbox is touched."""
+        if self.custom_veto_config:
+            self.custom_veto_config = None
+            self.btn_veto_adv.setStyleSheet("font-size: 14px; background: #ecf0f1; border: 1px solid #bdc3c7;")
+            self.spin_veto.setStyleSheet("")
+
+    def _on_veto_adv_clicked(self):
+        from ..widgets.veto_config_dialog import VetoConfigDialog
+        dlg = VetoConfigDialog(current_configs=self.custom_veto_config, parent=self)
+        if dlg.exec_():
+            self.custom_veto_config = dlg.get_config()
+            # Visual feedback that custom config is active
+            self.btn_veto_adv.setStyleSheet("font-size: 14px; background: #27ae60; color: white; border: 1px solid #27ae60;")
+            self.spin_veto.setStyleSheet("color: #7f8c8d; background: #f9f9f9;")
+            self.spin_veto.setToolTip("Configurazione avanzata attiva. Modifica qui per resettare.")
+
     def _on_classify_clicked(self):
         """Handle classification button click with method selection."""
         idx = self.classify_method_combo.currentIndex()
@@ -312,7 +339,13 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         method = methods[idx] if idx < len(methods) else 'stable'
         apply_smoothing = self.chk_smoothing.isChecked()
         is_training = self.chk_training.isChecked() if idx == 6 else False
-        veto_count = self.spin_veto.value() if idx == 7 else 1
+        
+        # Determine veto_count (int or dict)
+        if idx == 7: # V6
+            veto_count = self.custom_veto_config if self.custom_veto_config else self.spin_veto.value()
+        else:
+            veto_count = 1
+            
         self.classify_requested.emit(method, apply_smoothing, is_training, veto_count)
 
     def set_indicator_enabled(self, field_name, enabled):
