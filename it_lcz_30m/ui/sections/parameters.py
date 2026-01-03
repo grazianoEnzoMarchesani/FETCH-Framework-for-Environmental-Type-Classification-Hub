@@ -23,7 +23,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     # Signals
     parameter_requested = pyqtSignal(str)  # parameter_id
     visualization_requested = pyqtSignal(str)  # field_name
-    classify_requested = pyqtSignal(str, bool, bool, object) # method, smoothing, training, veto_count (int or dict)
+    classify_requested = pyqtSignal(str, bool, bool, object, bool, str) # method, smoothing, training, veto, adaptive, profile
     stats_requested = pyqtSignal()
     
     def __init__(self, parent=None):
@@ -196,10 +196,15 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         
         # Smoothing Toggle
         self.chk_smoothing = QCheckBox("Applica Smoothing Spaziale (3x3)")
-        self.chk_smoothing.setChecked(True)
-        self.chk_smoothing.setToolTip("Riduce l'effetto 'salt & pepper' garantendo maggiore coerenza spaziale.\nNelle versioni v1 e v2 pulisce i pixel isolati basandosi sui 9 vicini.")
         self.chk_smoothing.setStyleSheet("font-size: 11px; color: #34495e; padding: 5px;")
         actions_layout.addWidget(self.chk_smoothing)
+        
+        # Adaptive Calibration Toggle
+        self.chk_adaptive = QCheckBox("Usa Calibrazione Adattiva (2-passi)")
+        self.chk_adaptive.setChecked(False)
+        self.chk_adaptive.setToolTip("Esegue un primo passaggio per adattare i range LCZ alla morfologia locale (es. città italiane),\nquindi riesegue la classificazione per migliorare la confidenza e ridurre le ambiguità.")
+        self.chk_adaptive.setStyleSheet("font-size: 11px; color: #8e44ad; font-weight: bold; padding: 5px;")
+        actions_layout.addWidget(self.chk_adaptive)
         
         # Recommendation Label (Hidden by default)
         self.lbl_smoothing_rec = QLabel("💡 Consigliato disattivare lo smoothing con v1.1/v2.1")
@@ -222,14 +227,14 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         veto_layout.setContentsMargins(5, 5, 5, 5)
         veto_layout.setSpacing(10)
         
-        lbl_veto = QLabel("Parametri Veto (V6):")
+        lbl_veto = QLabel("Veto:")
         lbl_veto.setStyleSheet("font-size: 11px; color: #2c3e50; font-weight: bold;")
         veto_layout.addWidget(lbl_veto)
         
         self.spin_veto = QSpinBox()
         self.spin_veto.setRange(1, 10)
         self.spin_veto.setValue(1)
-        self.spin_veto.setFixedWidth(60)
+        self.spin_veto.setFixedWidth(40)
         self.spin_veto.setToolTip("Numero di parametri statistici 'Leader' usati per scartare una classe.\nPiù alto è il numero, più la classificazione è restrittiva.")
         self.spin_veto.valueChanged.connect(self._on_global_veto_changed)
         veto_layout.addWidget(self.spin_veto)
@@ -240,6 +245,19 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.btn_veto_adv.setStyleSheet("font-size: 14px; background: #ecf0f1; border: 1px solid #bdc3c7;")
         self.btn_veto_adv.clicked.connect(self._on_veto_adv_clicked)
         veto_layout.addWidget(self.btn_veto_adv)
+
+        veto_layout.addSpacing(10)
+        
+        lbl_profile = QLabel("Profilo:")
+        lbl_profile.setStyleSheet("font-size: 11px; color: #2c3e50; font-weight: bold;")
+        veto_layout.addWidget(lbl_profile)
+
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItems(["Z-score", "Unic-score", "Fuzzy-unic-score"])
+        self.profile_combo.setToolTip("Seleziona il profilo di pesi e parametri leader per la classificazione V6.")
+        self.profile_combo.setStyleSheet("font-size: 11px;")
+        veto_layout.addWidget(self.profile_combo)
+
         
         veto_layout.addStretch()
         
@@ -346,7 +364,13 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         else:
             veto_count = 1
             
-        self.classify_requested.emit(method, apply_smoothing, is_training, veto_count)
+        # Determine profile
+        profile_map = {0: 'z-score', 1: 'unic-score', 2: 'fuzzy-unic-score'}
+        profile = profile_map.get(self.profile_combo.currentIndex(), 'z-score') if idx == 7 else 'z-score'
+            
+        adaptive_calibration = self.chk_adaptive.isChecked()
+        self.classify_requested.emit(method, apply_smoothing, is_training, veto_count, adaptive_calibration, profile)
+
 
     def set_indicator_enabled(self, field_name, enabled):
         """Enable/disable a specific indicator button."""

@@ -194,7 +194,7 @@ class LCZClassificationProcessorExperimental:
         # 4. Natural class overriding
         return suggested if lcz_class in ['A', 'B', 'C', 'D', 'E', 'F', 'G'] else lcz_class
 
-    def process(self, layer, log_callback=None, apply_smoothing=True):
+    def process(self, layer, log_callback=None, apply_smoothing=True, **kwargs):
         import os
         import processing
         from qgis.core import QgsRasterLayer

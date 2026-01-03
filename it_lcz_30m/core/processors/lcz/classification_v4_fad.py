@@ -44,13 +44,15 @@ class LCZClassifierFAD:
         'anthropogenic_heat': 0.03
     }
 
-    def __init__(self, parameters):
+    def __init__(self, parameters, calibration_overrides=None):
         """
         Args:
             parameters: dict with parameter names and values
+            calibration_overrides: dict {lcz_id: {param_name: offset}}
         """
         self.parameters = {k: v for k, v in parameters.items() if v is not None}
         self.available_params_count = len(self.parameters)
+        self.calibration_overrides = calibration_overrides or {}
 
     def _gaussian_membership(self, x, center, sigma):
         """
@@ -109,8 +111,9 @@ class LCZClassifierFAD:
                      # Special case for Dense Trees SVF [0, 0.4]
                      mu = self._sigmoid_membership(val, 0.4, slope=-10, direction='down')
                 else:
-                    # standard closed range: use Gaussian centered at midpoint
-                    center = (min_val + max_val) / 2
+                    # shifted center logic
+                    offset = self.calibration_overrides.get(lcz_id, {}).get(param_name, 0.0)
+                    center = ((min_val + max_val) / 2) + offset
                     # sigma is set so that the boundary of the range has mu ~ 0.5
                     # 0.5 = exp(-0.5 * (width/2 / sigma)^2) -> sigma = width / (2 * sqrt(2 * ln(2)))
                     width = max(0.001, max_val - min_val)
@@ -175,16 +178,18 @@ class LCZClassificationProcessorFAD:
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "FETCH", level)
 
-    def process(self, layer, log_callback=None, apply_smoothing=False):
+    def process(self, layer, log_callback=None, apply_smoothing=False, calibration_overrides=None):
         """
         apply_smoothing: False by default as FAD is contextually resilient.
         """
         import os
         import processing
         
-        def log_local(msg):
-            if log_callback: log_callback(msg)
-            self.log(msg)
+        def log_local(msg, level=Qgis.Info):
+            if log_callback:
+                log_callback(msg, level)
+            else:
+                self.log(msg, level)
 
         log_local("🧪 Avvio classificazione FAD (Fuzzy-Archetype Distance v4.0)...")
 
@@ -215,7 +220,7 @@ class LCZClassificationProcessorFAD:
                 params[p_name] = float(v) if (v is not None and str(v) not in ('NULL', '')) else None
             
             if any(v is not None for v in params.values()):
-                res = LCZClassifierFAD(params).classify()
+                res = LCZClassifierFAD(params, calibration_overrides=calibration_overrides).classify()
                 lcz = res['lcz_class']
                 
                 layer.changeAttributeValue(feat.id(), idx_class, lcz)

@@ -21,7 +21,7 @@ class LCZClassificationProcessorV1_1(LCZClassificationProcessorStandard):
     Inherits from Standard processor to reuse LandCover correction logic.
     """
     
-    def process(self, layer, log_callback=None, apply_smoothing=False):
+    def process(self, layer, log_callback=None, apply_smoothing=False, **kwargs):
         """
         Main processing logic for Weighted v1.1 classification.
         Note: apply_smoothing defaults to False for this version as requested.

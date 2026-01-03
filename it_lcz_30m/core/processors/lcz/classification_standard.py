@@ -277,7 +277,7 @@ class LCZClassificationProcessorStandard:
         
         return lcz_class
     
-    def process(self, layer, log_callback=None, apply_smoothing=True):
+    def process(self, layer, log_callback=None, apply_smoothing=True, **kwargs):
         """Main processing logic for Standard classification."""
         import os
         from qgis.core import QgsRasterLayer

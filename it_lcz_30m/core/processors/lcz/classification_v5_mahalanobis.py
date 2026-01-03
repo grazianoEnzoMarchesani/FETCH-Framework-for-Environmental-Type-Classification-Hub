@@ -159,9 +159,10 @@ class LCZClassifierMahalanobis:
     
     MIN_SAMPLES_FOR_MAHALANOBIS = 15
     
-    def __init__(self, parameters, knowledge_base_data=None):
+    def __init__(self, parameters, knowledge_base_data=None, calibration_overrides=None):
         self.parameters = {k: v for k, v in parameters.items() if v is not None}
         self.kb_data = knowledge_base_data or {}
+        self.calibration_overrides = calibration_overrides or {}
         self.params_ordered = list(LCZMappings.FIELD_TO_PARAM.values())
         
         # Prepare vector for current cell
@@ -215,7 +216,7 @@ class LCZClassifierMahalanobis:
         2. Fallback to Fuzzy/RMSEP (v4_fad) for others or if MD fails.
         """
         # Run FAD as primary/fallback logic to get initial scores
-        fad_result = LCZClassifierFAD(self.parameters).classify()
+        fad_result = LCZClassifierFAD(self.parameters, calibration_overrides=self.calibration_overrides).classify()
         
         # If FAD is already very confident (>0.9), stick with it or use it as proxy
         # But here we want to prioritize Mahalanobis if possible
@@ -234,7 +235,7 @@ class LCZClassifierMahalanobis:
         
         # Blend FAD scores with Mahalanobis similarities
         final_scores = {}
-        fad_scores = LCZClassifierFAD(self.parameters).calculate_scores()
+        fad_scores = LCZClassifierFAD(self.parameters, calibration_overrides=self.calibration_overrides).calculate_scores()
         
         for lcz_id, f_score in fad_scores.items():
             m_sim = m_sims.get(lcz_id, 0.0)
@@ -255,9 +256,13 @@ class LCZClassifierMahalanobis:
         sorted_scores = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)
         best_id, best_score = sorted_scores[0]
         
-        # Confidence logic
+        second_id, second_score = None, None
         if len(sorted_scores) > 1:
-            margin = best_score - sorted_scores[1][1]
+            second_id, second_score = sorted_scores[1]
+
+        # Confidence logic
+        if second_id is not None:
+            margin = best_score - second_score
             confidence = (best_score * 0.7 + margin * 0.3)
         else:
             confidence = best_score
@@ -268,6 +273,8 @@ class LCZClassifierMahalanobis:
                 'lcz_class': 'N/D', 
                 'score': round(best_score, 3), 
                 'confidence': round(confidence, 2),
+                'second_class': second_id,
+                'second_score': round(second_score, 3) if second_score is not None else None,
                 'distances': distances_raw
             }
 
@@ -275,6 +282,8 @@ class LCZClassifierMahalanobis:
             'lcz_class': best_id, 
             'score': round(best_score, 3), 
             'confidence': round(confidence, 2),
+            'second_class': second_id,
+            'second_score': round(second_score, 3) if second_score is not None else None,
             'distances': distances_raw
         }
 
@@ -291,12 +300,14 @@ class LCZClassificationProcessorV5:
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "FETCH", level)
 
-    def process(self, layer, log_callback=None, apply_smoothing=True, is_training=False):
+    def process(self, layer, log_callback=None, apply_smoothing=True, is_training=False, calibration_overrides=None):
         import time
         
-        def log_local(msg):
-            if log_callback: log_callback(msg)
-            self.log(msg)
+        def log_local(msg, level=Qgis.Info):
+            if log_callback:
+                log_callback(msg, level)
+            else:
+                self.log(msg, level)
 
         log_local("🧠 Avvio classificazione MAHALANOBIS ADAPTIVE (v5.0)...")
         if is_training:
@@ -318,6 +329,8 @@ class LCZClassificationProcessorV5:
             ('lcz_score', QMetaType.Double, 0),
             ('lcz_rmsep', QMetaType.Double, 0),
             ('lcz_confidence', QMetaType.Double, 0),
+            ('lcz_class_2nd', QMetaType.QString, 10),
+            ('lcz_score_2nd', QMetaType.Double, 0),
             ('lcz_vulnerability', QMetaType.QString, 20)
         ]
         
@@ -336,11 +349,13 @@ class LCZClassificationProcessorV5:
         idx_score = layer.fields().lookupField('lcz_score')
         idx_rmsep = layer.fields().lookupField('lcz_rmsep')
         idx_conf = layer.fields().lookupField('lcz_confidence')
+        idx_class2 = layer.fields().lookupField('lcz_class_2nd')
+        idx_score2 = layer.fields().lookupField('lcz_score_2nd')
         idx_vuln = layer.fields().lookupField('lcz_vulnerability')
         
         # Mapping for distance field indices
         idx_distances = {l_id: layer.fields().lookupField(f"dist_{l_id}") for l_id in LCZMappings.CLASSES.keys()}
-
+        
         # Detailed Logging before start
         ready_m = [k for k, v in sample_counts.items() if v >= LCZClassifierMahalanobis.MIN_SAMPLES_FOR_MAHALANOBIS]
         ready_f = [k for k in LCZMappings.CLASSES.keys() if k not in ready_m]
@@ -363,7 +378,7 @@ class LCZClassificationProcessorV5:
                 params[p_name] = float(v) if (v is not None and str(v) not in ('NULL', '')) else None
             
             if any(v is not None for v in params.values()):
-                classifier = LCZClassifierMahalanobis(params, kb_data)
+                classifier = LCZClassifierMahalanobis(params, kb_data, calibration_overrides=calibration_overrides)
                 
                 # Check for "pure" morphological samples to grow the KB
                 if is_training:
@@ -384,6 +399,8 @@ class LCZClassificationProcessorV5:
                 if idx_score != -1: layer.changeAttributeValue(feat.id(), idx_score, float(res.get('score', 0)))
                 if idx_rmsep != -1: layer.changeAttributeValue(feat.id(), idx_rmsep, float(res.get('score', 0)))
                 if idx_conf != -1: layer.changeAttributeValue(feat.id(), idx_conf, float(res.get('confidence', 0)))
+                if idx_class2 != -1: layer.changeAttributeValue(feat.id(), idx_class2, res.get('second_class', ''))
+                if idx_score2 != -1: layer.changeAttributeValue(feat.id(), idx_score2, float(res.get('second_score', 0)) if res.get('second_score') else 0)
                 if idx_vuln != -1: layer.changeAttributeValue(feat.id(), idx_vuln, LCZMappings.VULNERABILITY_MAPPING.get(lcz, 'Unknown'))
                 
                 # Save individual Mahalanobis distances

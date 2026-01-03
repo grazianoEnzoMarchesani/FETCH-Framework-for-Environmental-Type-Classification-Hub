@@ -176,6 +176,20 @@ class LCZMappings:
         'C': '#638526', 'D': '#badb7a', 'E': '#000000', 'F': '#fbf5ad',
         'G': '#6a6afe', 'N/D': '#ff00ff'
     }
+    
+    # Human-readable labels for LCZ parameters
+    PARAM_LABELS = {
+        'sky_view_factor': 'Sky View Factor (0-1)',
+        'aspect_ratio': 'Aspect Ratio (H/W)',
+        'building_surface_fraction': 'Building Fraction (%)',
+        'impervious_surface_fraction': 'Impervious (%)',
+        'pervious_surface_fraction': 'Pervious (%)',
+        'height_roughness': 'Roughness Height (m)',
+        'terrain_roughness': 'Terrain Roughness (z0)',
+        'surface_admittance': 'Surface Admittance',
+        'surface_albedo': 'Albedo (0-1)',
+        'anthropogenic_heat': 'Anthro. Heat (W/m²)'
+    }
 
     # LCZ class to UHI Vulnerability mapping (based on user's schema)
     # Changed from "Risk" to "Vulnerability" as per user request

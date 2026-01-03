@@ -62,6 +62,12 @@ class DataManager:
         project_name = os.path.splitext(os.path.basename(project_path))[0]
         return f"FETCH+{project_name}"
 
+    def get_data_dir_path(self):
+        """Returns the absolute path to the project's data directory."""
+        base_dir = self.get_project_dir()
+        if not base_dir: return None
+        return os.path.join(base_dir, self.get_data_dir_name())
+
     def get_download_dir(self, subfolder):
         base_dir = self.get_project_dir()
         if not base_dir: return None
@@ -315,9 +321,9 @@ class DataManager:
     def calculate_lcz_parameters(self, grid_path=None, parameter_id=None, log_callback=None):
         return self.lcz_calc.calculate_parameters(grid_path, parameter_id, log_callback)
 
-    def run_lcz_classification(self, grid_path, log_callback=None, method='stable', apply_smoothing=True, is_training=False, veto_count=1):
+    def run_lcz_classification(self, grid_path, log_callback=None, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score'):
         """Classifies grid cells into LCZ classes based on calculated parameters."""
-        return self.lcz_calc.classify_lcz(grid_path, log_callback, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count)
+        return self.lcz_calc.classify_lcz(grid_path, log_callback, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count, adaptive_calibration=adaptive_calibration, profile=profile)
 
     def _download_file_generic(self, url, local_path, auth=None):
         return download_file_generic(url, local_path, auth)

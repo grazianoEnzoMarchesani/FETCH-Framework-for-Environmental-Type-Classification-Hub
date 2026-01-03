@@ -6,8 +6,9 @@ Provides visual charts and metrics about the LCZ classification result.
 
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-    QPushButton, QTabWidget, QWidget, QFrame, QScrollArea
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QTabWidget, QWidget, QFrame, QScrollArea,
+    QComboBox
 )
 from qgis.PyQt.QtGui import QColor, QFont
 from qgis.core import QgsMessageLog, Qgis, QgsProject
@@ -130,6 +131,8 @@ class AdvancedStatsDialog(QDialog):
         
         self.tabs.addTab(self.create_overview_tab(), "Panoramica")
         self.tabs.addTab(self.create_quality_tab(), "Qualità (RMSEP)")
+        self.tabs.addTab(self.create_ambiguity_tab(), "Ambiguità")
+        self.tabs.addTab(self.create_sensitivity_tab(), "Sensibilità")
         self.tabs.addTab(self.create_parameters_tab(), "Morfologia")
         self.tabs.addTab(self.create_physical_tab(), "Proprietà Fisiche")
         self.tabs.addTab(self.create_esa_tab(), "Correzione ESA")
@@ -258,6 +261,166 @@ class AdvancedStatsDialog(QDialog):
         ))
         
         return tab
+
+    def create_ambiguity_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        if not HAS_MATPLOTLIB: return tab
+        
+        header = QHBoxLayout()
+        header.addWidget(QLabel("Seleziona Classe LCZ da analizzare:"))
+        
+        self.amb_class_combo = QComboBox()
+        available_classes = sorted(self.stats.get('ambiguity_data', {}).keys())
+        if not available_classes:
+            layout.addWidget(QLabel("Dati di ambiguità non disponibili. Devi rieseguire la classificazione."))
+            return tab
+            
+        self.amb_class_combo.addItems(available_classes)
+        self.amb_class_combo.currentTextChanged.connect(self.update_ambiguity_chart)
+        header.addWidget(self.amb_class_combo)
+        header.addStretch()
+        layout.addLayout(header)
+        
+        self.amb_chart_container = QFrame()
+        self.amb_chart_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1;")
+        self.amb_chart_layout = QVBoxLayout(self.amb_chart_container)
+        
+        self.amb_canvas = MplCanvas(self, width=8, height=6)
+        self.amb_chart_layout.addWidget(self.amb_canvas)
+        layout.addWidget(self.amb_chart_container)
+        
+        if available_classes:
+            self.update_ambiguity_chart(available_classes[0])
+            
+        layout.addWidget(self.create_info_box(
+            "Analisi dell'Ambiguità (Margin Plot)",
+            "Questo grafico mette in relazione lo Score del 1° classificato (X) con lo Score del 2° classificato (Y). "
+            "I punti vicini alla diagonale indicano celle incerte dove il runner-up era quasi altrettanto valido. "
+            "Il colore indica quale fosse la classe concorrente (second best)."
+        ))
+        
+        return tab
+
+    def update_ambiguity_chart(self, lcz_id):
+        if not hasattr(self, 'amb_canvas'): return
+        self.amb_canvas.axes.clear()
+        
+        data = self.stats.get('ambiguity_data', {}).get(lcz_id, {})
+        s1 = data.get('scores1', [])
+        s2 = data.get('scores2', [])
+        c2 = data.get('classes2', [])
+        
+        if not s1:
+            self.amb_canvas.axes.text(0.5, 0.5, "Nessun dato runner-up", ha='center', va='center')
+            self.amb_canvas.draw()
+            return
+            
+        # Get unique runner-up classes for legend
+        unique_c2 = sorted(list(set(c2)))
+        for runner_up in unique_c2:
+            mask = [c == runner_up for c in c2]
+            x = [s1[i] for i, m in enumerate(mask) if m]
+            y = [s2[i] for i, m in enumerate(mask) if m]
+            color = LCZMappings.COLORS.get(runner_up, '#bdc3c7')
+            self.amb_canvas.axes.scatter(x, y, alpha=0.6, s=25, color=color, label=f"2nd: {runner_up}", edgecolors='white', linewidths=0.5)
+            
+        # Diagonal line
+        all_vals = s1 + s2
+        if all_vals:
+            min_v, max_v = min(all_vals), max(all_vals)
+            self.amb_canvas.axes.plot([min_v, max_v], [min_v, max_v], 'k--', alpha=0.3, label="Diagonale di Ambiguità")
+        
+        self.amb_canvas.axes.set_title(f"Ambiguità Statistica: LCZ {lcz_id} vs Runner-up", fontsize=12, fontweight='bold')
+        self.amb_canvas.axes.set_xlabel("Score 1° Classificato")
+        self.amb_canvas.axes.set_ylabel("Score 2° Classificato")
+        self.amb_canvas.axes.legend(loc='upper left', fontsize=8, framealpha=0.8)
+        self.amb_canvas.axes.grid(True, linestyle=':', alpha=0.5)
+        self.amb_canvas.draw()
+
+    def create_sensitivity_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        if not HAS_MATPLOTLIB: return tab
+        
+        header = QHBoxLayout()
+        header.addWidget(QLabel("Classe:"))
+        self.sens_class_combo = QComboBox()
+        available_classes = sorted(self.stats.get('sensitivity_data', {}).keys())
+        self.sens_class_combo.addItems(available_classes)
+        header.addWidget(self.sens_class_combo)
+        
+        header.addWidget(QLabel("Parametro:"))
+        self.sens_param_combo = QComboBox()
+        # Common parameters across all classes initially
+        params = []
+        if available_classes:
+            params = sorted(self.stats['sensitivity_data'][available_classes[0]].keys())
+        self.sens_param_combo.addItems([LCZMappings.PARAM_LABELS.get(p, p) for p in params])
+        self.sens_param_combo.setProperty("raw_params", params)
+        header.addWidget(self.sens_param_combo)
+        header.addStretch()
+        layout.addLayout(header)
+        
+        self.sens_class_combo.currentTextChanged.connect(self.update_sensitivity_chart)
+        self.sens_param_combo.currentIndexChanged.connect(self.update_sensitivity_chart)
+        
+        self.sens_chart_container = QFrame()
+        self.sens_chart_container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #dcdde1;")
+        self.sens_chart_layout = QVBoxLayout(self.sens_chart_container)
+        
+        self.sens_canvas = MplCanvas(self, width=8, height=6)
+        self.sens_chart_layout.addWidget(self.sens_canvas)
+        layout.addWidget(self.sens_chart_container)
+        
+        if available_classes:
+            self.update_sensitivity_chart()
+            
+        layout.addWidget(self.create_info_box(
+            "Analisi di Sensibilità Parametrica",
+            "Questo grafico mostra come varia la Confidenza dell'algoritmo al variare di un parametro fisico specifico. "
+            "Punti bassi indicano aree dove il parametro esce dal range ottimale per quella classe LCZ. "
+            "Utile per capire perché alcune zone non vengono classificate correttamente nonostante l'aspetto visivo."
+        ))
+        
+        return tab
+
+    def update_sensitivity_chart(self):
+        if not hasattr(self, 'sens_canvas'): return
+        lcz_id = self.sens_class_combo.currentText()
+        param_idx = self.sens_param_combo.currentIndex()
+        raw_params = self.sens_param_combo.property("raw_params")
+        
+        if not lcz_id or param_idx == -1 or not raw_params: return
+        p_name = raw_params[param_idx]
+        
+        self.sens_canvas.axes.clear()
+        data = self.stats.get('sensitivity_data', {}).get(lcz_id, {}).get(p_name, {})
+        vals = data.get('values', [])
+        confs = data.get('confidences', [])
+        
+        if not vals:
+            self.sens_canvas.axes.text(0.5, 0.5, "Nessun dato di sensibilità", ha='center', va='center')
+            self.sens_canvas.draw()
+            return
+            
+        color = LCZMappings.COLORS.get(lcz_id, '#3498db')
+        self.sens_canvas.axes.scatter(vals, confs, alpha=0.4, s=15, color=color, edgecolors='none')
+        
+        # Horizontal rejection line at 0.3
+        self.sens_canvas.axes.axhline(y=0.3, color='#e74c3c', linestyle='--', alpha=0.6, label="Soglia Rifiuto (0.3)")
+        
+        p_label = LCZMappings.PARAM_LABELS.get(p_name, p_name)
+        self.sens_canvas.axes.set_title(f"Sensibilità alla Confidenza: {p_label} (LCZ {lcz_id})", fontsize=12, fontweight='bold')
+        self.sens_canvas.axes.set_xlabel(p_label)
+        self.sens_canvas.axes.set_ylabel("Confidence (0.0 - 1.0)")
+        self.sens_canvas.axes.set_ylim(-0.05, 1.05)
+        self.sens_canvas.axes.grid(True, linestyle=':', alpha=0.5)
+        self.sens_canvas.axes.legend()
+        self.sens_canvas.draw()
+
 
     def create_parameters_tab(self):
         tab = QWidget()
@@ -941,7 +1104,88 @@ class AdvancedStatsDialog(QDialog):
                         fig_trans.tight_layout(rect=[0, 0.03, 1, 0.92])
                         pdf.savefig(fig_trans)
                         plt.close(fig_trans)
-                # 6. Scientific Consistency Index Page (Validation Summary)
+
+                # 6. Statistical Ambiguity (Margin Plots for all present classes)
+                amb_data = self.stats.get('ambiguity_data', {})
+                if amb_data:
+                    present_classes = sorted([c for c in self.stats['lcz_counts'].keys() if c in amb_data])
+                    
+                    for i in range(0, len(present_classes), 4):
+                        fig_amb = Figure(figsize=(8.27, 11.69))
+                        fig_amb.suptitle(f"Analisi dell'Ambiguità (Margin Plot) - Parte {i//4 + 1}", fontsize=16, fontweight='bold', y=0.95)
+                        
+                        chunk = present_classes[i:i+4]
+                        for k, lcz_id in enumerate(chunk):
+                            data = amb_data.get(lcz_id, {})
+                            s1 = data.get('scores1', [])
+                            s2 = data.get('scores2', [])
+                            c2 = data.get('classes2', [])
+                            
+                            if not s1: continue
+                            
+                            ax = fig_amb.add_subplot(2, 2, k+1)
+                            unique_c2 = sorted(list(set(c2)))
+                            for runner_up in unique_c2:
+                                mask = [c == runner_up for c in c2]
+                                x_pts = [s1[j] for j, m in enumerate(mask) if m]
+                                y_pts = [s2[j] for j, m in enumerate(mask) if m]
+                                col = LCZMappings.COLORS.get(runner_up, '#bdc3c7')
+                                ax.scatter(x_pts, y_pts, alpha=0.5, s=10, color=col, label=f"2nd:{runner_up}")
+                            
+                            # Diagonal
+                            mv = max(max(s1), max(s2)) if s1 and s2 else 1.0
+                            ax.plot([0, mv], [0, mv], 'k--', alpha=0.2)
+                            
+                            ax.set_title(f"Class {lcz_id} vs Runner-up", fontsize=10, fontweight='bold')
+                            ax.set_xlabel("Score 1°", fontsize=8)
+                            ax.set_ylabel("Score 2°", fontsize=8)
+                            ax.tick_params(labelsize=7)
+                            # Only show legend if not too many classes (prevent overlap)
+                            if len(unique_c2) <= 10:
+                                ax.legend(fontsize=6, loc='upper left', frameon=False)
+                        
+                        fig_amb.tight_layout(rect=[0, 0.03, 1, 0.92])
+                        pdf.savefig(fig_amb)
+                        plt.close(fig_amb)
+
+                # 7. Parametric Sensitivity Analysis (Full Matrix)
+                sens_data = self.stats.get('sensitivity_data', {})
+                if sens_data:
+                    present_classes = sorted(self.stats['lcz_counts'].keys())
+                    for lcz_id in present_classes:
+                        if lcz_id not in sens_data: continue
+                        
+                        class_params = sorted(sens_data[lcz_id].keys())
+                        for i in range(0, len(class_params), 4):
+                            fig_sens = Figure(figsize=(8.27, 11.69))
+                            fig_sens.suptitle(f"Analisi di Sensibilità: LCZ {lcz_id} (Parte {i//4 + 1})", fontsize=16, fontweight='bold', y=0.95)
+                            
+                            chunk = class_params[i:i+4]
+                            for k, p_id in enumerate(chunk):
+                                data = sens_data[lcz_id][p_id]
+                                vals = data.get('values', [])
+                                confs = data.get('confidences', [])
+                                
+                                if not vals: continue
+                                
+                                ax = fig_sens.add_subplot(2, 2, k+1)
+                                l_color = LCZMappings.COLORS.get(lcz_id, '#3498db')
+                                ax.scatter(vals, confs, alpha=0.3, s=8, color=l_color)
+                                ax.axhline(y=0.3, color='#e74c3c', linestyle='--', alpha=0.5)
+                                
+                                p_lab = LCZMappings.PARAM_LABELS.get(p_id, p_id)
+                                ax.set_title(p_lab, fontsize=10, fontweight='bold')
+                                ax.set_xlabel("Value", fontsize=8)
+                                ax.set_ylabel("Confidence", fontsize=8)
+                                ax.set_ylim(-0.05, 1.05)
+                                ax.tick_params(labelsize=7)
+                                ax.grid(True, linestyle=':', alpha=0.3)
+                            
+                            fig_sens.tight_layout(rect=[0, 0.03, 1, 0.92])
+                            pdf.savefig(fig_sens)
+                            plt.close(fig_sens)
+
+                # 8. Scientific Consistency Index Page (Validation Summary)
                 fig_coh = Figure(figsize=(8.27, 11.69))
                 fig_coh.suptitle("Indice di Coerenza Scientifica (Qualità Globale)", fontsize=16, fontweight='bold', y=0.95)
                 
@@ -976,7 +1220,7 @@ class AdvancedStatsDialog(QDialog):
                 pdf.savefig(fig_coh)
                 plt.close(fig_coh)
 
-                # 7. ESA Validation Detailed (All 10 params with pagination)
+                # 9. ESA Validation Detailed (All 10 params with pagination)
                 val_params = [
                     ('building_surface_fraction', 'Building Fraction (%)'),
                     ('sky_view_factor', 'SVF (0-1)'),

@@ -31,6 +31,9 @@ class StatsAggregator:
         if rmsep_idx == -1:
             rmsep_idx = layer.fields().lookupField('lcz_score')
             
+        conf_idx = layer.fields().lookupField('lcz_confidence')
+        class2_idx = layer.fields().lookupField('lcz_class_2nd')
+        score2_idx = layer.fields().lookupField('lcz_score_2nd')
         matches_idx = layer.fields().lookupField('lcz_matches')
         esa_fix_idx = layer.fields().lookupField('lcz_esa_fix')
         
@@ -40,6 +43,9 @@ class StatsAggregator:
         lcz_counts = {}
         rmsep_data = {} # {class: [values]}
         matches_data = {} # {class: [values]}
+        reliability_data = {} # {class: {'scores': [], 'confidences': []}}
+        ambiguity_data = {} # {class: {'scores1': [], 'scores2': [], 'classes2': []}}
+        sensitivity_data = {} # {class: {param: {'values': [], 'confidences': []}}}
         esa_transitions = {} # {original: {new: count}}
         param_data = {} # {class: {param: [values]}}
         param_data_pre = {} # {original_class: {param: [values]}}
@@ -79,12 +85,41 @@ class StatsAggregator:
                             pass
             
             # RMSEP / Score
+            r_val = None
             if rmsep_idx != -1:
-                r_val = feat.attribute(rmsep_idx)
-                if r_val not in (None, 'NULL', ''):
-                    if lcz not in rmsep_data: rmsep_data[lcz] = []
-                    try: rmsep_data[lcz].append(float(r_val))
+                attr_val = feat.attribute(rmsep_idx)
+                if attr_val not in (None, 'NULL', ''):
+                    try: 
+                        r_val = float(attr_val)
+                        if lcz not in rmsep_data: rmsep_data[lcz] = []
+                        rmsep_data[lcz].append(r_val)
                     except: pass
+            
+            # Confidence
+            c_val = None
+            if conf_idx != -1:
+                attr_val = feat.attribute(conf_idx)
+                if attr_val not in (None, 'NULL', ''):
+                    try: c_val = float(attr_val)
+                    except: pass
+
+            # Reliability (Score vs Confidence) - Keep for backward compatibility/reference
+            if r_val is not None and c_val is not None:
+                if lcz not in reliability_data:
+                    reliability_data[lcz] = {'scores': [], 'confidences': []}
+                reliability_data[lcz]['scores'].append(r_val)
+                reliability_data[lcz]['confidences'].append(c_val)
+
+            # Ambiguity (Score 1 vs Score 2)
+            if class2_idx != -1 and score2_idx != -1:
+                s2_val = feat.attribute(score2_idx)
+                c2_val = feat.attribute(class2_idx)
+                if s2_val not in (None, 'NULL', '') and r_val is not None:
+                    if lcz not in ambiguity_data:
+                        ambiguity_data[lcz] = {'scores1': [], 'scores2': [], 'classes2': []}
+                    ambiguity_data[lcz]['scores1'].append(r_val)
+                    ambiguity_data[lcz]['scores2'].append(float(s2_val))
+                    ambiguity_data[lcz]['classes2'].append(str(c2_val) if c2_val else 'N/D')
                 
             # Matches
             if matches_idx != -1:
@@ -94,9 +129,10 @@ class StatsAggregator:
                     try: matches_data[lcz].append(int(m_val))
                     except: pass
                 
-            # Parameter means (Post-ESA)
+            # Parameter means & Sensitivity
             if lcz not in param_data: param_data[lcz] = {}
             if lcz_pre not in param_data_pre: param_data_pre[lcz_pre] = {}
+            if lcz not in sensitivity_data: sensitivity_data[lcz] = {}
             
             for f_name, p_name in param_fields.items():
                 val = feat.attribute(f_name)
@@ -105,6 +141,13 @@ class StatsAggregator:
                     # Post-ESA mapping
                     if p_name not in param_data[lcz]: param_data[lcz][p_name] = []
                     param_data[lcz][p_name].append(f_val)
+
+                    # Sensitivity
+                    if c_val is not None:
+                        if p_name not in sensitivity_data[lcz]:
+                            sensitivity_data[lcz][p_name] = {'values': [], 'confidences': []}
+                        sensitivity_data[lcz][p_name]['values'].append(f_val)
+                        sensitivity_data[lcz][p_name]['confidences'].append(c_val)
                     
                     # Pre-ESA mapping
                     if p_name not in param_data_pre[lcz_pre]: param_data_pre[lcz_pre][p_name] = []
@@ -162,6 +205,9 @@ class StatsAggregator:
             'param_means_pre': param_means_pre,
             'coherence_stats_pre': coherence_stats_pre,
             'coherence_stats_post': coherence_stats_post,
+            'reliability_data': reliability_data,
+            'ambiguity_data': ambiguity_data,
+            'sensitivity_data': sensitivity_data,
             'esa_correction': {
                 'corrected': esa_corrected_count,
                 'total': total_valid_count,

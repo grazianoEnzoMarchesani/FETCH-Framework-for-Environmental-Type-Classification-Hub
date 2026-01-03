@@ -9,6 +9,8 @@ from qgis.core import (
     QgsCoordinateReferenceSystem, NULL
 )
 from qgis.PyQt.QtCore import QMetaType
+import processing
+import math
 from .base import LCZBaseProcessor
 
 class AspectRatioProcessor(LCZBaseProcessor):
@@ -23,6 +25,7 @@ class AspectRatioProcessor(LCZBaseProcessor):
 
         try:
             # 1. Setup Campi
+            idx_link = self._ensure_link_id(layer)
             idx_ar = layer.fields().indexFromName('aspect_ratio')
             if idx_ar == -1:
                 from qgis.core import QgsField
@@ -98,7 +101,61 @@ class AspectRatioProcessor(LCZBaseProcessor):
             
             log_local(f"Indice creato con {count_bld} edifici.")
 
-            # 4. Elaborazione Celle
+            # 4. Stima Spaziautra Alberi (Tree Spacing) via Raster
+            log_local("Analisi copertura vegetale alta per stima spaziatura alberi...")
+            tree_spacing_map = {}
+            canopy_path = os.path.join(self.dm.get_project_dir(), self.dm.get_data_dir_name(), "unified", "canopy_height_10m.tif")
+            
+            if os.path.exists(canopy_path):
+                try:
+                    # Creiamo maschera binaria alberi (> 2m)
+                    res_mask = processing.run("gdal:rastercalculator", {
+                        'INPUT_A': canopy_path, 'BAND_A': 1,
+                        'FORMULA': 'A > 2.0',
+                        'RTYPE': 1, # Byte
+                        'OUTPUT': 'TEMPORARY_OUTPUT'
+                    })
+                    mask_path = res_mask['OUTPUT']
+                    
+                    # Conteggio pixel totali e pixel alberi per cella
+                    res_stats = processing.run("native:zonalstatisticsfb", {
+                        'INPUT': layer, 
+                        'INPUT_RASTER': mask_path, 
+                        'COLUMN_PREFIX': '_tr_', 
+                        'STATISTICS': [0, 1], # Count and Sum
+                        'OUTPUT': 'TEMPORARY_OUTPUT'
+                    })
+                    
+                    stats_layer = res_stats['OUTPUT']
+                    idx_sum = stats_layer.fields().indexFromName('_tr_sum')
+                    idx_cnt = stats_layer.fields().indexFromName('_tr_count')
+                    idx_tmp_link = stats_layer.fields().indexFromName('_link_id')
+                    
+                    # D_tree: diametro medio chioma assunto (10m per LCZ A/B)
+                    D_tree = 10.0
+                    
+                    for f in stats_layer.getFeatures():
+                        lk = f.attribute(idx_tmp_link)
+                        s = f.attribute(idx_sum) or 0
+                        c = f.attribute(idx_cnt) or 1
+                        
+                        # Frazione copertura (0.0 - 1.0)
+                        frac = float(s) / float(c) if c > 0 else 0
+                        
+                        if frac > 0.05: # Soglia minima per considerare la vegetazione rilevante
+                            # Formula: W = D * (1/sqrt(F) - 1)
+                            # Se frac è 1.0 (copertura totale), W = 0 -> cappiamo a 2m
+                            try:
+                                w_tree = D_tree * (1.0 / math.sqrt(frac) - 1.0)
+                                tree_spacing_map[lk] = max(2.0, w_tree)
+                            except:
+                                tree_spacing_map[lk] = 2.0
+                        else:
+                            tree_spacing_map[lk] = 200.0 # Spaziatura infinita (nessun albero)
+                except Exception as ex:
+                    log_local(f"Avviso: Errore nel calcolo spaziatura alberi: {str(ex)}", Qgis.Warning)
+
+            # 5. Elaborazione Celle
             layer.startEditing()
             processed = 0
             count_valid_ar = 0
@@ -147,14 +204,26 @@ class AspectRatioProcessor(LCZBaseProcessor):
                         cell_spacings.append(effective_dist)
                 
                 # Calcolo Finale AR
+                # 1. Spaziatura Edifici
+                w_bld = 200.0
                 if cell_spacings:
                     median_w = statistics.median(cell_spacings)
-                    # AR = H / W
-                    ar = float(zh) / median_w if median_w >= 2.0 else float(zh) / 2.0
+                    w_bld = max(2.0, median_w)
+                
+                # 2. Spaziatura Alberi
+                lk = feat.attribute(idx_link)
+                w_tree = tree_spacing_map.get(lk, 200.0)
+                
+                # 3. Spaziatura Integrata (la più densa vince)
+                w_final = min(w_bld, w_tree)
+                
+                # AR = H / W
+                if w_final < 200.0:
+                    ar = float(zh) / w_final
                     count_valid_ar += 1
-                    total_spacings_found += len(cell_spacings)
+                    if cell_spacings: total_spacings_found += len(cell_spacings)
                 else:
-                    # Edifici isolati o distanti: AR basso
+                    # Elementi isolati: AR molto basso
                     ar = float(zh) / 100.0 if float(zh) > 0 else 0.0
                 
                 layer.changeAttributeValue(feat.id(), idx_ar, round(min(10.0, ar), 2))

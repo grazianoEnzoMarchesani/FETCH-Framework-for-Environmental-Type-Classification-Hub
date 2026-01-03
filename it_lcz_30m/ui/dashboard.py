@@ -500,7 +500,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         QgsApplication.taskManager().addTask(task)
 
-    def run_classification(self, method='stable', apply_smoothing=True, is_training=False, veto_count=1):
+    def run_classification(self, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score'):
         """Run final LCZ classification."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
@@ -532,7 +532,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.progress_section.set_status(f"Avvio classificazione LCZ finale ({method_label})... Veto: {veto_display}")
         self.progress_section.set_indeterminate(True)
         
-        task = ClassificationTask(self.data_manager, grid_path, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count)
+        task = ClassificationTask(self.data_manager, grid_path, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count, adaptive_calibration=adaptive_calibration, profile=profile)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)
@@ -546,9 +546,10 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
                 # Refresh the layer structure and data
                 grid_layer.updateFields()
                 grid_layer.triggerRepaint()
-                # Required to make new columns visible in some QGIS versions without manual refresh
+                
+                # Use reloadData() instead of deprecated forceReload()
                 if hasattr(grid_layer, 'dataProvider'):
-                    grid_layer.dataProvider().forceReload()
+                    grid_layer.dataProvider().reloadData()
                 
                 self.iface.mapCanvas().refresh()
                 self.update_param_indicators()

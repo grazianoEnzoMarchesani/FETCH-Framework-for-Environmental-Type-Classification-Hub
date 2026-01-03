@@ -20,7 +20,7 @@ class LCZClassificationProcessorV2_1(LCZClassificationProcessorExperimental):
     Inherits from Experimental v2.0 to reuse logic and corrections.
     """
     
-    def process(self, layer, log_callback=None, apply_smoothing=False):
+    def process(self, layer, log_callback=None, apply_smoothing=False, **kwargs):
         """
         Main processing logic for Weighted Experimental v2.1.
         """

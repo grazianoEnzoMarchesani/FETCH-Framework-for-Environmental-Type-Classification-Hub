@@ -123,11 +123,13 @@ class LCZCalculator:
 
         return True, f"Calcolo completato ({processed} celle)", target_path
 
-    def classify_lcz(self, grid_path, log_callback=None, method='stable', apply_smoothing=True, is_training=False, veto_count=1):
+    def classify_lcz(self, grid_path, log_callback=None, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score'):
         """Classifies grid cells into LCZ classes based on calculated parameters."""
         def log_local(msg, level=Qgis.Info):
-            if log_callback: log_callback(msg)
-            self.log(msg, level)
+            if log_callback:
+                log_callback(msg, level)
+            else:
+                self.log(msg, level)
 
         # Use params file if exists, otherwise original grid
         target_path = grid_path
@@ -142,7 +144,9 @@ class LCZCalculator:
 
         log_local(f"Metodo di classificazione: {method} - Input: {target_path}")
         processed = self.classification_proc.process(
-            layer, log_callback, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count
+            layer, log_callback, method=method, apply_smoothing=apply_smoothing, 
+            is_training=is_training, veto_count=veto_count, adaptive_calibration=adaptive_calibration,
+            profile=profile
         )
 
         return True, f"Classificazione completata ({processed} celle)", target_path

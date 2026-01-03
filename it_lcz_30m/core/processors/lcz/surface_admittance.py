@@ -40,10 +40,10 @@ class SurfaceAdmittanceProcessor(LCZBaseProcessor):
         # These values represent the thermal inertia of the materials.
         COEFFS = {
             'building': 1800,    # Stewart & Oke (2012): LCZ 1-3 range 1500-2500
-            'h_50': 1600,        # Stewart & Oke (2012): Paved surfaces/LCZ 8-10 range 1000-2000
-            'h_10': 1200,        # Stewart & Oke (2012): LCZ A-B range 1000-1800 (Trees)
-            'h_30': 1000,        # Stewart & Oke (2012): LCZ D range 1000-1800 (Low plants)
-            'h_40': 1000,        # Stewart & Oke (2012): LCZ D range (Cropland)
+            'h_50': 1800,        # Stewart & Oke (2012): Paved surfaces/LCZ E range 1200-2500
+            'h_10': 1300,        # Stewart & Oke (2012): LCZ A-B range 1000-1800 (Trees)
+            'h_30': 1300,        # Stewart & Oke (2012): LCZ D range 1200-1600 (Low plants)
+            'h_40': 1300,        # Stewart & Oke (2012): LCZ D range (Cropland)
             'h_20': 1100,        # Stewart & Oke (2012): LCZ C range (Scrubland)
             'h_60': 600,         # Oke (1987): Dry bare soil ~600, Wet ~2000
             'h_80': 1500,        # Oke (1987): Water surfaces ~1500-1600
