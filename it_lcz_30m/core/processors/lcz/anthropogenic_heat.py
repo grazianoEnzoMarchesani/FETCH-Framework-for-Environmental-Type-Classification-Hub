@@ -101,36 +101,61 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                     ind_layer.updateFields()
                 
                 idx_sector = ind_layer.fields().indexFromName('eprtr_sectors')
-                if idx_sector == -1:
-                    # Fallback check for alternate names or case-sensitivity
-                    idx_sector = ind_layer.fields().indexFromName('sector')
+                if idx_sector == -1: idx_sector = ind_layer.fields().indexFromName('sector')
+                
+                idx_site_id = ind_layer.fields().indexFromName('InspireSiteId')
+                if idx_site_id == -1: idx_site_id = ind_layer.fields().indexFromName('siteId')
+                if idx_site_id == -1: idx_site_id = ind_layer.fields().indexFromName('facilityId')
+                
+                idx_year = ind_layer.fields().indexFromName('Site_reporting_year')
+                if idx_year == -1: idx_year = ind_layer.fields().indexFromName('year')
                 
                 idx_weight = ind_layer.fields().indexFromName('heat_weight')
                 
+                # 3. De-duplicate: Keep only the most recent report per site
+                site_best_reports = {} # {site_id: (feat_id, year, weight)}
+                
                 if idx_sector != -1 and idx_weight != -1:
                     for f in ind_layer.getFeatures():
+                        # Determine weight
                         sector_str = str(f.attribute(idx_sector) or "Other")
-                        # Match first part of sector string
                         weight = SECTOR_WEIGHTS.get('Other')
                         for key, val in SECTOR_WEIGHTS.items():
                             if key.lower() in sector_str.lower():
                                 weight = val
                                 break
+                        
                         ind_layer.changeAttributeValue(f.id(), idx_weight, weight)
+                        
+                        # De-duplication key
+                        site_id = str(f.attribute(idx_site_id)) if idx_site_id != -1 else None
+                        if not site_id or site_id == 'NULL':
+                             # Fallback to site name + first 2 decimals of coords
+                             name = str(f.attribute('siteName') or "Anon")
+                             geom = f.geometry().asPoint()
+                             site_id = f"{name}_{round(geom.x(),2)}_{round(geom.y(),2)}"
+                        
+                        year = 0
+                        try: year = int(f.attribute(idx_year) or 0)
+                        except: pass
+                        
+                        if site_id not in site_best_reports or year > site_best_reports[site_id][1]:
+                            site_best_reports[site_id] = (f.id(), year, weight)
+                
                 ind_layer.commitChanges()
 
-                # 3. Sum weights per grid cell (Updated: 150m influence radius redistributed to buildings)
+                # 4. Sum weights per grid cell (Updated: 150m influence radius redistributed to buildings)
+                log_local(f"De-duplicati punti industriali: {len(site_best_reports)} siti unici rilevati.")
                 log_local("Ridistribuzione calore industriale agli edifici nel raggio di 150m...")
                 
-                # We need to intersect 150m buffers of points with the grid cells, 
-                # then distribute heat to each cell proportional to its building area.
+                # We need to intersect 150m buffers of the BEST points with the grid cells
+                best_feature_ids = [v[0] for v in site_best_reports.values()]
                 
-                # First, ensure we have CRCs and links for spatial operations
                 transform_ind = QgsCoordinateTransform(ind_layer.crs(), layer.crs(), QgsProject.instance()) if ind_layer.crs() != layer.crs() else None
                 
-                # Step A: Find all cells affected by 150m buffers of ind points
-                # To be efficient, we iterate points and find cells in range
-                for ind_feat in ind_layer.getFeatures():
+                # Iterate only de-duplicated features
+                for feat_id in best_feature_ids:
+                    ind_feat = ind_layer.getFeature(feat_id)
                     weight = float(ind_feat.attribute(idx_weight) or 0)
                     if weight <= 0: continue
                     
