@@ -317,10 +317,14 @@ class LCZClassifierWZDV:
         if lcz_id == 'N/D': return 0
         count = 0
         params_def = self.LCZ_PARAMETERS[lcz_id]
-        for p, val in self.parameters.items():
-            if p in params_def:
-                low, high = params_def[p]
-                if low <= val <= high:
+        overrides = self.calibration_overrides.get(lcz_id, {})
+        
+        for p_name_internal, val in self.parameters.items():
+            if p_name_internal in params_def:
+                low, high = params_def[p_name_internal]
+                # Account for calibration offset in matching logic
+                offset = overrides.get(p_name_internal, 0.0)
+                if (low + offset) <= val <= (high + offset):
                     count += 1
         return count
 
@@ -530,4 +534,104 @@ class LCZClassificationProcessorV6:
         
         layer.commitChanges()
         log_local(f"✓ Classificazione v6.0 completata: {processed} celle ({corrected} rettifiche ESA).")
+
+        # --- Spatial Smoothing (NEW in v6.0) ---
+        if apply_smoothing:
+            log_local("⏳ Applicazione smoothing spaziale (v6 - Regola 7/9)...")
+            smoothed_count = self._apply_spatial_smoothing(layer, log_local)
+            if smoothed_count > 0:
+                log_local(f"  └ {smoothed_count} celle allineate al vicinato")
+        else:
+            log_local("ℹ Smoothing spaziale disabilitato dall'utente.")
+
         return processed
+
+    def _apply_spatial_smoothing(self, layer, log_callback=None):
+        """
+        Applies spatial smoothing using a majority filter to reduce salt-and-pepper noise.
+        Ported from v3.0 logic.
+        """
+        from collections import Counter
+        from qgis.core import QgsSpatialIndex, QgsGeometry
+        
+        def log(msg):
+            if log_callback: log_callback(msg)
+        
+        idx_class = layer.fields().lookupField('lcz_class')
+        idx_conf = layer.fields().lookupField('lcz_confidence')
+        idx_vuln = layer.fields().lookupField('lcz_vulnerability')
+        
+        if idx_class == -1:
+            return 0
+        
+        # Build spatial index
+        spatial_index = QgsSpatialIndex()
+        feature_dict = {}
+        
+        for feat in layer.getFeatures():
+            spatial_index.addFeature(feat)
+            feature_dict[feat.id()] = {
+                'lcz': feat.attribute(idx_class),
+                'conf': feat.attribute(idx_conf) if idx_conf != -1 else 1.0,
+                'geom': QgsGeometry(feat.geometry())
+            }
+        
+        # Calculate neighborhood for each cell
+        smoothed = 0
+        updates = {} # Store updates to apply in batch
+        
+        # Confidence threshold for smoothing (Higher = More aggressive)
+        CONFIDENCE_THRESHOLD = 0.5
+        
+        # Minimum neighbor agreement for smoothing (Lower = More aggressive)
+        MIN_NEIGHBOR_AGREEMENT = 6
+        
+        for fid, data in feature_dict.items():
+            cell_lcz = data['lcz']
+            cell_conf = data['conf'] if data['conf'] is not None else 0.5
+            cell_geom = data['geom']
+            
+            if cell_lcz in ['N/D', 'ERRORE', None]:
+                continue
+            if cell_conf >= CONFIDENCE_THRESHOLD:
+                continue
+            
+            # Get bounding box expanded by cell size (approximate 3x3 kernel)
+            bbox = cell_geom.boundingBox()
+            expansion = max(bbox.width(), bbox.height()) * 1.5
+            bbox.grow(expansion)
+            
+            # Query spatial index
+            candidates = spatial_index.intersects(bbox)
+            
+            neighbor_classes = []
+            for cand_id in candidates:
+                if cand_id == fid:
+                    neighbor_classes.append(cell_lcz)
+                else:
+                    cand_data = feature_dict.get(cand_id)
+                    if cand_data:
+                        cand_lcz = cand_data['lcz']
+                        if cand_lcz not in ['N/D', 'ERRORE', None]:
+                            neighbor_classes.append(cand_lcz)
+            
+            if not neighbor_classes:
+                continue
+                
+            # Find majority
+            counter = Counter(neighbor_classes)
+            majority_class, majority_count = counter.most_common(1)[0]
+            
+            if cell_lcz != majority_class and majority_count >= MIN_NEIGHBOR_AGREEMENT:
+                updates[fid] = majority_class
+                smoothed += 1
+                
+        if updates:
+            layer.startEditing()
+            for fid, new_lcz in updates.items():
+                layer.changeAttributeValue(fid, idx_class, new_lcz)
+                if idx_vuln != -1:
+                    layer.changeAttributeValue(fid, idx_vuln, LCZMappings.VULNERABILITY_MAPPING.get(new_lcz, 'Unknown'))
+            layer.commitChanges()
+            
+        return smoothed
