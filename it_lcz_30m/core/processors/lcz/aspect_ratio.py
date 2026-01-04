@@ -142,14 +142,14 @@ class AspectRatioProcessor(LCZBaseProcessor):
                         # Frazione copertura (0.0 - 1.0)
                         frac = float(s) / float(c) if c > 0 else 0
                         
-                        if frac > 0.05: # Soglia minima per considerare la vegetazione rilevante
-                            # Formula: W = D * (1/sqrt(F) - 1)
-                            # Se frac è 1.0 (copertura totale), W = 0 -> cappiamo a 2m
+                        if frac > 0.05: 
+                            # Spaziatura centro-centro (Standard Stewart & Oke 2012):
+                            # W = D / sqrt(F)
                             try:
-                                w_tree = D_tree * (1.0 / math.sqrt(frac) - 1.0)
+                                w_tree = D_tree / math.sqrt(frac)
                                 tree_spacing_map[lk] = max(2.0, w_tree)
                             except:
-                                tree_spacing_map[lk] = 2.0
+                                tree_spacing_map[lk] = 10.0
                         else:
                             tree_spacing_map[lk] = 200.0 # Spaziatura infinita (nessun albero)
                 except Exception as ex:
