@@ -211,21 +211,22 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                                 ind_weights[lk] = ind_weights.get(lk, 0.0) + weight
                                 break
 
-        # --- Componente Traffico Punti (ANAS) ---
+        # --- Componente Traffico Punti (ANAS / Proxy) ---
         traffic_path = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified", "traffic_points.gpkg")
         traffic_volumes = {}
         if os.path.exists(traffic_path):
-            log_local("Integrazione volumi di traffico ANAS...")
+            log_local("Integrazione volumi di traffico (ANAS/OSM Proxy)...")
             try:
-                # We use zonal statistics to sum traffic volumes in the cell (if any points fall inside)
+                # CRITICO: Usiamo MEAN invece di SUM per evitare multi-counting (fungo nucleare stradale)
                 res_traffic = processing.run("native:joinattributesbylocation", {
-                    'INPUT': layer, 'JOIN': traffic_path, 'PREDICATE': [0], 'SUMMARY_FIELDS': ['tgma'], 'SUMMARIES': [1], 'OUTPUT': 'TEMPORARY_OUTPUT'
+                    'INPUT': layer, 'JOIN': traffic_path, 'PREDICATE': [0], # Intersects
+                    'SUMMARY_FIELDS': ['tgma'], 'SUMMARIES': [2], # 2 = MEAN
+                    'OUTPUT': 'TEMPORARY_OUTPUT'
                 })
                 
                 out_fields = res_traffic['OUTPUT'].fields()
-                idx_traf = out_fields.indexFromName('tgma_sum')
-                if idx_traf == -1:
-                    idx_traf = out_fields.indexFromName('tgma') # Fallback
+                idx_traf = out_fields.indexFromName('tgma_mean')
+                if idx_traf == -1: idx_traf = out_fields.indexFromName('tgma')
                 
                 idx_temp_link = out_fields.indexFromName('_link_id')
                 
@@ -235,9 +236,46 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                         v = f.attribute(idx_traf)
                         if lk is not None: traffic_volumes[lk] = v
                 else:
-                    log_local(f"AVVISO: Join traffico ANAS incompleto. Traf index: {idx_traf}, Link index: {idx_temp_link}", Qgis.Warning)
+                    log_local(f"AVVISO: Join traffico incompleto. Index: {idx_traf}", Qgis.Warning)
             except Exception as ex:
-                log_local(f"Errore join traffico ANAS: {str(ex)}", Qgis.Warning)
+                log_local(f"Errore join traffico: {str(ex)}", Qgis.Warning)
+
+        # --- Componente Traffico Geometria (OSM Class Weights) ---
+        # If ANAS is missing, we use the road class to weight the heat
+        road_type_weights = {} # {link_id: max_multiplier}
+        if os.path.exists(road_path):
+            log_local("Analisi classi stradali OSM per pesatura calore...")
+            r_layer = QgsVectorLayer(road_path, "roads", "ogr")
+            if r_layer.isValid():
+                # Map specific highway types to multipliers
+                # Values adapted from Sailor (2011) and urban morphology proxies
+                TYPE_MULTIPLIERS = {
+                    'motorway': 4.0, 'trunk': 3.5,
+                    'primary': 2.5, 'secondary': 1.8,
+                    'tertiary': 1.2, 'residential': 0.8,
+                    'service': 0.5, 'unclassified': 0.7
+                }
+                
+                idx_h = r_layer.fields().indexFromName('highway')
+                if idx_h == -1: idx_h = r_layer.fields().indexFromName('highway_type')
+                
+                if idx_h != -1:
+                    # Spatial Join to find roads in cells
+                    for feat in layer.getFeatures():
+                        lk = feat.attribute(idx_link)
+                        geom = feat.geometry()
+                        # Request roads in this bounding box
+                        request = QgsFeatureRequest().setFilterRect(geom.boundingBox())
+                        max_m = 1.0
+                        for road in r_layer.getFeatures(request):
+                            if road.geometry().intersects(geom):
+                                h_type = str(road.attribute(idx_h) or "").lower()
+                                m = 1.0
+                                for k, v in TYPE_MULTIPLIERS.items():
+                                    if k in h_type:
+                                        m = v; break
+                                if m > max_m: max_m = m
+                        road_type_weights[lk] = max_m
 
         layer.startEditing()
         processed = 0
@@ -272,15 +310,21 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                     # Morphological proxy if population raster is missing
                     val_built = (bsf * 0.7) + (isf * 0.1)
                 
-                # 2. Traffic Component (OSM Roads + ANAS)
-                # Based on Hohenberger et al. (2025) and Kühbacher et al. (2025) proxies.
+                # 2. Traffic Component (OSM Roads + OSM Types + ANAS/Proxy)
                 road_len = float(road_lengths.get(lk, 0) or 0)
                 traffic_vol = float(traffic_volumes.get(lk, 0) or 0)
+                road_m = float(road_type_weights.get(lk, 1.0) or 1.0)
                 
-                # traffic_vol is the AADT scaled field 'tgma'
-                # 50,000 AADT is used as a normalization factor for the multiplier
-                traffic_multiplier = 1.0 + (traffic_vol / 50000.0) if traffic_vol > 0 else 1.0
-                val_traffic = road_len * 0.08 * traffic_multiplier if road_len > 0 else 0
+                # Formula: (Length * Base_Coeff) * (Volume_Multiplier + Class_Weight)
+                # We normalize 50k AADT to a multiplier of 2.0
+                traffic_vol_m = (traffic_vol / 50000.0) if traffic_vol > 0 else 0.0
+                
+                # Total multiplier considers both the volume (if available) and the road class
+                # This ensures consistent results even if ANAS is missing.
+                # If both are present, we take a balanced approach
+                final_traffic_m = max(road_m, (1.0 + traffic_vol_m))
+                
+                val_traffic = (road_len * 0.08) * final_traffic_m if road_len > 0 else 0
                 
                 # 3. Industrial Component (Point sources)
                 # Summed heat (W) / Cell Area (m^2)
