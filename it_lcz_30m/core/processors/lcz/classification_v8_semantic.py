@@ -176,6 +176,31 @@ class LCZSemanticMatcher:
         # 3. Decision
         best_id = max(scores, key=scores.get)
         
+        # --- EXPERT RULE: LCZ 1 vs LCZ 10 Disambiguation ---
+        # Both have high anthropogenic heat, but LCZ 10 heat comes from industries (E-PRTR),
+        # while LCZ 1 heat comes from high population density in tall buildings.
+        industry_heat = district_data.get('industry_heat', 0)
+        anthro_heat = district_data.get('anthro_heat', 0)
+        z_h = district_data.get('z_h', 0)
+        
+        if best_id in ['1', '10'] and anthro_heat > 0:
+            industry_ratio = industry_heat / anthro_heat if anthro_heat > 0 else 0
+            
+            # If industrial heat is dominant (>50% of total), prefer LCZ 10
+            if industry_ratio > 0.5:
+                if '10' in scores:
+                    scores['10'] += 15  # Strong bonus for industrial dominance
+                if '1' in scores:
+                    scores['1'] -= 10  # Penalty for non-industrial high heat
+                best_id = max(scores, key=scores.get)
+            # If industrial heat is low but height is high, prefer LCZ 1
+            elif industry_ratio < 0.2 and z_h >= 25.0:
+                if '1' in scores:
+                    scores['1'] += 10  # Bonus for high-rise residential/commercial
+                if '10' in scores:
+                    scores['10'] -= 5  # Penalty for mismatch
+                best_id = max(scores, key=scores.get)
+        
         # Basic tags for UI
         basic_tags = {
             "height": self.tagger.tag_height(district_data.get('z_h', 0)),
@@ -282,7 +307,8 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             FieldNames.TERRAIN_ROUGHNESS: 'terrain_rough',
             FieldNames.ADMITTANCE: 'admittance',
             FieldNames.ALBEDO: 'albedo',
-            FieldNames.ANTHROPOGENIC_HEAT: 'anthro_heat'
+            FieldNames.ANTHROPOGENIC_HEAT: 'anthro_heat',
+            'industry_heat': 'industry_heat'  # NEW: For LCZ 1 vs 10 disambiguation
         }
         
         # ESA WorldCover Context (Majority sampling)
@@ -318,6 +344,9 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             # Aggregate district parameters
             district_data = {}
             for f_name, p_key in field_to_param.items():
+                # Check if field exists in layer (robustness for optional fields like industry_heat)
+                if layer.fields().indexFromName(f_name) == -1:
+                    continue
                 vals = [float(f.attribute(f_name)) for f in features if f.attribute(f_name) is not None and str(f.attribute(f_name)) != 'NULL']
                 district_data[p_key] = np.mean(vals) if vals else 0.0
             
@@ -382,6 +411,9 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             
             f_data = {}
             for f_name, p_key in field_to_param.items():
+                # Check if field exists (robustness for optional fields like industry_heat)
+                if layer.fields().indexFromName(f_name) == -1:
+                    continue
                 val = feat.attribute(f_name)
                 f_data[p_key] = float(val) if val is not None and str(val) != 'NULL' else 0.0
             

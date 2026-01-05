@@ -27,6 +27,8 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
         
         # Ensure output field exists (Fix for independent run)
         idx_dst = self._ensure_field(layer, 'anthro_heat')
+        # NEW: Track industrial heat separately for LCZ 1 vs LCZ 10 disambiguation
+        idx_ind = self._ensure_field(layer, 'industry_heat')
 
         # Ensure we have the necessary Morphological Fractions (Atomicity)
         bsf_dynamic, isf_dynamic = self._ensure_fractions(layer, log_callback)
@@ -344,6 +346,9 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                 
                 if idx_dst != -1:
                     layer.changeAttributeValue(feat.id(), idx_dst, round(val, 2))
+                # NEW: Save industrial component separately for LCZ classification
+                if idx_ind != -1 and val_industry > 0:
+                    layer.changeAttributeValue(feat.id(), idx_ind, round(val_industry, 2))
                 
                 processed += 1
                 if processed % 1000 == 0:
