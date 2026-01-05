@@ -91,8 +91,11 @@ class LCZSemanticMatcher:
         bsf = district_data.get('bsf', 0)
         albedo = district_data.get('albedo', 0.15)
 
-        # 1-bis. AUTHORITATIVE WATER (ESA 80)
-        # If ESA says water and BSF is negligible, skip the loop and force G.
+        # 1-bis. AUTHORITATIVE ESA RULES FOR NATURAL AREAS
+        # When ESA indicates a specific land cover and BSF is negligible, 
+        # we trust ESA over morphological matching.
+        
+        # Water (ESA 80) → LCZ G
         if esa_class == 80 and bsf < 10.0:
             tags = {
                 "height": self.tagger.tag_height(district_data.get('z_h', 0)),
@@ -100,6 +103,42 @@ class LCZSemanticMatcher:
                 "surface": "Water body (ESA Authoritative)"
             }
             return 'G', 100.0, "Identificazione autoritativa basata su ESA WorldCover (Acqua).", tags
+        
+        # Shrubland (ESA 20) → LCZ C (Bush, scrub)
+        if esa_class == 20 and bsf < 10.0:
+            tags = {
+                "height": self.tagger.tag_height(district_data.get('z_h', 0)),
+                "density": "N/A (Natural)",
+                "surface": "Shrubland (ESA Authoritative)"
+            }
+            return 'C', 95.0, "Identificazione autoritativa: Shrubland ESA → LCZ C (Bush, scrub).", tags
+        
+        # Grassland (ESA 30) → LCZ D (Low plants)
+        if esa_class == 30 and bsf < 10.0:
+            tags = {
+                "height": self.tagger.tag_height(district_data.get('z_h', 0)),
+                "density": "N/A (Natural)",
+                "surface": "Grassland (ESA Authoritative)"
+            }
+            return 'D', 95.0, "Identificazione autoritativa: Grassland ESA → LCZ D (Low plants).", tags
+        
+        # Cropland (ESA 40) → LCZ D (Low plants)
+        if esa_class == 40 and bsf < 10.0:
+            tags = {
+                "height": self.tagger.tag_height(district_data.get('z_h', 0)),
+                "density": "N/A (Natural)",
+                "surface": "Cropland (ESA Authoritative)"
+            }
+            return 'D', 95.0, "Identificazione autoritativa: Cropland ESA → LCZ D (Low plants).", tags
+        
+        # Bare/sparse vegetation (ESA 60) → LCZ F (Bare soil or sand)
+        if esa_class == 60 and bsf < 10.0 and isf < 50.0:
+            tags = {
+                "height": self.tagger.tag_height(district_data.get('z_h', 0)),
+                "density": "N/A (Natural)",
+                "surface": "Bare/sparse (ESA Authoritative)"
+            }
+            return 'F', 95.0, "Identificazione autoritativa: Bare/Sparse ESA → LCZ F.", tags
 
         # 2. Match loop
         for lcz_id in target_ids:
@@ -126,8 +165,17 @@ class LCZSemanticMatcher:
             deviations = []
             param_labels = LCZMappings.PARAM_LABELS
             
+            # Determine if this is a natural class (A-G)
+            is_natural_class = lcz_id in ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+            
             # Audit each of the 10 parameters
+            svf_matched = False
             for p_key, (p_min, p_max) in ranges.items():
+                # NATURAL CLASS RULE: Skip aspect_ratio for natural classes
+                # (Cannot reliably calculate from 10m resolution canopy data)
+                if is_natural_class and p_key == 'aspect_ratio':
+                    continue
+                    
                 internal_key = next((k for k, v in self.param_mapping.items() if v == p_key), None)
                 
                 if internal_key and internal_key in district_data:
@@ -135,12 +183,21 @@ class LCZSemanticMatcher:
                     
                     if p_min <= val <= p_max:
                         matches += 1
+                        # Track SVF match for natural classes bonus
+                        if p_key == 'sky_view_factor':
+                            svf_matched = True
                     else:
                         label = param_labels.get(p_key, p_key)
                         deviations.append(f"{label} ({val:.2f} vs {p_min}-{p_max})")
             
-            total_params = len(ranges)
-            score = (matches / total_params) * 100
+            # Adjust total params for natural classes (excluding aspect_ratio)
+            total_params = len(ranges) - 1 if is_natural_class else len(ranges)
+            score = (matches / total_params) * 100 if total_params > 0 else 0
+            
+            # NATURAL CLASS RULE: SVF is the primary discriminator
+            # Give extra weight when SVF matches for natural classes
+            if is_natural_class and svf_matched:
+                score += 15  # SVF is crucial for distinguishing A vs B vs C vs D
             
             # --- CONTEXTUAL ESA HINTS (Expert Reinforcement) ---
             # Nuanced bonuses based on land cover categories
@@ -354,8 +411,18 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             luse_vals = [esa_lookup.get(f.id()) for f in features if esa_lookup.get(f.id()) is not None]
             dist_esa = max(set(luse_vals), key=luse_vals.count) if luse_vals else None
 
-            # Match district against archetypes (restricted to built classes)
-            lcz_id, score, explanation, tags = self.matcher.match(district_data, class_subset=built_ids, esa_class=dist_esa)
+            # --- EXPERT RULE: Urban Void Detection ---
+            # If BSF > 10 but aspect_ratio is near 0, this is an "urban void"
+            # (piazza, parking lot, open area in urban context) -> include E/D in subset
+            district_ar = district_data.get('aspect_ratio', 0)
+            if district_ar < 0.4:  # Near-zero aspect ratio
+                # Urban void: allow matching against paved/low-plant classes
+                subset_for_match = built_ids + ['E', 'D']
+            else:
+                subset_for_match = built_ids
+            
+            # Match district against archetypes
+            lcz_id, score, explanation, tags = self.matcher.match(district_data, class_subset=subset_for_match, esa_class=dist_esa)
 
             # Match metrics
             esa_status = "Reinforced" if dist_esa and LCZMappings.ESA_TO_LCZ.get(dist_esa) == lcz_id else "-"
@@ -417,9 +484,20 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
                 val = feat.attribute(f_name)
                 f_data[p_key] = float(val) if val is not None and str(val) != 'NULL' else 0.0
             
-            # DETERMINISTIC BOUNDARY: If BSF >= 10.0, it's urban (built), even if isolated.
-            is_urban_seed = f_data.get('bsf', 0) >= 10.0
-            subset = built_ids if is_urban_seed else natural_ids
+            # DETERMINISTIC BOUNDARY: Urban vs Natural
+            bsf_val = f_data.get('bsf', 0)
+            ar_val = f_data.get('aspect_ratio', 0)
+            is_urban_seed = bsf_val >= 10.0
+            
+            # --- EXPERT RULE: Urban Void Detection ---
+            # If BSF >= 10 but aspect_ratio near 0, it's an "urban void" (piazza, parking)
+            # Include E/D classes in the matching subset
+            if is_urban_seed and ar_val < 0.1:
+                subset = built_ids + ['E', 'D']  # Urban void: built + paved/low-plant
+            elif is_urban_seed:
+                subset = built_ids
+            else:
+                subset = natural_ids
             
             feat_esa = esa_lookup.get(feat.id())
             lcz_id, score, _, _ = self.matcher.match(f_data, class_subset=subset, esa_class=feat_esa)

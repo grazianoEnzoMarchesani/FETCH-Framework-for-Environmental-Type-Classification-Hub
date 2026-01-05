@@ -155,6 +155,32 @@ class AspectRatioProcessor(LCZBaseProcessor):
                 except Exception as ex:
                     log_local(f"Avviso: Errore nel calcolo spaziatura alberi: {str(ex)}", Qgis.Warning)
 
+            # 4b. Calcolo Altezza Media Canopy per Cella (per AR vegetazionale)
+            log_local("Calcolo altezza media vegetazione per aree naturali...")
+            canopy_height_map = {}
+            if os.path.exists(canopy_path):
+                try:
+                    res_canopy_stats = processing.run("native:zonalstatisticsfb", {
+                        'INPUT': layer,
+                        'INPUT_RASTER': canopy_path,
+                        'COLUMN_PREFIX': '_ch_',
+                        'STATISTICS': [2],  # Mean
+                        'OUTPUT': 'TEMPORARY_OUTPUT'
+                    })
+                    canopy_stats_layer = res_canopy_stats['OUTPUT']
+                    idx_ch_mean = canopy_stats_layer.fields().indexFromName('_ch_mean')
+                    idx_ch_link = canopy_stats_layer.fields().indexFromName('_link_id')
+                    
+                    for f in canopy_stats_layer.getFeatures():
+                        lk = f.attribute(idx_ch_link)
+                        ch_mean = f.attribute(idx_ch_mean)
+                        if ch_mean is not None and str(ch_mean) not in ('NULL', ''):
+                            canopy_height_map[lk] = float(ch_mean)
+                        else:
+                            canopy_height_map[lk] = 0.0
+                except Exception as ex:
+                    log_local(f"Avviso: Errore nel calcolo altezza canopy: {str(ex)}", Qgis.Warning)
+
             # 5. Elaborazione Celle
             layer.startEditing()
             processed = 0
@@ -165,8 +191,26 @@ class AspectRatioProcessor(LCZBaseProcessor):
             
             for feat in layer.getFeatures():
                 zh = feat.attribute(idx_zh) or 0
+                lk = feat.attribute(idx_link)
+                
                 if float(zh) <= 0:
-                    layer.changeAttributeValue(feat.id(), idx_ar, 0.0)
+                    # NUOVO: Per aree senza edifici, calcoliamo AR vegetazionale
+                    # usando altezza canopy e spaziatura alberi
+                    w_tree = tree_spacing_map.get(lk, 200.0)
+                    canopy_h = canopy_height_map.get(lk, 0.0)
+                    
+                    if canopy_h > 0.5 and w_tree < 200.0:
+                        # AR vegetazionale = Altezza alberi / Spaziatura
+                        # Permette di distinguere:
+                        # - LCZ A (boschi densi): AR > 1 (alberi alti e ravvicinati)
+                        # - LCZ B (alberi sparsi): AR 0.25-0.75
+                        # - LCZ C (arbusti): AR 0.25-1.0
+                        ar = canopy_h / w_tree
+                    else:
+                        # LCZ D, E, F, G: superfici piatte (AR < 0.1)
+                        ar = 0.0
+                    
+                    layer.changeAttributeValue(feat.id(), idx_ar, round(min(10.0, ar), 2))
                     processed += 1
                     continue
 
@@ -210,8 +254,7 @@ class AspectRatioProcessor(LCZBaseProcessor):
                     median_w = statistics.median(cell_spacings)
                     w_bld = max(2.0, median_w)
                 
-                # 2. Spaziatura Alberi
-                lk = feat.attribute(idx_link)
+                # 2. Spaziatura Alberi (lk già definito all'inizio del loop)
                 w_tree = tree_spacing_map.get(lk, 200.0)
                 
                 # 3. Spaziatura Integrata (la più densa vince)
