@@ -192,7 +192,9 @@ class LCZClassifierV3:
         }
 
 
-class LCZClassificationProcessorV3:
+from .base import LCZBaseProcessor
+
+class LCZClassificationProcessorV3(LCZBaseProcessor):
     """
     Processor that applies Advanced LCZ classification (v3.0).
     
@@ -398,6 +400,9 @@ class LCZClassificationProcessorV3:
 
         log_local("🚀 Avvio classificazione LCZ ADVANCED (v3.0)...")
 
+        # Sanitization: Ensure existing data doesn't violate field constraints
+        self._sanitize_layer(layer)
+
         # --- Field Setup ---
         field_name = 'lcz_class'
         idx = layer.fields().indexFromName(field_name)
@@ -413,7 +418,7 @@ class LCZClassificationProcessorV3:
             ('lcz_rmsep_norm', QMetaType.Double, 0),  # NEW in v3.0
             ('lcz_matches', QMetaType.Int, 0),
             ('lcz_confidence', QMetaType.Double, 0),  # NEW in v3.0
-            ('lcz_esa_fix', QMetaType.QString, 20),
+            ('lcz_esa_fix', QMetaType.QString, 50),
             ('lcz_corine_fix', QMetaType.QString, 20)  # NEW in v3.0
         ]
         for f, t, l in field_defs:

@@ -38,14 +38,19 @@ class LayerMixin:
         if idx == -1:
             return False
         
+        # INCREASED LIMIT: Check up to 1000 features to handle sparse data (like industry)
         count = 0
         for feat in layer.getFeatures():
             val = feat.attribute(idx)
             # Accept any non-null, non-empty string or numeric value
-            if val is not None and str(val).strip() not in ('NULL', '', 'N/D'):
+            # Filter out strings like 'NULL', 'N/D', or empty
+            str_val = str(val).strip().upper()
+            if val is not None and str_val not in ('NULL', '', 'N/D', 'NAN'):
+                # For numeric fields, check if they are != 0 if desired, 
+                # but generically any content means "processed"
                 return True
             count += 1
-            if count > 100:
+            if count > 1000:
                 break
         return False
 

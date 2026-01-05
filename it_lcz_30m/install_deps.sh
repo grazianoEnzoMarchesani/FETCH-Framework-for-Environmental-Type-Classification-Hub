@@ -29,7 +29,7 @@ echo "Tentativo di installazione dipendenze (prefer-binary)..."
 
 # Install requirements
 # We use --user to avoid permissions issues and --prefer-binary for faster, safer install on Mac
-"$QGIS_PYTHON" -m pip install --user --prefer-binary --no-cache-dir scipy pandas numpy rasterio eodag statsmodels matplotlib
+"$QGIS_PYTHON" -m pip install --user --prefer-binary --no-cache-dir scipy pandas numpy rasterio eodag statsmodels matplotlib scikit-learn
 
 if [ $? -eq 0 ]; then
     echo "--------------------------------------"

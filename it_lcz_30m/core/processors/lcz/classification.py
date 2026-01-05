@@ -101,6 +101,18 @@ class LCZClassificationProcessor:
                 self.v6_proc = LCZClassificationProcessorV6(self.dm)
             return self.v6_proc.process(layer, log_callback, apply_smoothing=apply_smoothing, veto_count=veto_count, calibration_overrides=calibration_overrides, profile=profile)
             
+        elif method == 'v7' or method == 'object':
+            from .classification_v7_rf import LCZClassificationProcessorV7
+            if not hasattr(self, 'v7_proc') or not self.v7_proc:
+                self.v7_proc = LCZClassificationProcessorV7(self.dm)
+            return self.v7_proc.process(layer, log_callback, apply_smoothing=apply_smoothing, is_training=is_training, calibration_overrides=calibration_overrides)
+            
+        elif method == 'v8' or method == 'semantic':
+            from .classification_v8_semantic import LCZClassificationProcessorV8
+            if not hasattr(self, 'v8_proc') or not self.v8_proc:
+                self.v8_proc = LCZClassificationProcessorV8(self.dm)
+            return self.v8_proc.process(layer, log_callback, apply_smoothing=apply_smoothing, is_training=is_training, calibration_overrides=calibration_overrides)
+            
         else:
             return self._execute_process(layer, log_callback, method='stable', apply_smoothing=apply_smoothing, is_training=False, veto_count=1)
 

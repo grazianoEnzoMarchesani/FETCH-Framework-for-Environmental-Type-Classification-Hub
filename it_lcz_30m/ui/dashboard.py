@@ -30,6 +30,7 @@ from .widgets.stats_dialog import AdvancedStatsDialog
 from .widgets.canvas_legend import CanvasLegend
 from ..core.stats_aggregator import StatsAggregator
 from .mixins import LayerMixin, StyleMixin
+from .tools.training_tool import LCZTrainingTool
 
 
 class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
@@ -92,6 +93,10 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         # Legend Widget (Floating on Canvas)
         self.canvas_legend = CanvasLegend(self.iface.mapCanvas())
         
+        # Phase 2: Training Tool
+        self.training_tool = LCZTrainingTool(self.iface, self.data_manager)
+        self.previous_tool = None
+        
         self.setWidget(self.root)
         
         # =====================================================
@@ -119,6 +124,10 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.params_section.visualization_requested.connect(self.apply_param_style)
         self.params_section.classify_requested.connect(self.run_classification)
         self.params_section.stats_requested.connect(self.show_advanced_stats)
+        self.params_section.training_mode_requested.connect(self.toggle_training_mode)
+        
+        # Training Tool signals
+        self.training_tool.sampleAdded.connect(self._on_sample_added)
         
         # Project signals for dynamic UI gating
         QgsProject.instance().layersAdded.connect(self.check_layers_and_update_ui)
@@ -523,13 +532,20 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
             'v3': "Advanced (v3.0)",
             'v4': "Fuzzy Archetype (v4.0)",
             'v5': "Mahalanobis Adaptive (v5.0)",
-            'v6': "Weighted Z-Distance (v6.0)"
+            'v6': "Weighted Z-Distance (v6.0)",
+            'v7': "District-Based RF (v7.0)",
+            'v8': "Semantic Expert (v8.0)"
         }
         method_label = method_labels.get(method, method)
         
         self.set_dashboard_enabled(False)
-        veto_display = "Custom" if isinstance(veto_count, dict) else str(veto_count)
-        self.progress_section.set_status(f"Avvio classificazione LCZ finale ({method_label})... Veto: {veto_display}")
+        
+        status_msg = f"Avvio classificazione LCZ finale ({method_label})..."
+        if method in ('v4', 'v6'):
+            veto_display = "Custom" if isinstance(veto_count, dict) else str(veto_count)
+            status_msg += f" Veto: {veto_display}"
+            
+        self.progress_section.set_status(status_msg)
         self.progress_section.set_indeterminate(True)
         
         task = ClassificationTask(self.data_manager, grid_path, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count, adaptive_calibration=adaptive_calibration, profile=profile)
@@ -656,7 +672,44 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
             self.iface.messageBar().pushMessage("Errore", "Impossibile salvare lo snapshot.", level=2)
             self.progress_section.set_status("✗ Errore salvataggio snapshot.", is_error=True)
 
+    # =========================================================================
+    # Phase 2: Training & Iterative Feedback
+    # =========================================================================
+
+    def toggle_training_mode(self, enabled):
+        """Activates or deactivates the manual training map tool."""
+        if enabled:
+            # Check if grid exists
+            grid = self.find_valid_grid_layer()
+            if not grid:
+                self.iface.messageBar().pushMessage("Istruzione", "Carica una griglia LCZ prima di addestrare.", level=Qgis.Warning)
+                self.params_section.btn_training_mode.setChecked(False)
+                return
+
+            self.previous_tool = self.iface.mapCanvas().mapTool()
+            self.iface.mapCanvas().setMapTool(self.training_tool)
+            self.progress_section.set_status("🎯 Modalità Addestramento Attiva: clicca sulla mappa", is_busy=True)
+        else:
+            if self.previous_tool:
+                self.iface.mapCanvas().setMapTool(self.previous_tool)
+            else:
+                self.iface.mapCanvas().unsetMapTool(self.training_tool)
+            self.progress_section.set_status("✓ Modalità Addestramento Disattivata")
+            # Trigger check to update UI indicators if new data changed something
+            self.check_layers_and_update_ui()
+
+    def _on_sample_added(self, lcz_id):
+        """Handler for when a new training sample is added via map tool."""
+        msg = f"Campione LCZ {lcz_id} aggiunto. Riesegui la classificazione v7 per aggiornare la mappa."
+        self.progress_section.set_status(f"✨ KB Aggiornata ({lcz_id})")
+        # Optimization: we could automatically trigger classification if the user is in "Auto-Retrain" mode.
+        # For now, just notifications.
+        self.iface.messageBar().pushMessage("Iterative Feedback", msg, level=Qgis.Info, duration=5)
+
     def closeEvent(self, event):
         """Handle close event."""
+        # Ensure tool is deactivated on close
+        if self.iface.mapCanvas().mapTool() == self.training_tool:
+            self.iface.mapCanvas().unsetMapTool(self.training_tool)
         self.closingPlugin.emit()
         event.accept()

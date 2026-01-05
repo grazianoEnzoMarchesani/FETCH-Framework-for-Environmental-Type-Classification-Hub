@@ -165,7 +165,9 @@ class LCZClassifierStandard:
         return cls.LCZ_CLASSES.get(lcz_class, "Unknown class")
 
 
-class LCZClassificationProcessorStandard:
+from .base import LCZBaseProcessor
+
+class LCZClassificationProcessorStandard(LCZBaseProcessor):
     """
     Processor that applies LCZ classification to a grid layer (Standard Stable version).
     Includes ESA WorldCover-based correction for natural classes.
@@ -287,6 +289,9 @@ class LCZClassificationProcessorStandard:
                 log_callback(msg)
             self.log(msg, level)
         
+        # Sanitization: Ensure existing data doesn't violate field constraints
+        self._sanitize_layer(layer)
+
         field_name = 'lcz_class'
         idx = layer.fields().indexFromName(field_name)
         
@@ -326,7 +331,7 @@ class LCZClassificationProcessorStandard:
         esa_fix_field_name = 'lcz_esa_fix'
         esa_fix_idx = layer.fields().indexFromName(esa_fix_field_name)
         if esa_fix_idx == -1:
-            layer.dataProvider().addAttributes([QgsField(esa_fix_field_name, QMetaType.QString, len=12)])
+            layer.dataProvider().addAttributes([QgsField(esa_fix_field_name, QMetaType.QString, len=50)])
             layer.updateFields()
             esa_fix_idx = layer.fields().indexFromName(esa_fix_field_name)
         

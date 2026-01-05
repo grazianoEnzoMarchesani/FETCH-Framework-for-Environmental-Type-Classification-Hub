@@ -23,8 +23,8 @@ def install_dependencies():
 
     log("=== FETCH: Avvio Installazione Dipendenze ===")
     
-    # Updated Requirements with prerequisites for statsmodels
-    requirements = ["scipy", "pandas", "numpy", "rasterio", "eodag", "statsmodels", "matplotlib"]
+    # Updated Requirements for LCZ v7 (Random Forest/Clustering)
+    requirements = ["scipy", "pandas", "numpy", "rasterio", "eodag", "statsmodels", "matplotlib", "scikit-learn"]
     
     # On MacOS, sys.executable might point to the QGIS binary instead of python
     python_exe = sys.executable
@@ -65,7 +65,11 @@ def install_dependencies():
     for package in requirements:
         try:
             # Check availability
-            __import__(package.replace("-", "_"))
+            import_name = package.replace("-", "_")
+            if package == "scikit-learn":
+                import_name = "sklearn"
+            
+            __import__(import_name)
             log(f"✓ {package} è già presente.")
             continue
         except ImportError:

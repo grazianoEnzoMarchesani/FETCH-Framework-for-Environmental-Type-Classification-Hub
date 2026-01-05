@@ -47,7 +47,7 @@ class LCZClassificationProcessorV2_1(LCZClassificationProcessorExperimental):
             ('lcz_vulnerability', QMetaType.QString, 20),
             ('lcz_rmsep', QMetaType.Double, 0),
             ('lcz_matches', QMetaType.Int, 0),
-            ('lcz_esa_fix', QMetaType.QString, 20)
+            ('lcz_esa_fix', QMetaType.QString, 50)
         ]:
             if layer.fields().indexFromName(f) == -1:
                 layer.dataProvider().addAttributes([QgsField(f, t, len=l)])

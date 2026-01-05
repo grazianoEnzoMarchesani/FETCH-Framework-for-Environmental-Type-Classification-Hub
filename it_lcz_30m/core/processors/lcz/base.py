@@ -22,20 +22,72 @@ class LCZBaseProcessor:
             idx = layer.fields().indexFromName(field_name)
         return idx
 
+    def _sanitize_layer(self, layer):
+        """
+        Truncates strings in fields known to cause length overflow issues 
+        (like lcz_esa_fix) to prevent Crashes during zonal statistics.
+        """
+        target_fields = ['lcz_esa_fix', 'lcz_vulnerability', 'lcz_class']
+        field_indices = {}
+        for f_name in target_fields:
+            idx = layer.fields().indexFromName(f_name)
+            if idx != -1:
+                field_indices[idx] = layer.fields().at(idx).length()
+
+        if not field_indices:
+            return
+
+        # Check if any feature actually needs sanitization to avoid empty commits
+        needs_sanitization = False
+        for feat in layer.getFeatures():
+            for idx, max_len in field_indices.items():
+                if max_len <= 0: continue
+                val = feat.attribute(idx)
+                if isinstance(val, str) and len(val) > max_len:
+                    needs_sanitization = True
+                    break
+            if needs_sanitization: break
+
+        if not needs_sanitization:
+            return
+
+        layer.startEditing()
+        for feat in layer.getFeatures():
+            for idx, max_len in field_indices.items():
+                if max_len <= 0: continue # No limit
+                val = feat.attribute(idx)
+                if isinstance(val, str) and len(val) > max_len:
+                    # Truncate to fit
+                    layer.changeAttributeValue(feat.id(), idx, val[:max_len])
+        
+        if not layer.commitChanges():
+            errs = layer.commitErrors()
+            self.log(f"Sanitization failed: {', '.join(errs)}", Qgis.Warning)
+
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "IT-LCZ", level)
 
-    def _ensure_link_id(self, layer):
+    def _ensure_link_id(self, layer, sanitize=True):
         """Ensure the layer has a unique _link_id field for robust joining."""
+        # Sanitization: Only if explicitly requested (usually first time)
+        if sanitize:
+            self._sanitize_layer(layer)
+        
         idx = layer.fields().indexFromName('_link_id')
         if idx == -1:
-            layer.dataProvider().addAttributes([QgsField('_link_id', QMetaType.Int)])
-            layer.updateFields()
-            idx = layer.fields().indexFromName('_link_id')
             layer.startEditing()
+            # Double check if someone added it since last check
+            if layer.fields().indexFromName('_link_id') == -1:
+                layer.dataProvider().addAttributes([QgsField('_link_id', QMetaType.Int)])
+                layer.updateFields()
+            
+            idx = layer.fields().indexFromName('_link_id')
             for i, feat in enumerate(layer.getFeatures()):
                 layer.changeAttributeValue(feat.id(), idx, i)
-            layer.commitChanges()
+            
+            if not layer.commitChanges():
+                errs = layer.commitErrors()
+                self.log(f"Failed to create _link_id: {', '.join(errs)}", Qgis.Warning)
         return idx
 
     def _calc_zonal_mean(self, layer, target_path, raster_path, field_name, prefix, log_callback=None):

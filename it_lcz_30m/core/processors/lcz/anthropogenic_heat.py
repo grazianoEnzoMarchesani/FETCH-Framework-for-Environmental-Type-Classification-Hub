@@ -277,32 +277,41 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                                 if m > max_m: max_m = m
                         road_type_weights[lk] = max_m
 
+        # Prepare main loop
         layer.startEditing()
         processed = 0
-        idx_link = self._ensure_link_id(layer)
+        idx_link = self._ensure_link_id(layer, sanitize=False)
         
         # Final field verification before main loop
         if idx_link == -1:
             log_local("ERRORE: Impossibile creare o trovare _link_id nel layer di destinazione.", Qgis.Critical)
             return 0
 
+        # Check for degree-based CRS (potential buffer explosion)
+        is_degree = layer.crs().isGeographic()
+        if is_degree:
+            log_local("AVVERTENZA: Il layer è in gradi (WGS84). I calcoli di calore antropogenico potrebbero essere imprecisi.", Qgis.Warning)
+
         try:
+            log_local(f"Inizio ciclo di calcolo su {layer.featureCount()} celle...")
             for feat in layer.getFeatures():
                 lk = feat.attribute(idx_link)
                 
                 # Check if we use existing attributes or dynamic ones
-                bsf = float(feat.attribute(idx_bld) or 0)
-                isf = float(feat.attribute(idx_imp) or 0)
+                attr_bld = feat.attribute(idx_bld)
+                attr_imp = feat.attribute(idx_imp)
+                
+                bsf = float(attr_bld or 0)
+                isf = float(attr_imp or 0)
                 
                 # If layer values are 0/NULL but we have dynamic values, use them
                 if bsf == 0 and lk in bsf_dynamic: bsf = bsf_dynamic[lk]
                 if isf == 0 and lk in isf_dynamic: isf = isf_dynamic[lk]
                 
                 # 1. Base Built Component (BSF/ISF or Population)
-                # Metabolic + Domestic Heat Proxy
-                # Based on Stewart & Oke (2012) ranges for built LCZs.
                 pop_sum = float(pop_data.get(lk, 0) or 0)
                 if pop_sum > 0:
+                    # Metabolic + Domestic Heat Proxy
                     # ~45W per person metabolics + ~50W domestic scaled by density
                     val_built = (pop_sum * 45) / 900.0 
                     val_built += (bsf * 0.4)
@@ -310,46 +319,51 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
                     # Morphological proxy if population raster is missing
                     val_built = (bsf * 0.7) + (isf * 0.1)
                 
-                # 2. Traffic Component (OSM Roads + OSM Types + ANAS/Proxy)
+                # 2. Traffic Component
                 road_len = float(road_lengths.get(lk, 0) or 0)
                 traffic_vol = float(traffic_volumes.get(lk, 0) or 0)
                 road_m = float(road_type_weights.get(lk, 1.0) or 1.0)
                 
-                # Formula: (Length * Base_Coeff) * (Volume_Multiplier + Class_Weight)
-                # We normalize 50k AADT to a multiplier of 2.0
                 traffic_vol_m = (traffic_vol / 50000.0) if traffic_vol > 0 else 0.0
-                
-                # Total multiplier considers both the volume (if available) and the road class
-                # This ensures consistent results even if ANAS is missing.
-                # If both are present, we take a balanced approach
                 final_traffic_m = max(road_m, (1.0 + traffic_vol_m))
-                
                 val_traffic = (road_len * 0.08) * final_traffic_m if road_len > 0 else 0
                 
-                # 3. Industrial Component (Point sources)
-                # Summed heat (W) / Cell Area (m^2)
-                # Scientific reference: Buhler et al. (2018) mapping method.
-                cell_area = feat.geometry().area() or 10000.0
-                total_ind_heat_w = float(ind_weights.get(lk, 0) or 0)
-                val_industry = total_ind_heat_w / cell_area if total_ind_heat_w > 0 else 0
+                # 3. Industrial Component
+                val_industry = 0
+                geom = feat.geometry()
+                if geom and not geom.isEmpty():
+                    cell_area = geom.area() or 10000.0
+                    total_ind_heat_w = float(ind_weights.get(lk, 0) or 0)
+                    if total_ind_heat_w > 0:
+                        val_industry = total_ind_heat_w / cell_area
+                        # PHYSICAL CAP: Localized hotspots cap
+                        val_industry = min(val_industry, 1500.0)
                 
-                # PHYSICAL CAP: Ensure cell average doesn't exceed 1500 W/m2 
-                # to prevent instability in climatic models while allowing for heavy hotspots.
-                # Localized industrial hotspots can reach 500-1000 W/m2 (Sailor, 2011).
-                val_industry = min(val_industry, 1500.0)
+                # Total Heat (W/m2)
+                val = float(val_built or 0) + float(val_traffic or 0) + float(val_industry or 0)
                 
-                val = val_built + val_traffic + val_industry
+                if idx_dst != -1:
+                    layer.changeAttributeValue(feat.id(), idx_dst, round(val, 2))
                 
-                layer.changeAttributeValue(feat.id(), idx_dst, round(val, 2))
                 processed += 1
+                if processed % 1000 == 0:
+                    log_local(f"Processate {processed} celle...")
+
+            # Move commit inside try to report exact errors
+            if not layer.commitChanges():
+                errs = layer.commitErrors()
+                log_local(f"ERRORE COMMIT: {', '.join(errs)}", Qgis.Critical)
+                layer.rollBack()
+                return 0
+
         except Exception as e_loop:
             import traceback
-            log_local(f"Errore critico durante il ciclo di calcolo: {str(e_loop)}", Qgis.Critical)
+            log_local(f"Errore imprevisto durante il calcolo: {str(e_loop)}", Qgis.Critical)
             log_local(traceback.format_exc(), Qgis.Critical)
             layer.rollBack()
-            return processed
-
-        layer.commitChanges()
+            return 0
+            
+        log_local(f"Calcolo calore antropogenico completato: {processed} celle aggiornate.")
         return processed
 
     def _ensure_fractions(self, layer, log_callback=None):
@@ -360,8 +374,8 @@ class AnthropogenicHeatProcessor(LCZBaseProcessor):
 
         idx_bld = self._ensure_field(layer, 'building_frac')
         idx_imp = self._ensure_field(layer, 'impervious_frac')
-        # Robustly get link id
-        idx_link = self._ensure_link_id(layer)
+        # Robustly get link id - Avoid redundant sanitization here as it was done in process()
+        idx_link = self._ensure_link_id(layer, sanitize=False)
 
         # Sample check: are values mostly zeros/NULL?
         needs_bld = True

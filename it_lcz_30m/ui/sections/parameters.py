@@ -25,6 +25,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     visualization_requested = pyqtSignal(str)  # field_name
     classify_requested = pyqtSignal(str, bool, bool, object, bool, str) # method, smoothing, training, veto, adaptive, profile
     stats_requested = pyqtSignal()
+    training_mode_requested = pyqtSignal(bool) # enabled
     
     def __init__(self, parent=None):
         super().__init__("5. Calcolo Parametri LCZ", parent)
@@ -186,9 +187,11 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
             "Advanced (v3.0)",
             "Fuzzy Archetype (v4.0 - FAD)",
             "Mahalanobis Adaptive (v5.0)",
-            "Weighted Z-Distance (v6.0)"
+            "Weighted Z-Distance (v6.0)",
+            "District-Based RF (v7.0)",
+            "Semantic Expert (v8.0)"
         ])
-        self.classify_method_combo.setToolTip("Scegli la logica di classificazione finale LCZ.\nv1.1/v2.1: media pesata dei parametri nel vicinato 3x3.\nv3.0: correzione CORINE e smoothing.\nv4.0 (FAD): Logica Fuzzy.\nv5.0: Distanza di Mahalanobis.\nv6.0 (WZDV): Pesi Z-Score e VETO.")
+        self.classify_method_combo.setToolTip("Scegli la logica di classificazione finale LCZ.\n- v7.0: District-Based RF.\n- v8.0: Semantic Expert Engine (Explainable).")
         self.classify_method_combo.setFixedWidth(200)
         self.classify_method_combo.setObjectName("ParamCombo")
         self.classify_method_combo.currentIndexChanged.connect(self._on_method_changed)
@@ -286,6 +289,17 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.btn_stats.clicked.connect(self.stats_requested.emit)
         actions_layout.addWidget(self.btn_stats)
         
+        # Training Mode Toggle (v7 specific)
+        self.btn_training_mode = QPushButton(" 🎯 Attiva Addestramento Manuale")
+        self.btn_training_mode.setCheckable(True)
+        self.btn_training_mode.setObjectName("AccentButton")
+        self.btn_training_mode.setStyleSheet("font-weight: bold; background-color: #f39c12;")
+        self.btn_training_mode.setMinimumHeight(42)
+        self.btn_training_mode.setToolTip("Attiva lo strumento per cliccare sulla mappa e correggere la classificazione (v7).")
+        self.btn_training_mode.toggled.connect(self.training_mode_requested.emit)
+        self.btn_training_mode.setVisible(False)
+        actions_layout.addWidget(self.btn_training_mode)
+        
         self.main_layout.addWidget(self.actions_container)
         
     def _on_method_changed(self, index):
@@ -310,6 +324,16 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
             self.veto_container.setVisible(True)
         else:
             self.veto_container.setVisible(False)
+
+        # v7.0 (index 8)
+        self.btn_training_mode.setVisible(index == 8)
+        if index == 8:
+            self.chk_smoothing.setChecked(False) # v7 is object-based, doesn't need pixel smoothing
+
+        # v8.0 (index 9)
+        if index == 9:
+            self.chk_smoothing.setChecked(False) # v8 is also object-based
+            self.chk_adaptive.setChecked(False) # v8 uses rigid archetypes, 2-pass not needed
 
         # Handle Score/Confidence visibility
         # Methods with Score/Confidence: v3(4), v4(5), v5(6), v6(7)
@@ -352,8 +376,8 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     def _on_classify_clicked(self):
         """Handle classification button click with method selection."""
         idx = self.classify_method_combo.currentIndex()
-        # Mapping: 0:stable, 1:v1.1, 2:experimental, 3:v2.1, 4:v3, 5:v4, 6:v5, 7:v6
-        methods = ['stable', 'v1.1', 'experimental', 'v2.1', 'v3', 'v4', 'v5', 'v6']
+        # Mapping: 0:stable, 1:v1.1, 2:experimental, 3:v2.1, 4:v3, 5:v4, 6:v5, 7:v6, 8:v7, 9:v8
+        methods = ['stable', 'v1.1', 'experimental', 'v2.1', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
         method = methods[idx] if idx < len(methods) else 'stable'
         apply_smoothing = self.chk_smoothing.isChecked()
         is_training = self.chk_training.isChecked() if idx == 6 else False

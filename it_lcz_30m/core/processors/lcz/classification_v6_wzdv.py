@@ -329,7 +329,9 @@ class LCZClassifierWZDV:
         return count
 
 
-class LCZClassificationProcessorV6:
+from .base import LCZBaseProcessor
+
+class LCZClassificationProcessorV6(LCZBaseProcessor):
     """
     Processor for WZDV (v6.0). 
     Includes ESA WorldCover-based correction (same as Standard).
@@ -425,6 +427,9 @@ class LCZClassificationProcessorV6:
         log_local(f"⚖️ Profilo: {profile.upper()}. Veto attivi: {veto_count}")
 
 
+        # Sanitization: Ensure existing data doesn't violate field constraints
+        self._sanitize_layer(layer)
+        
         # --- ESA Setup ---
         landuse_path = self._get_landuse_raster_path()
         use_esa_correction = False
@@ -453,7 +458,7 @@ class LCZClassificationProcessorV6:
             ('lcz_score_2nd', QMetaType.Double, 0),
             ('lcz_matches', QMetaType.Int, 0),
             ('lcz_vulnerability', QMetaType.QString, 20),
-            ('lcz_esa_fix', QMetaType.QString, 12)
+            ('lcz_esa_fix', QMetaType.QString, 50)
         ]
         
         layer.startEditing()

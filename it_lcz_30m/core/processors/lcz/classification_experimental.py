@@ -144,7 +144,9 @@ class LCZClassifierExperimental:
         }
 
 
-class LCZClassificationProcessorExperimental:
+from .base import LCZBaseProcessor
+
+class LCZClassificationProcessorExperimental(LCZBaseProcessor):
     """
     Processor that applies Experimental LCZ classification (v2.0).
     """
@@ -203,6 +205,9 @@ class LCZClassificationProcessorExperimental:
             if log_callback: log_callback(msg)
             self.log(msg)
 
+        # Sanitization: Ensure existing data doesn't violate field constraints
+        self._sanitize_layer(layer)
+
         # Basic field Setup
         field_name = 'lcz_class'
         idx = layer.fields().indexFromName(field_name)
@@ -212,7 +217,7 @@ class LCZClassificationProcessorExperimental:
             idx = layer.fields().lookupField(field_name)
         
         # Add other fields (Simplified for experimental view)
-        for f, t, l in [('lcz_vulnerability', QMetaType.QString, 20), ('lcz_rmsep', QMetaType.Double, 0), ('lcz_matches', QMetaType.Int, 0), ('lcz_esa_fix', QMetaType.QString, 20)]:
+        for f, t, l in [('lcz_vulnerability', QMetaType.QString, 20), ('lcz_rmsep', QMetaType.Double, 0), ('lcz_matches', QMetaType.Int, 0), ('lcz_esa_fix', QMetaType.QString, 50)]:
             if layer.fields().indexFromName(f) == -1:
                 layer.dataProvider().addAttributes([QgsField(f, t, len=l)])
                 layer.updateFields()
