@@ -23,8 +23,8 @@ def install_dependencies():
 
     log("=== FETCH: Avvio Installazione Dipendenze ===")
     
-    # Updated Requirements for LCZ v7 (Random Forest/Clustering)
-    requirements = ["scipy", "pandas", "numpy", "rasterio", "eodag", "statsmodels", "matplotlib", "scikit-learn"]
+    # Updated Requirements for LCZ v8 (HDBSCAN clustering)
+    requirements = ["scipy", "pandas", "numpy", "rasterio", "eodag", "statsmodels", "matplotlib", "scikit-learn", "hdbscan"]
     
     # On MacOS, sys.executable might point to the QGIS binary instead of python
     python_exe = sys.executable

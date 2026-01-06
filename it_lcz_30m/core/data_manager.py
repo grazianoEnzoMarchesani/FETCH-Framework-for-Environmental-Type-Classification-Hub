@@ -15,6 +15,7 @@ from .downloaders.meta import MetaDownloader
 from .downloaders.osm import OSMDownloader
 from .downloaders.anas import ANASDownloader
 from .downloaders.hrl import HRLDownloader
+from .downloaders.tcd import TCDDownloader
 from .downloaders.industry import IndustryDownloader
 from .downloaders.corine import CorineDownloader
 from .processors.raster import RasterProcessor
@@ -39,6 +40,7 @@ class DataManager:
         self.osm = OSMDownloader(self)
         self.anas = ANASDownloader(self)
         self.hrl = HRLDownloader(self)
+        self.tcd = TCDDownloader(self)
         self.industry = IndustryDownloader(self)
         self.corine = CorineDownloader(self)
         
@@ -115,6 +117,10 @@ class DataManager:
         """Fetches CORINE Land Cover 2018 data for LCZ v3.0 industrial correction."""
         return self.corine.fetch_corine(extent, crs_auth_id, log_callback=log_callback)
 
+    def fetch_tree_cover_density(self, extent, crs_auth_id, log_callback=None):
+        """Fetches Copernicus Tree Cover Density 10m for LCZ A/B distinction."""
+        return self.tcd.fetch_tree_cover_density(extent, crs_auth_id, log_callback=log_callback)
+
     def fetch_sentinel2_albedo(self, extent, crs_auth_id, username=None, password=None):
         # Keep original logic for albedo as it's already in its own file
         from .sentinel2_albedo import fetch_albedo_for_aoi
@@ -174,7 +180,7 @@ class DataManager:
             FolderNames.SENTINEL: {"pattern": "*_albedo_10m.tif", "output_name": FileNames.ALBEDO, "merge": False},
             FolderNames.OSM: {"pattern": "roads.geojson", "output_name": FileNames.ROADS, "type": "vector"},
             FolderNames.ANAS: {"pattern": "traffic_points.json", "output_name": FileNames.TRAFFIC, "type": "vector"},
-            FolderNames.HRL: {"pattern": "*.tif", "output_name": FileNames.IMPERVIOUSNESS, "merge": True},
+            FolderNames.HRL: {"pattern": "imperviousness_10m.tif", "output_name": FileNames.IMPERVIOUSNESS, "merge": False},
             FolderNames.INDUSTRY: {"pattern": "industrial_sites.json", "output_name": FileNames.INDUSTRY, "type": "vector"},
             FolderNames.CORINE: {"pattern": "corine_clc2018.json", "output_name": FileNames.CORINE, "type": "vector"},
         }
@@ -249,6 +255,20 @@ class DataManager:
         if target_crs_forced:
             # Set the entire Project to the UTM Zone
             QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(target_crs_forced))
+        
+        # Load TCD layer from copernicus_hrl (not unified, downloaded directly)
+        tcd_path = os.path.join(base_dir, self.get_data_dir_name(), "copernicus_hrl", FileNames.TCD)
+        if os.path.exists(tcd_path):
+            existing_tcd = QgsProject.instance().mapLayersByName(LayerNames.TCD)
+            for lyr_old in existing_tcd:
+                QgsProject.instance().removeMapLayer(lyr_old.id())
+            tcd_layer = QgsRasterLayer(tcd_path, LayerNames.TCD)
+            if tcd_layer.isValid():
+                # Don't force CRS - let QGIS auto-reproject for display
+                QgsProject.instance().addMapLayer(tcd_layer)
+                layers.append(tcd_layer)
+                if log_callback:
+                    log_callback(f"✓ Caricato: {LayerNames.TCD}")
         
         if self.iface:
             # Zoom to the buildings layer (the most relevant one)

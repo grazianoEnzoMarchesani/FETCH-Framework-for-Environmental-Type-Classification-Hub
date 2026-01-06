@@ -30,6 +30,7 @@ class DownloadTask(QgsTask):
         "OSM Roads (Vettoriale)": "Download Strade OSM",
         "Traffic ANAS (Italia)": "Download Traffico ANAS",
         "Copernicus HRL (10m)": "Download Impermeabilità HRL",
+        "Tree Cover Density (Copernicus)": "Download Tree Cover Density",
         "Industrial Points (E-PRTR)": "Download Industrie E-PRTR",
         "CORINE Land Cover (EEA)": "Download CORINE Land Cover"
     }
@@ -186,6 +187,15 @@ class DownloadTask(QgsTask):
                 self.emit_progress("CORINE Land Cover (EEA)", current_step, total_steps)
                 task_log("Acquisizione CORINE Land Cover (EEA)...")
                 self.data_manager.fetch_corine_landcover(self.extent, self.crs, log_callback=task_log)
+                self.setProgress(int(current_step / total_steps * 100))
+
+            # 12. Copernicus Tree Cover Density
+            if self.selected_checks.get("Tree Cover Density (Copernicus)"):
+                current_step += 1
+                if self.isCanceled(): return False
+                self.emit_progress("Tree Cover Density (Copernicus)", current_step, total_steps)
+                task_log("Acquisizione Copernicus Tree Cover Density (TCD)...")
+                self.data_manager.fetch_tree_cover_density(self.extent, self.crs, log_callback=task_log)
                 self.setProgress(int(current_step / total_steps * 100))
 
             self.success = True

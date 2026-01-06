@@ -102,7 +102,7 @@ class LCZSemanticMatcher:
                 "density": "N/A (Water body)",
                 "surface": "Water body (ESA Authoritative)"
             }
-            return 'G', 100.0, "Identificazione autoritativa basata su ESA WorldCover (Acqua).", tags
+            return 'G', 100.0, 100.0, "Identificazione autoritativa basata su ESA WorldCover (Acqua).", tags
         
         # Shrubland (ESA 20) → LCZ C (Bush, scrub)
         if esa_class == 20 and bsf < 10.0:
@@ -111,7 +111,7 @@ class LCZSemanticMatcher:
                 "density": "N/A (Natural)",
                 "surface": "Shrubland (ESA Authoritative)"
             }
-            return 'C', 95.0, "Identificazione autoritativa: Shrubland ESA → LCZ C (Bush, scrub).", tags
+            return 'C', 95.0, 100.0, "Identificazione autoritativa: Shrubland ESA → LCZ C (Bush, scrub).", tags
         
         # Grassland (ESA 30) → LCZ D (Low plants)
         if esa_class == 30 and bsf < 10.0:
@@ -120,7 +120,7 @@ class LCZSemanticMatcher:
                 "density": "N/A (Natural)",
                 "surface": "Grassland (ESA Authoritative)"
             }
-            return 'D', 95.0, "Identificazione autoritativa: Grassland ESA → LCZ D (Low plants).", tags
+            return 'D', 95.0, 100.0, "Identificazione autoritativa: Grassland ESA → LCZ D (Low plants).", tags
         
         # Cropland (ESA 40) → LCZ D (Low plants)
         if esa_class == 40 and bsf < 10.0:
@@ -129,7 +129,7 @@ class LCZSemanticMatcher:
                 "density": "N/A (Natural)",
                 "surface": "Cropland (ESA Authoritative)"
             }
-            return 'D', 95.0, "Identificazione autoritativa: Cropland ESA → LCZ D (Low plants).", tags
+            return 'D', 95.0, 100.0, "Identificazione autoritativa: Cropland ESA → LCZ D (Low plants).", tags
         
         # Bare/sparse vegetation (ESA 60) → LCZ F (Bare soil or sand)
         if esa_class == 60 and bsf < 10.0 and isf < 50.0:
@@ -138,7 +138,7 @@ class LCZSemanticMatcher:
                 "density": "N/A (Natural)",
                 "surface": "Bare/sparse (ESA Authoritative)"
             }
-            return 'F', 95.0, "Identificazione autoritativa: Bare/Sparse ESA → LCZ F.", tags
+            return 'F', 95.0, 100.0, "Identificazione autoritativa: Bare/Sparse ESA → LCZ F.", tags
 
         # 2. Match loop
         for lcz_id in target_ids:
@@ -228,21 +228,29 @@ class LCZSemanticMatcher:
 
         if not scores:
             # Fallback for N/D
-            return "N/D", 0.0, "Nessun match semantico valido (Veto attivi).", {}
+            return "N/D", 0.0, 100.0, "Nessun match semantico valido (Veto attivi).", {}
 
         # 3. Decision
         best_id = max(scores, key=scores.get)
         
+        # Calculate ambiguity (delta between top 2 scores)
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        ambiguity = sorted_scores[0][1] - sorted_scores[1][1] if len(sorted_scores) > 1 else 100.0
+        
         # --- EXPERT RULE: LCZ 1 vs LCZ 10 Disambiguation ---
         # Both have high anthropogenic heat, but LCZ 10 heat comes from industries (E-PRTR),
         # while LCZ 1 heat comes from high population density in tall buildings.
-        industry_heat = district_data.get('industry_heat', 0)
+        industry_heat = district_data.get('industry_heat', None)
         anthro_heat = district_data.get('anthro_heat', 0)
         z_h = district_data.get('z_h', 0)
         
-        if best_id in ['1', '10'] and anthro_heat > 0:
+        # Fallback: if industry_heat not available, use morphology only
+        if industry_heat is None:
+            industry_ratio = 0.0
+        else:
             industry_ratio = industry_heat / anthro_heat if anthro_heat > 0 else 0
-            
+        
+        if best_id in ['1', '10'] and anthro_heat > 0:
             # If industrial heat is dominant (>50% of total), prefer LCZ 10
             if industry_ratio > 0.5:
                 if '10' in scores:
@@ -265,7 +273,7 @@ class LCZSemanticMatcher:
             "surface": self.tagger.tag_surface(isf, district_data.get('psf', 0), albedo, esa_class)
         }
         
-        return best_id, min(100.0, scores[best_id]), explanations[best_id], basic_tags
+        return best_id, min(100.0, scores[best_id]), ambiguity, explanations[best_id], basic_tags
 
 from .base import LCZBaseProcessor
 
@@ -282,11 +290,11 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
     def process(self, layer, log_callback=None, **kwargs):
         """
         Main execution flow for v8.
-        1. Context-First: Cluster features into districts.
-        2. Perfectionist: Split districts with high internal variance.
+        1. Context-First: Cluster features into districts (urban + natural).
+        2. Perfectionist: Split districts with high internal variance on multiple params.
         3. Semantic Match: Classify districts using rules.
         """
-        from ...geometry_utils import cluster_multidimensional, create_district_geometry
+        from ...geometry_utils import create_district_geometry, cluster_natural_areas, split_heterogeneous_clusters_multi
         
         # Sanitization: Ensure existing data doesn't violate field constraints
         self._sanitize_layer(layer)
@@ -296,39 +304,225 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             if log_callback: log_callback(msg_str)
             self.log(msg_str, level)
 
-        log_local("📖 Avvio Motore Esperto Semantico (v8.0)...")
+        log_local("📖 Avvio Motore Esperto Semantico (v8.0 Enhanced)...")
 
-        # 1. Identify Urban Seeds (BSF >= 10.0)
+        # 1. Separate Urban vs Natural features
         urban_features = []
+        natural_features = []
+        
         for feat in layer.getFeatures():
             b_frac = feat.attribute(FieldNames.BUILDING_FRAC)
             try:
                 val = float(b_frac) if b_frac is not None and str(b_frac) != 'NULL' else 0.0
-                if val >= 10.0: urban_features.append(feat)
-            except (ValueError, TypeError): continue
+                if val >= 10.0:
+                    urban_features.append(feat)
+                else:
+                    natural_features.append(feat)
+            except (ValueError, TypeError):
+                natural_features.append(feat)
         
-        if not urban_features:
-            log_local("ℹ️ Nessun edificio trovato. Classificazione v8 terminata.", Qgis.Warning)
+        log_local(f"🏙️ Celle urbane: {len(urban_features)}, 🌲 Celle naturali: {len(natural_features)}")
+        
+        if not urban_features and not natural_features:
+            log_local("ℹ️ Nessuna cella trovata. Classificazione v8 terminata.", Qgis.Warning)
             return 0
 
-        # 2. Initial Multidimensional Clustering (Spatial + Height + BSF)
-        log_local("🧩 Clustering spaziale e morfologico iniziale...")
-        cluster_fields = [FieldNames.ROUGHNESS_HEIGHT, FieldNames.BUILDING_FRAC]
-        cluster_weights = {FieldNames.ROUGHNESS_HEIGHT: 3.5, FieldNames.BUILDING_FRAC: 1.5}
+        # 2. Urban Districts: BUILDING-BASED clustering
+        urban_clusters = []
+        unclustered_urban_cells = []  # Cells with buildings but not in any cluster
         
-        labels = cluster_multidimensional(
-            urban_features, cluster_fields, eps=1.2, min_samples=2,
-            spatial_scale=45.0, weights=cluster_weights
-        )
-        
-        # 3. The Perfectionist: Auto-Splitting check
-        log_local("⚖️ Controllo Purezza Morfologica (Logica Perfezionista)...")
-        from ...geometry_utils import split_heterogeneous_clusters
-        final_clusters = split_heterogeneous_clusters(
-            urban_features, labels, FieldNames.ROUGHNESS_HEIGHT, std_threshold=4.0
-        )
+        if urban_features:
+            log_local("🏗️ Clustering urbano basato sugli edifici...")
+            
+            # Load buildings layer
+            buildings_path = os.path.join(self.dm.get_data_dir_path(), "unified", FileNames.BUILDINGS)
+            
+            if os.path.exists(buildings_path):
+                from qgis.core import QgsVectorLayer, QgsSpatialIndex
+                buildings_layer = QgsVectorLayer(buildings_path, "buildings", "ogr")
+                
+                if buildings_layer.isValid() and buildings_layer.featureCount() > 0:
+                    log_local(f"📦 Edifici caricati: {buildings_layer.featureCount()}")
+                    
+                    # Check CRS and prepare transformation if needed
+                    from qgis.core import QgsCoordinateTransform
+                    transform = None
+                    if buildings_layer.crs() != layer.crs():
+                        transform = QgsCoordinateTransform(
+                            buildings_layer.crs(), 
+                            layer.crs(), 
+                            QgsProject.instance()
+                        )
+                        log_local(f"🔄 Trasformazione CRS: {buildings_layer.crs().authid()} -> {layer.crs().authid()}")
+                    
+                    # 2a. Extract building centroids and heights for clustering
+                    building_data = []
+                    building_feats = list(buildings_layer.getFeatures())
+                    
+                    for bld in building_feats:
+                        geom = bld.geometry()
+                        if geom and not geom.isEmpty():
+                            # Transform geometry to grid CRS if needed
+                            if transform:
+                                geom.transform(transform)
+                            
+                            centroid = geom.centroid().asPoint()
+                            # Try to get height from building
+                            height = 0
+                            for h_field in ['height', 'z_h', 'H', 'z', 'h_mean']:
+                                h_val = bld.attribute(h_field) if bld.fields().indexFromName(h_field) != -1 else None
+                                if h_val is not None and str(h_val) not in ('NULL', ''):
+                                    try:
+                                        height = float(h_val)
+                                        break
+                                    except:
+                                        pass
+                            building_data.append({
+                                'feat': bld,
+                                'centroid': [centroid.x(), centroid.y()],
+                                'height': height,
+                                'geom': geom
+                            })
+                    
+                    if building_data:
+                        # 2b. Cluster buildings by proximity + height
+                        import numpy as np
+                        from sklearn.cluster import DBSCAN
+                        
+                        # Prepare clustering data: [x, y, height_scaled]
+                        spatial_scale = 50.0  # Buildings within 50m can be same cluster
+                        height_weight = 2.0   # Height difference matters
+                        
+                        cluster_input = []
+                        for bd in building_data:
+                            cluster_input.append([
+                                bd['centroid'][0] / spatial_scale,
+                                bd['centroid'][1] / spatial_scale,
+                                bd['height'] / 10.0 * height_weight  # Normalize height
+                            ])
+                        
+                        cluster_input = np.array(cluster_input)
+                        
+                        # DBSCAN with eps=0.7 for tighter clusters, min_samples=2 to avoid singletons
+                        db = DBSCAN(eps=0.7, min_samples=2).fit(cluster_input)
+                        building_labels = db.labels_
+                        
+                        # 2c. Group buildings by cluster
+                        building_clusters = {}
+                        for i, label in enumerate(building_labels):
+                            if label not in building_clusters:
+                                building_clusters[label] = []
+                            building_clusters[label].append(building_data[i])
+                        
+                        log_local(f"🏘️ Cluster di edifici: {len(building_clusters)}")
+                        
+                        # 2d. For each building cluster, find intersecting grid cells
+                        # Build spatial index for grid cells
+                        cell_index = QgsSpatialIndex()
+                        cell_lookup = {}
+                        for uf in urban_features:
+                            cell_index.addFeature(uf)
+                            cell_lookup[uf.id()] = uf
+                        
+                        cells_assigned = set()
+                        
+                        for cluster_id, buildings in building_clusters.items():
+                            # Union of all building geometries in this cluster
+                            building_geoms = [b['geom'] for b in buildings]
+                            cluster_footprint = QgsGeometry.unaryUnion(building_geoms)
+                            
+                            if cluster_footprint and not cluster_footprint.isEmpty():
+                                # Buffer slightly to catch adjacent cells
+                                buffered = cluster_footprint.buffer(15.0, 2)
+                                
+                                # Find grid cells intersecting this cluster
+                                candidate_ids = cell_index.intersects(buffered.boundingBox())
+                                cluster_cells = []
+                                
+                                for cid in candidate_ids:
+                                    if cid in cells_assigned:
+                                        continue
+                                    cell = cell_lookup.get(cid)
+                                    if cell and cell.geometry().intersects(buffered):
+                                        cluster_cells.append(cell)
+                                        cells_assigned.add(cid)
+                                
+                                if cluster_cells:
+                                    urban_clusters.append(cluster_cells)
+                        
+                        # Cells with buildings but not assigned to any cluster
+                        for uf in urban_features:
+                            if uf.id() not in cells_assigned:
+                                unclustered_urban_cells.append(uf)
+                        
+                        # --- SPLITTING: Break up heterogeneous districts ---
+                        # Thresholds for splitting: if std deviation exceeds these, split
+                        split_thresholds = {
+                            FieldNames.ROUGHNESS_HEIGHT: 4.0,   # Height variance > 4m
+                            FieldNames.BUILDING_FRAC: 15.0,     # BSF variance > 15%
+                            FieldNames.SVF_MEAN: 0.15           # SVF variance > 0.15
+                        }
+                        
+                        # Apply splitting to each cluster
+                        split_clusters = []
+                        for cluster_cells in urban_clusters:
+                            if len(cluster_cells) < 5:
+                                # Too small to split meaningfully
+                                split_clusters.append(cluster_cells)
+                                continue
+                            
+                            # Check heterogeneity and split if needed
+                            sub_clusters = split_heterogeneous_clusters_multi(
+                                cluster_cells,
+                                labels=[0] * len(cluster_cells),  # All same label initially
+                                params_thresholds=split_thresholds
+                            )
+                            split_clusters.extend(sub_clusters)
+                        
+                        original_count = len(urban_clusters)
+                        urban_clusters = split_clusters
+                        log_local(f"✂️ Splitting distretti: {original_count} → {len(urban_clusters)}")
+                        
+                        
+                        log_local(f"🏢 Distretti urbani (da edifici): {len(urban_clusters)}")
+                        log_local(f"📍 Celle urbane isolate: {len(unclustered_urban_cells)}")
+                    else:
+                        log_local("⚠️ Nessun dato edificio valido, fallback a clustering celle", Qgis.Warning)
+                        urban_clusters = [[f] for f in urban_features]  # Each cell is its own district
+                else:
+                    log_local("⚠️ Layer edifici non valido, fallback a clustering celle", Qgis.Warning)
+                    urban_clusters = [[f] for f in urban_features]
+            else:
+                log_local("⚠️ Layer edifici non trovato, fallback a clustering celle", Qgis.Warning)
+                urban_clusters = [[f] for f in urban_features]
 
-        log_local(f"🏢 Analisi di {len(final_clusters)} distretti puri.")
+        # 4. Natural Districts: Canopy-based clustering
+        natural_clusters = []
+        if natural_features and len(natural_features) > 3:
+            log_local("🌲 Clustering aree naturali (canopy + SVF)...")
+            
+            natural_labels = cluster_natural_areas(
+                natural_features,
+                canopy_field=FieldNames.ROUGHNESS_HEIGHT,
+                min_cluster_size=3,
+                spatial_scale=60.0
+            )
+            
+            # Group by label
+            natural_groups = {}
+            for i, label in enumerate(natural_labels):
+                if label == -1:
+                    continue
+                if label not in natural_groups:
+                    natural_groups[label] = []
+                natural_groups[label].append(natural_features[i])
+            
+            natural_clusters = list(natural_groups.values())
+            log_local(f"🌳 Distretti naturali: {len(natural_clusters)}")
+        
+        # Combine all clusters with type flag: (features, is_natural)
+        final_clusters = [(c, False) for c in urban_clusters] + [(c, True) for c in natural_clusters]
+        log_local(f"📊 Totale distretti: {len(final_clusters)}")
 
         # 4. Semantic Matching & Classification
         layer.startEditing()
@@ -341,6 +535,7 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             ('lcz_matches', QMetaType.Int, 0),
             ('lcz_score', QMetaType.Double, 0),
             ('lcz_confidence', QMetaType.Double, 0),
+            ('lcz_ambiguity', QMetaType.Double, 0),
             ('lcz_rmsep', QMetaType.Double, 0),
             ('lcz_rmsep_norm', QMetaType.Double, 0),
             ('lcz_vulnerability', QMetaType.QString, 25),
@@ -369,8 +564,9 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
         }
         
         # ESA WorldCover Context (Majority sampling)
+        # NOTE: Use geometry centroid as key, not feature ID (IDs differ between layers)
         esa_path = os.path.join(self.dm.get_data_dir_path(), FolderNames.UNIFIED, FileNames.LANDUSE)
-        esa_lookup = {}
+        esa_lookup = {}  # Key: "x,y" centroid string -> Value: ESA class
         if os.path.exists(esa_path):
             log_local("⏳ Analisi ESA WorldCover per rinforzo semantico...")
             import processing
@@ -380,7 +576,12 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             })
             for feat in res['OUTPUT'].getFeatures():
                 v = feat.attribute(res['OUTPUT'].fields().indexFromName('esa_majority'))
-                if v is not None and str(v) not in ('NULL', ''): esa_lookup[feat.id()] = int(float(v))
+                if v is not None and str(v) not in ('NULL', ''):
+                    # Use centroid as key (rounded to avoid floating point issues)
+                    centroid = feat.geometry().centroid().asPoint()
+                    key = f"{round(centroid.x(), 2)},{round(centroid.y(), 2)}"
+                    esa_lookup[key] = int(float(v))
+            log_local(f"🗺️ ESA lookup popolato: {len(esa_lookup)} celle")
 
         # Built-in context
         built_ids = [str(x) for x in range(1, 11)]
@@ -397,7 +598,7 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
         district_layer.addAttribute(QgsField("explanation", QMetaType.QString))
         district_layer.updateFields()
 
-        for features in final_clusters:
+        for features, is_natural_cluster in final_clusters:
             # Aggregate district parameters
             district_data = {}
             for f_name, p_key in field_to_param.items():
@@ -407,22 +608,28 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
                 vals = [float(f.attribute(f_name)) for f in features if f.attribute(f_name) is not None and str(f.attribute(f_name)) != 'NULL']
                 district_data[p_key] = np.mean(vals) if vals else 0.0
             
-            # Majority ESA for district
-            luse_vals = [esa_lookup.get(f.id()) for f in features if esa_lookup.get(f.id()) is not None]
+            # Majority ESA for district (use centroid key)
+            def get_esa_key(feat):
+                c = feat.geometry().centroid().asPoint()
+                return f"{round(c.x(), 2)},{round(c.y(), 2)}"
+            
+            luse_vals = [esa_lookup.get(get_esa_key(f)) for f in features if esa_lookup.get(get_esa_key(f)) is not None]
             dist_esa = max(set(luse_vals), key=luse_vals.count) if luse_vals else None
 
-            # --- EXPERT RULE: Urban Void Detection ---
-            # If BSF > 10 but aspect_ratio is near 0, this is an "urban void"
-            # (piazza, parking lot, open area in urban context) -> include E/D in subset
-            district_ar = district_data.get('aspect_ratio', 0)
-            if district_ar < 0.4:  # Near-zero aspect ratio
-                # Urban void: allow matching against paved/low-plant classes
-                subset_for_match = built_ids + ['E', 'D']
+            # Determine class subset based on cluster type
+            if is_natural_cluster:
+                # Natural clusters: only natural classes
+                subset_for_match = natural_ids
             else:
-                subset_for_match = built_ids
+                # Urban clusters: check for urban voids
+                district_ar = district_data.get('aspect_ratio', 0)
+                if district_ar < 0.4:  # Near-zero aspect ratio = urban void
+                    subset_for_match = built_ids + ['E', 'D']
+                else:
+                    subset_for_match = built_ids
             
             # Match district against archetypes
-            lcz_id, score, explanation, tags = self.matcher.match(district_data, class_subset=subset_for_match, esa_class=dist_esa)
+            lcz_id, score, ambiguity, explanation, tags = self.matcher.match(district_data, class_subset=subset_for_match, esa_class=dist_esa)
 
             # Match metrics
             esa_status = "Reinforced" if dist_esa and LCZMappings.ESA_TO_LCZ.get(dist_esa) == lcz_id else "-"
@@ -434,14 +641,63 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             for f in features:
                 fid = f.id()
                 district_feature_ids.add(fid)
-                if idx_map[FieldNames.LCZ_CLASS] != -1: layer.changeAttributeValue(fid, idx_map[FieldNames.LCZ_CLASS], lcz_id)
-                if idx_map['lcz_score'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_score'], float(score))
-                if idx_map['lcz_confidence'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_confidence'], confidence)
-                if idx_map['lcz_rmsep'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_rmsep'], rmsep_val)
-                if idx_map['lcz_rmsep_norm'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_rmsep_norm'], rmsep_val)
-                if idx_map['lcz_matches'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_matches'], matches_count)
-                if idx_map['lcz_vulnerability'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_vulnerability'], vuln)
-                if idx_map['lcz_esa_fix'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_esa_fix'], esa_status)
+                
+                # --- PER-CELL ESA AUTHORITATIVE OVERRIDE ---
+                # Each cell's ESA can override the district classification
+                cell_esa_key = get_esa_key(f)
+                cell_esa = esa_lookup.get(cell_esa_key)
+                cell_bsf = f.attribute(FieldNames.BUILDING_FRAC)
+                try:
+                    cell_bsf = float(cell_bsf) if cell_bsf is not None and str(cell_bsf) != 'NULL' else 0.0
+                except:
+                    cell_bsf = 0.0
+                
+                # Apply authoritative ESA rules at cell level
+                final_lcz = lcz_id
+                final_score = score
+                cell_esa_status = esa_status
+                
+                if cell_esa is not None and cell_bsf < 10.0:
+                    # Shrubland (ESA 20) → LCZ C
+                    if cell_esa == 20 and final_lcz not in ['C']:
+                        final_lcz = 'C'
+                        final_score = 95.0
+                        cell_esa_status = "ESA Override: Shrubland → C"
+                    # Grassland (ESA 30) → LCZ D
+                    elif cell_esa == 30 and final_lcz not in ['D']:
+                        final_lcz = 'D'
+                        final_score = 95.0
+                        cell_esa_status = "ESA Override: Grassland → D"
+                    # Cropland (ESA 40) → LCZ D
+                    elif cell_esa == 40 and final_lcz not in ['D']:
+                        final_lcz = 'D'
+                        final_score = 95.0
+                        cell_esa_status = "ESA Override: Cropland → D"
+                    # Bare/sparse (ESA 60) → LCZ F
+                    elif cell_esa == 60 and final_lcz not in ['F']:
+                        final_lcz = 'F'
+                        final_score = 95.0
+                        cell_esa_status = "ESA Override: Bare → F"
+                    # Water (ESA 80) → LCZ G
+                    elif cell_esa == 80 and final_lcz not in ['G']:
+                        final_lcz = 'G'
+                        final_score = 100.0
+                        cell_esa_status = "ESA Override: Water → G"
+                
+                final_confidence = float(final_score / 100.0)
+                final_rmsep = 1.0 - final_confidence
+                final_vuln = LCZMappings.VULNERABILITY_MAPPING.get(final_lcz, 'Unknown')
+                final_matches = int((final_score / 100.0) * 10.0)
+                
+                if idx_map[FieldNames.LCZ_CLASS] != -1: layer.changeAttributeValue(fid, idx_map[FieldNames.LCZ_CLASS], final_lcz)
+                if idx_map['lcz_score'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_score'], float(final_score))
+                if idx_map['lcz_confidence'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_confidence'], final_confidence)
+                if idx_map['lcz_ambiguity'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_ambiguity'], float(ambiguity))
+                if idx_map['lcz_rmsep'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_rmsep'], final_rmsep)
+                if idx_map['lcz_rmsep_norm'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_rmsep_norm'], final_rmsep)
+                if idx_map['lcz_matches'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_matches'], final_matches)
+                if idx_map['lcz_vulnerability'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_vulnerability'], final_vuln)
+                if idx_map['lcz_esa_fix'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_esa_fix'], cell_esa_status)
             
             # Add to district vector layer
             geoms = [f.geometry() for f in features if not f.geometry().isEmpty()]
@@ -455,7 +711,14 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
                     district_layer.addFeature(feat)
 
             processed_count += len(features)
-            if len(final_clusters) < 15 or processed_count % 100 == 0:
+            
+            # Diagnostic logging for first 50 districts to understand classification
+            if processed_count < 500:
+                z_h = district_data.get('z_h', 0)
+                bsf = district_data.get('bsf', 0)
+                svf = district_data.get('svf_mean', 0)
+                log_local(f"📊 Distretto #{processed_count}: z_h={z_h:.1f}m, BSF={bsf:.0f}%, SVF={svf:.2f} → LCZ {lcz_id} ({score:.0f}%)")
+            elif len(final_clusters) < 15 or processed_count % 500 == 0:
                 log_local(f"🔍 Distretto -> LCZ {lcz_id} ({score:.0f}%). {explanation}")
 
         district_layer.commitChanges()
@@ -499,8 +762,11 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             else:
                 subset = natural_ids
             
-            feat_esa = esa_lookup.get(feat.id())
-            lcz_id, score, _, _ = self.matcher.match(f_data, class_subset=subset, esa_class=feat_esa)
+            # Use centroid key for ESA lookup
+            feat_centroid = feat.geometry().centroid().asPoint()
+            feat_esa_key = f"{round(feat_centroid.x(), 2)},{round(feat_centroid.y(), 2)}"
+            feat_esa = esa_lookup.get(feat_esa_key)
+            lcz_id, score, ambiguity, _, _ = self.matcher.match(f_data, class_subset=subset, esa_class=feat_esa)
             
             esa_status = "Reinforced" if feat_esa and LCZMappings.ESA_TO_LCZ.get(feat_esa) == lcz_id else "-"
             matches_count = int((score / 100.0) * 10.0)
@@ -512,6 +778,7 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             if idx_map[FieldNames.LCZ_CLASS] != -1: layer.changeAttributeValue(fid, idx_map[FieldNames.LCZ_CLASS], lcz_id)
             if idx_map['lcz_score'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_score'], float(score))
             if idx_map['lcz_confidence'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_confidence'], confidence)
+            if idx_map['lcz_ambiguity'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_ambiguity'], float(ambiguity))
             if idx_map['lcz_rmsep'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_rmsep'], rmsep_val)
             if idx_map['lcz_rmsep_norm'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_rmsep_norm'], rmsep_val)
             if idx_map['lcz_matches'] != -1: layer.changeAttributeValue(fid, idx_map['lcz_matches'], matches_count)

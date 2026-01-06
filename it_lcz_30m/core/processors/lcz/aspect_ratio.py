@@ -101,18 +101,61 @@ class AspectRatioProcessor(LCZBaseProcessor):
             
             log_local(f"Indice creato con {count_bld} edifici.")
 
-            # 4. Stima Spaziautra Alberi (Tree Spacing) via Raster
-            log_local("Analisi copertura vegetale alta per stima spaziatura alberi...")
+            # 4. Stima Spaziatura Alberi (Tree Spacing) via Tree Cover Density o Fallback
+            log_local("Analisi copertura vegetale per stima spaziatura alberi...")
             tree_spacing_map = {}
+            
+            # D_tree: diametro medio chioma assunto (10m per LCZ A/B)
+            D_tree = 10.0
+            
+            # PRIORITY 1: Use Copernicus Tree Cover Density (TCD) if available
+            tcd_path = os.path.join(self.dm.get_project_dir(), self.dm.get_data_dir_name(), "copernicus_hrl", "tcd_10m.tif")
             canopy_path = os.path.join(self.dm.get_project_dir(), self.dm.get_data_dir_name(), "unified", "canopy_height_10m.tif")
             
-            if os.path.exists(canopy_path):
+            if os.path.exists(tcd_path):
                 try:
+                    log_local("📊 Utilizzo Tree Cover Density (TCD) per spaziatura alberi...")
+                    res_tcd_stats = processing.run("native:zonalstatisticsfb", {
+                        'INPUT': layer,
+                        'INPUT_RASTER': tcd_path,
+                        'COLUMN_PREFIX': '_tcd_',
+                        'STATISTICS': [2],  # Mean
+                        'OUTPUT': 'TEMPORARY_OUTPUT'
+                    })
+                    
+                    tcd_layer = res_tcd_stats['OUTPUT']
+                    idx_tcd_mean = tcd_layer.fields().indexFromName('_tcd_mean')
+                    idx_tcd_link = tcd_layer.fields().indexFromName('_link_id')
+                    
+                    for f in tcd_layer.getFeatures():
+                        lk = f.attribute(idx_tcd_link)
+                        tcd_mean = f.attribute(idx_tcd_mean) or 0
+                        
+                        if tcd_mean > 5:  # Soglia minima copertura (5%)
+                            # Formula Stewart & Oke: W = D_tree / sqrt(TCD/100)
+                            # TCD è già in percentuale (0-100)
+                            try:
+                                w_tree = D_tree / math.sqrt(tcd_mean / 100.0)
+                                tree_spacing_map[lk] = max(2.0, w_tree)
+                            except:
+                                tree_spacing_map[lk] = 10.0
+                        else:
+                            tree_spacing_map[lk] = 200.0  # Spaziatura infinita (nessun albero)
+                    
+                    log_local(f"✓ TCD: spaziatura calcolata per {len([v for v in tree_spacing_map.values() if v < 200])} celle con alberi.")
+                except Exception as ex:
+                    log_local(f"Avviso: Errore TCD, fallback a metodo canopy mask: {str(ex)}", Qgis.Warning)
+                    tree_spacing_map = {}  # Reset to trigger fallback
+            
+            # PRIORITY 2: Fallback to canopy height binary mask (original method)
+            if not tree_spacing_map and os.path.exists(canopy_path):
+                try:
+                    log_local("Fallback: utilizzo maschera binaria canopy height...")
                     # Creiamo maschera binaria alberi (> 2m)
                     res_mask = processing.run("gdal:rastercalculator", {
                         'INPUT_A': canopy_path, 'BAND_A': 1,
                         'FORMULA': 'A > 2.0',
-                        'RTYPE': 1, # Byte
+                        'RTYPE': 1,  # Byte
                         'OUTPUT': 'TEMPORARY_OUTPUT'
                     })
                     mask_path = res_mask['OUTPUT']
@@ -122,7 +165,7 @@ class AspectRatioProcessor(LCZBaseProcessor):
                         'INPUT': layer, 
                         'INPUT_RASTER': mask_path, 
                         'COLUMN_PREFIX': '_tr_', 
-                        'STATISTICS': [0, 1], # Count and Sum
+                        'STATISTICS': [0, 1],  # Count and Sum
                         'OUTPUT': 'TEMPORARY_OUTPUT'
                     })
                     
@@ -130,9 +173,6 @@ class AspectRatioProcessor(LCZBaseProcessor):
                     idx_sum = stats_layer.fields().indexFromName('_tr_sum')
                     idx_cnt = stats_layer.fields().indexFromName('_tr_count')
                     idx_tmp_link = stats_layer.fields().indexFromName('_link_id')
-                    
-                    # D_tree: diametro medio chioma assunto (10m per LCZ A/B)
-                    D_tree = 10.0
                     
                     for f in stats_layer.getFeatures():
                         lk = f.attribute(idx_tmp_link)
@@ -151,7 +191,7 @@ class AspectRatioProcessor(LCZBaseProcessor):
                             except:
                                 tree_spacing_map[lk] = 10.0
                         else:
-                            tree_spacing_map[lk] = 200.0 # Spaziatura infinita (nessun albero)
+                            tree_spacing_map[lk] = 200.0  # Spaziatura infinita (nessun albero)
                 except Exception as ex:
                     log_local(f"Avviso: Errore nel calcolo spaziatura alberi: {str(ex)}", Qgis.Warning)
 
@@ -232,46 +272,61 @@ class AspectRatioProcessor(LCZBaseProcessor):
                     # Cerca vicini nell'indice metrico
                     nearest_ids = spatial_index.nearestNeighbor(b_geom_metric, 11) # se stesso + 10
                     
-                    min_dist = 999.0
+                    # NUOVO: Raccogliamo TUTTE le distanze ai vicini, non solo la minima
+                    # Questo evita che edifici isolati con 1 vicino attaccato abbiano AR altissimo
+                    neighbor_distances = []
                     for n_id in nearest_ids:
                         if n_id == b_feat.id(): continue
                         n_geom_metric = bld_geom_cache.get(n_id)
                         if not n_geom_metric: continue
                         
                         dist = b_geom_metric.distance(n_geom_metric)
-                        if dist > 0.5 and dist < min_dist: # Soglia 0.5m per evitare errori di overlap
-                            min_dist = dist
+                        if dist > 0.5 and dist < 100.0:  # Range urbano realistico: 0.5m - 100m
+                            neighbor_distances.append(max(2.0, dist))
                     
-                    if min_dist < 200.0: # Solo distanze urbane verosimili
-                        # Applichiamo la soglia di 2m: se la fessura è < 2m, la consideriamo 2m
-                        effective_dist = max(2.0, min_dist)
-                        cell_spacings.append(effective_dist)
+                    # Usa la MEDIA delle distanze ai vicini (più rappresentativa della distanza minima)
+                    if neighbor_distances:
+                        avg_dist = sum(neighbor_distances) / len(neighbor_distances)
+                        cell_spacings.append(avg_dist)
                 
                 # Calcolo Finale AR
-                # 1. Spaziatura Edifici
+                # 1. Spaziatura Edifici - usa la mediana delle spaziature medie per cella
                 w_bld = 200.0
                 if cell_spacings:
                     median_w = statistics.median(cell_spacings)
-                    w_bld = max(2.0, median_w)
+                    # Imponiamo un minimo di 5m per evitare AR esagerati (edifici attaccati)
+                    w_bld = max(5.0, median_w)
                 
                 # 2. Spaziatura Alberi (lk già definito all'inizio del loop)
                 w_tree = tree_spacing_map.get(lk, 200.0)
                 
-                # 3. Spaziatura Integrata (la più densa vince)
-                w_final = min(w_bld, w_tree)
+                # 3. Spaziatura per AR: In aree URBANE (con edifici), usa SOLO w_bld
+                # La logica precedente (min(w_bld, w_tree)) gonfiava AR quando c'erano alberi
+                # tra gli edifici. Per le aree urbane, l'AR è H_edificio/W_tra_edifici.
+                if cell_spacings:
+                    # Abbiamo edifici → usa spaziatura edifici
+                    w_final = w_bld
+                else:
+                    # Nessun edificio trovato nella cella → fallback a tree spacing
+                    w_final = w_tree
                 
                 # AR = H / W
                 if w_final < 200.0:
                     ar = float(zh) / w_final
+                    # CAP: Aspect ratio massimo realistico per aree urbane = 3.0
+                    # (corrisponde a canyon stretto: edifici 15m alti, strada 5m larga)
+                    ar = min(3.0, ar)
                     count_valid_ar += 1
                     if cell_spacings: total_spacings_found += len(cell_spacings)
                 else:
                     # Elementi isolati: AR molto basso
                     ar = float(zh) / 100.0 if float(zh) > 0 else 0.0
                 
-                layer.changeAttributeValue(feat.id(), idx_ar, round(min(10.0, ar), 2))
+                layer.changeAttributeValue(feat.id(), idx_ar, round(ar, 2))
                 processed += 1
                 
+            # Diagnostic: how many used building spacing vs tree spacing
+            log_local(f"Debug: Celle urbane processate: {count_valid_ar} (con distanze edifici: {total_spacings_found})")
             layer.commitChanges()
             log_local(f"Debug: Distanze misurate in totale: {total_spacings_found}")
             log_local(f"Debug: Celle con Aspect Ratio calcolato: {count_valid_ar}")

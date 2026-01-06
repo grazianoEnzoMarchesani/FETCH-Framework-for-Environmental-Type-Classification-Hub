@@ -35,8 +35,8 @@ DATA_SOURCES = [
     "ETH (Alberi H 10m)", "ESA WorldCover (Land Use)",
     "Meta HRSL (Popolazione)", "S2GM (Albedo Sentinel-2)",
     "OSM Roads (Vettoriale)", "Traffic ANAS (Italia)",
-    "Copernicus HRL (10m)", "Industrial Points (E-PRTR)",
-    "CORINE Land Cover (EEA)"
+    "Copernicus HRL (10m)", "Tree Cover Density (Copernicus)",
+    "Industrial Points (E-PRTR)", "CORINE Land Cover (EEA)"
 ]
 
 # LCZ Parameter definitions: (id, display_name, tooltip, output_fields)
