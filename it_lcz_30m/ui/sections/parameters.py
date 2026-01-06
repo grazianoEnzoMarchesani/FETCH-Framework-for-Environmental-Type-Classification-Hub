@@ -25,6 +25,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     visualization_requested = pyqtSignal(str)  # field_name
     classify_requested = pyqtSignal(str, bool, bool, object, bool, str) # method, smoothing, training, veto, adaptive, profile
     stats_requested = pyqtSignal()
+    crystallize_requested = pyqtSignal()  # export styled vector layers
     training_mode_requested = pyqtSignal(bool) # enabled
     
     def __init__(self, parent=None):
@@ -289,6 +290,20 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.btn_stats.clicked.connect(self.stats_requested.emit)
         actions_layout.addWidget(self.btn_stats)
         
+        # Crystallize Maps button
+        self.btn_crystallize = QPushButton(" 💎 Cristallizza Mappe")
+        self.btn_crystallize.setObjectName("AccentButton")
+        self.btn_crystallize.setToolTip(
+            "Esporta layer vettoriali individuali per ogni parametro LCZ, "
+            "con vestizioni colori e attributi minimali.\n"
+            "I file vengono salvati in unified/crystallized/"
+        )
+        self.btn_crystallize.setEnabled(False)
+        self.btn_crystallize.setMinimumHeight(42)
+        self.btn_crystallize.setCursor(Qt.PointingHandCursor)
+        self.btn_crystallize.clicked.connect(self.crystallize_requested.emit)
+        actions_layout.addWidget(self.btn_crystallize)
+        
         # Training Mode Toggle (v7 specific)
         self.btn_training_mode = QPushButton(" 🎯 Attiva Addestramento Manuale")
         self.btn_training_mode.setCheckable(True)
@@ -419,6 +434,10 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     def set_stats_enabled(self, enabled):
         """Enable/disable the advanced statistics button."""
         self.btn_stats.setEnabled(enabled)
+    
+    def set_crystallize_enabled(self, enabled):
+        """Enable/disable the crystallize maps button."""
+        self.btn_crystallize.setEnabled(enabled)
         
     def set_enabled(self, enabled):
         """Enable or disable the entire section."""

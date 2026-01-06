@@ -124,6 +124,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.params_section.visualization_requested.connect(self.apply_param_style)
         self.params_section.classify_requested.connect(self.run_classification)
         self.params_section.stats_requested.connect(self.show_advanced_stats)
+        self.params_section.crystallize_requested.connect(self.run_crystallize_maps)
         self.params_section.training_mode_requested.connect(self.toggle_training_mode)
         
         # Training Tool signals
@@ -227,6 +228,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
                     has_stats = True
         
         self.params_section.set_stats_enabled(has_stats)
+        self.params_section.set_crystallize_enabled(has_stats)  # Enable crystallize when stats available
 
     # =========================================================================
     # Task Execution Methods
@@ -591,6 +593,47 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
             
         dialog = AdvancedStatsDialog(stats, self)
         dialog.exec_()
+
+    def run_crystallize_maps(self):
+        """Export styled vector layers for each LCZ parameter."""
+        from ..core.processors.crystallize_maps import CrystallizeMapsProcessor
+        
+        grid_layer = self.find_valid_grid_layer()
+        if not grid_layer:
+            self.iface.messageBar().pushMessage("Errore", "Nessun layer di classificazione trovato.", level=2)
+            return
+            
+        self.set_dashboard_enabled(False)
+        self.progress_section.set_status("💎 Cristallizzazione mappe in corso...")
+        self.progress_section.set_indeterminate(True)
+        
+        processor = CrystallizeMapsProcessor(self.data_manager)
+        
+        def log(msg):
+            self.progress_section.set_status(msg)
+            QgsMessageLog.logMessage(msg, "FETCH", Qgis.Info)
+        
+        try:
+            success, message, output_dir = processor.process(grid_layer, log)
+            
+            self.set_dashboard_enabled(True)
+            self.progress_section.set_indeterminate(False)
+            
+            if success:
+                self.progress_section.set_status(f"✓ {message}")
+                self.iface.messageBar().pushMessage(
+                    "FETCH", 
+                    f"💎 Mappe cristallizzate! Output: {output_dir}", 
+                    level=3, duration=5
+                )
+            else:
+                self.progress_section.set_status(f"✗ {message}", is_error=True)
+        except Exception as e:
+            self.set_dashboard_enabled(True)
+            self.progress_section.set_indeterminate(False)
+            self.progress_section.set_status(f"✗ Errore: {str(e)}", is_error=True)
+            import traceback
+            QgsMessageLog.logMessage(traceback.format_exc(), "FETCH", Qgis.Critical)
 
     def take_high_res_snapshot(self, auto_path=None):
         """Take a high-resolution (300 DPI) snapshot of the map canvas."""

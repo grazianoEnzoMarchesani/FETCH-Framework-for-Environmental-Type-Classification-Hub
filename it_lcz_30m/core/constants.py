@@ -24,6 +24,7 @@ class LayerNames:
     ROADS = "Reti Stradali OSM"
     TRAFFIC = "Punti Traffico ANAS"
     IMPERVIOUSNESS = "Impermeabilità Copernicus (10m)"
+    TCD = "Tree Cover Density Copernicus (10m)"
     INDUSTRY = "Punti Industriali E-PRTR"
     
     # Processing layers (from dashboard.py)
@@ -57,6 +58,7 @@ class FileNames:
     POPULATION = "population_10m.tif"
     ALBEDO = "albedo_10m.tif"
     IMPERVIOUSNESS = "imperviousness_10m.tif"
+    TCD = "tcd_10m.tif"
     
     # Unified vector outputs
     BUILDINGS = "buildings_lod1.gpkg"
@@ -109,6 +111,7 @@ class FolderNames:
     INDUSTRY = "eprtr_industry"
     CORINE = "corine_clc2018"
     UNIFIED = "unified"
+    CRYSTALLIZED = "crystallized"
     SNAPSHOTS = "snapshots"
     KNOWLEDGE_BASE = "knowledge_base"
 
