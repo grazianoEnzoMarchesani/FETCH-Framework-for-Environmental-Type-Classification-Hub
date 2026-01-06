@@ -50,7 +50,7 @@ A centralized UI within QGIS to select the Area of Interest (AOI), manage creden
     git clone https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub.git
     ```
 2.  **Plugin Setup**:
-    - Link the `it_lcz_30m` folder to your QGIS plugins directory.
+    - Link the `FETCH` folder to your QGIS plugins directory.
     - Restart QGIS and enable the **FETCH** plugin in the Plugin Manager.
 3.  **Dependencies**:
     - QGIS 3.34+ (LTS recommended)

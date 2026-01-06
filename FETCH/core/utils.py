@@ -185,7 +185,7 @@ class FetchLogger:
     - Persistent .log file in FETCH+ProjectName folder
     
     Usage:
-        from it_lcz_30m.core.utils import get_logger
+        from FETCH.core.utils import get_logger
         log = get_logger()
         log.info("Operation completed")
         log.warning("Missing parameter")

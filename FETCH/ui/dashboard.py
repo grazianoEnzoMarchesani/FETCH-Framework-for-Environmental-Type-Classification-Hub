@@ -2,7 +2,7 @@
 """
 FETCH Dashboard - Main UI Module
 
-This module contains the main ITLCZDashboard class for the FETCH QGIS plugin.
+This module contains the main FETCHDashboard class for the FETCH QGIS plugin.
 The UI is composed of modular section widgets and mixins for better maintainability.
 """
 
@@ -33,13 +33,13 @@ from .mixins import LayerMixin, StyleMixin
 from .tools.training_tool import LCZTrainingTool
 
 
-class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
+class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
     """Main FETCH Dashboard dock widget."""
     
     closingPlugin = pyqtSignal()
     
     def __init__(self, iface, parent=None):
-        super(ITLCZDashboard, self).__init__(parent)
+        super(FETCHDashboard, self).__init__(parent)
         self.iface = iface
         self.data_manager = DataManager(iface)
         self.setWindowTitle("FETCH Dashboard")
@@ -276,7 +276,7 @@ class ITLCZDashboard(LayerMixin, StyleMixin, QDockWidget):
                 if task.error_count == 0:
                     self.iface.messageBar().pushMessage("FETCH", "Download dati completato con successo!", level=3)
                 else:
-                    self.iface.messageBar().pushMessage("IT-LCZ", f"Download completato con {task.error_count} errori. Controlla il log.", level=2)
+                    self.iface.messageBar().pushMessage("FETCH", f"Download completato con {task.error_count} errori. Controlla il log.", level=2)
             else:
                 self.progress_section.set_status(f"✗ Download interrotto: {task.message}", is_error=True)
         

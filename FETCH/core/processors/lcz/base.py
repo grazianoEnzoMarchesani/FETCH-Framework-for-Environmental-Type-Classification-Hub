@@ -65,7 +65,7 @@ class LCZBaseProcessor:
             self.log(f"Sanitization failed: {', '.join(errs)}", Qgis.Warning)
 
     def log(self, msg, level=Qgis.Info):
-        QgsMessageLog.logMessage(msg, "IT-LCZ", level)
+        QgsMessageLog.logMessage(msg, "FETCH", level)
 
     def _ensure_link_id(self, layer, sanitize=True):
         """Ensure the layer has a unique _link_id field for robust joining."""

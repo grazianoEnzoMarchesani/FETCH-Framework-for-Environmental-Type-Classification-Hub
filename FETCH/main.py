@@ -11,9 +11,9 @@ from qgis.PyQt.QtCore import QCoreApplication, Qt
 from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtGui import QIcon
 
-from .ui.dashboard import ITLCZDashboard
+from .ui.dashboard import FETCHDashboard
 
-class ITLCZ30m:
+class FETCH:
     def __init__(self, iface):
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
@@ -73,7 +73,7 @@ class ITLCZ30m:
 
     def run(self):
         if not self.dock_widget:
-            self.dock_widget = ITLCZDashboard(self.iface)
+            self.dock_widget = FETCHDashboard(self.iface)
             self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
         
         self.dock_widget.show()
