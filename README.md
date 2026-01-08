@@ -1,10 +1,8 @@
-![FETCH Logo](assets/fetch_logo.png)
-
 # FETCH: Framework for Environmental Type Classification Hub
 
 **FETCH** is an advanced geospatial framework designed to automate the classification and analysis of **Local Climate Zones (LCZ)**. Originally developed as a collection of processing scripts, FETCH has evolved into a modular **QGIS Plugin** that streamlines the entire workflow: from multi-source data acquisition to the calculation of complex urban climate parameters.
 
----
+![FETCH Logo](assets/fetch_logo.png)
 
 ## Technical Vision: From Scripts to Framework
 
