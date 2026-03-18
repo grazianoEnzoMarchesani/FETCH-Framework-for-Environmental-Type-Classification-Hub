@@ -321,56 +321,53 @@ def find_band_files(safe_dir: Path) -> Dict[str, Path]:
     return band_files
 
 
-def read_band_10m(band_path: Path) -> Tuple[np.ndarray, dict]:
-    """
-    Read a 10m resolution band.
+def read_band_10m_crop(band_path: Path, bbox_wgs84: Tuple[float, float, float, float]) -> Tuple[np.ndarray, dict]:
+    """Read a 10m band clipped to the bounding box."""
+    import rasterio.warp
+    from rasterio.windows import from_bounds, Window
+    from rasterio.windows import transform as window_transform
     
-    Args:
-        band_path: Path to the band file
-    
-    Returns:
-        Tuple of (band_data, profile)
-    """
-    logger.info(f"Reading 10m band: {band_path.name}")
-    
+    logger.info(f"Reading cropped 10m band: {band_path.name}")
     with rasterio.open(band_path) as src:
-        data = src.read(1).astype(np.float32)
-        profile = src.profile.copy()
+        bounds = rasterio.warp.transform_bounds('EPSG:4326', src.crs, *bbox_wgs84)
+        buffer = 100 # buffer in meters to ensure full coverage during resampling
+        bounds = (bounds[0]-buffer, bounds[1]-buffer, bounds[2]+buffer, bounds[3]+buffer)
         
-    logger.info(f"  Shape: {data.shape}, dtype: {data.dtype}")
-    return data, profile
+        window = from_bounds(*bounds, transform=src.transform).round_lengths().round_offsets()
+        read_window = window.intersection(Window(0, 0, src.width, src.height))
+        
+        data = src.read(1, window=read_window).astype(np.float32)
+        profile = src.profile.copy()
+        profile.update({
+            'height': read_window.height,
+            'width': read_window.width,
+            'transform': window_transform(read_window, src.transform)
+        })
+        logger.info(f"  Cropped shape: {data.shape}, dtype: {data.dtype}")
+        return data, profile
 
 
-def read_and_resample_20m_band(
+def read_and_align_20m_band_crop(
     band_path: Path,
-    target_shape: Tuple[int, int],
+    target_profile: dict,
     resampling_method: Resampling = Resampling.bilinear
 ) -> np.ndarray:
-    """
-    Read a 20m band and resample it to 10m resolution.
-    
-    Args:
-        band_path: Path to the 20m band file
-        target_shape: Target shape (height, width) from a 10m band
-        resampling_method: Resampling method to use (bilinear for spectral, 
-                          nearest for classification)
-    
-    Returns:
-        Resampled band data with shape matching target_shape
-    """
-    logger.info(f"Reading and resampling 20m band: {band_path.name}")
-    logger.info(f"  Resampling method: {resampling_method.name}")
-    
+    """Read a 20m band and reproject it directly to align with the cropped 10m profile."""
+    import rasterio.warp
+    logger.info(f"Reading and aligning cropped 20m band: {band_path.name}")
     with rasterio.open(band_path) as src:
-        # Read with resampling to target shape
-        data = src.read(
-            1,
-            out_shape=(target_shape[0], target_shape[1]),
+        out_data = np.zeros((1, target_profile['height'], target_profile['width']), dtype=np.float32)
+        rasterio.warp.reproject(
+            source=rasterio.band(src, 1),
+            destination=out_data,
+            src_transform=src.transform,
+            src_crs=src.crs,
+            dst_transform=target_profile['transform'],
+            dst_crs=target_profile['crs'],
             resampling=resampling_method
-        ).astype(np.float32)
-    
-    logger.info(f"  Original shape: {src.height}x{src.width} -> Resampled: {data.shape}")
-    return data
+        )
+        logger.info(f"  Aligned shape: {out_data[0].shape}")
+        return out_data[0]
 
 
 def convert_dn_to_reflectance(
@@ -551,6 +548,7 @@ def save_geotiff(
 
 def process_sentinel2_albedo(
     safe_dir: Path,
+    bbox: Tuple[float, float, float, float],
     output_path: Optional[Path] = None
 ) -> Path:
     """
@@ -558,7 +556,7 @@ def process_sentinel2_albedo(
     
     This function handles:
         1. Locating band files
-        2. Reading and resampling bands to 10m
+        2. Reading cropped bands to 10m
         3. Converting DN to reflectance
         4. Calculating broadband albedo
         5. Applying cloud mask
@@ -566,6 +564,7 @@ def process_sentinel2_albedo(
     
     Args:
         safe_dir: Path to the .SAFE directory
+        bbox: Bounding box as (min_lon, min_lat, max_lon, max_lat) in WGS84 for dynamic cropping
         output_path: Optional output file path (default: auto-generated)
     
     Returns:
@@ -581,30 +580,24 @@ def process_sentinel2_albedo(
     logger.info("\n[Step 1/6] Locating band files...")
     band_files = find_band_files(safe_dir)
     
-    # Step 2: Read 10m bands (B02, B04, B08)
-    logger.info("\n[Step 2/6] Reading 10m bands...")
-    b02_data, profile = read_band_10m(band_files["B02"])
-    b04_data, _ = read_band_10m(band_files["B04"])
-    b08_data, _ = read_band_10m(band_files["B08"])
+    # Step 2: Read cropped 10m bands (B02, B04, B08)
+    logger.info("\n[Step 2/6] Reading cropped 10m bands...")
+    b02_data, profile = read_band_10m_crop(band_files["B02"], bbox)
+    b04_data, _ = read_band_10m_crop(band_files["B04"], bbox)
+    b08_data, _ = read_band_10m_crop(band_files["B08"], bbox)
     
     target_shape = b02_data.shape
-    logger.info(f"  Target shape (10m): {target_shape}")
+    logger.info(f"  Cropped target shape (10m): {target_shape}")
     
     # Step 3: Read and resample 20m bands (B11, B12, SCL)
-    logger.info("\n[Step 3/6] Reading and resampling 20m bands to 10m...")
+    logger.info("\n[Step 3/6] Reading and aligning cropped 20m bands to 10m...")
     
     # Spectral bands: use bilinear interpolation
-    b11_data = read_and_resample_20m_band(
-        band_files["B11"], target_shape, Resampling.bilinear
-    )
-    b12_data = read_and_resample_20m_band(
-        band_files["B12"], target_shape, Resampling.bilinear
-    )
+    b11_data = read_and_align_20m_band_crop(band_files["B11"], profile, Resampling.bilinear)
+    b12_data = read_and_align_20m_band_crop(band_files["B12"], profile, Resampling.bilinear)
     
     # SCL: use nearest neighbor (categorical data)
-    scl_data = read_and_resample_20m_band(
-        band_files["SCL"], target_shape, Resampling.nearest
-    )
+    scl_data = read_and_align_20m_band_crop(band_files["SCL"], profile, Resampling.nearest)
     
     # Step 4: Convert DN to Reflectance
     logger.info("\n[Step 4/6] Converting DN to Reflectance...")
@@ -720,24 +713,73 @@ def main(
         # Try to get tile ID from properties
         tile_id = prod.properties.get('tileId') or prod.properties.get('granuleIdentifier')
         if not tile_id:
-            # Fallback for EODAG results if tileId is missing
-            tile_id = prod.properties.get('id', 'unknown')
+            import re
+            prod_id = prod.properties.get('id', 'unknown')
+            # Extract tile ID like T33TWH from S2A_MSIL2A_...
+            match = re.search(r'_T([0-9]{2}[A-Z]{3})_', prod_id)
+            if match:
+                tile_id = match.group(1)
+            else:
+                # Fallback for EODAG results if tileId is missing
+                tile_id = prod_id
             
         if tile_id not in tiles_found:
             tiles_found[tile_id] = prod
             
     products_to_process = list(tiles_found.values())
     
-    # Sort them by cloud cover again just to be sure
-    products_to_process.sort(key=lambda x: x.properties.get("cloudCover", 100))
-    
-    # If max_products is 1 but we found multiple tiles, we should probably allow 
-    # processing one per tile if they are different tiles.
-    # However, to avoid unintended massive downloads, we still respect max_products
-    # but as a limit of TILES if it's > 1.
-    if len(products_to_process) > max_products and max_products > 0:
-        logger.info(f"Limiting processing to the first {max_products} tiles out of {len(products_to_process)} found.")
-        products_to_process = products_to_process[:max_products]
+    # Filter products: we want the optimal tiling layout minimizing redundant downloads.
+    try:
+        from shapely.geometry import box, shape
+        aoi_shape = box(*bbox)
+        
+        # Calculate coverage of each product
+        for prod in products_to_process:
+            try:
+                prod_geom = shape(prod.geometry)
+                coverage_pct = prod_geom.intersection(aoi_shape).area / aoi_shape.area
+                prod.properties['_coverage_pct'] = coverage_pct
+            except Exception:
+                prod.properties['_coverage_pct'] = 0.0
+
+        # Sort descending by coverage, ascending by cloud cover
+        products_to_process.sort(key=lambda x: (-x.properties.get('_coverage_pct', 0.0), x.properties.get('cloudCover', 100)))
+
+        # Only keep tiles until we reach full coverage
+        selected_products = []
+        current_coverage = None
+        for prod in products_to_process:
+            if prod.properties.get('_coverage_pct', 0) == 0: continue
+            
+            try:
+                prod_geom = shape(prod.geometry)
+                if current_coverage is None:
+                    selected_products.append(prod)
+                    current_coverage = prod_geom.intersection(aoi_shape)
+                else:
+                    # Check if this new product adds any missing coverage
+                    missing_coverage = aoi_shape.difference(current_coverage)
+                    if missing_coverage.area > (aoi_shape.area * 0.001): # Not fully covered
+                        if prod_geom.intersects(missing_coverage):
+                            intersection_with_missing = prod_geom.intersection(missing_coverage)
+                            if intersection_with_missing.area > (aoi_shape.area * 0.001):
+                                selected_products.append(prod)
+                                current_coverage = current_coverage.union(prod_geom).intersection(aoi_shape)
+                    else:
+                        break # Fully covered
+            except Exception:
+                selected_products.append(prod)
+                
+        if selected_products:
+            products_to_process = selected_products
+            
+    except ImportError:
+        logger.warning("Shapely not installed. Skipping advanced coverage filtering.")
+        # Sort them by cloud cover again just to be sure
+        products_to_process.sort(key=lambda x: x.properties.get("cloudCover", 100))
+        if len(products_to_process) > max_products and max_products > 0:
+            logger.info(f"Limiting processing to the first {max_products} tiles out of {len(products_to_process)} found.")
+            products_to_process = products_to_process[:max_products]
     
     logger.info(f"\nProcessing {len(products_to_process)} product(s) across {len(tiles_found)} unique tiles...")
     
@@ -755,7 +797,7 @@ def main(
             
             # Process albedo
             logger.info("\n[Phase 3] Processing albedo...")
-            output_path = process_sentinel2_albedo(safe_path)
+            output_path = process_sentinel2_albedo(safe_path, bbox)
             individual_outputs.append(output_path)
             
             logger.info(f"\n✓ Product processed successfully: {output_path}")
