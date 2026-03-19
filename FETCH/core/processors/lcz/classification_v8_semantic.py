@@ -287,7 +287,7 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(f"[LCZ v8 Semantic] {msg}", "FETCH", level)
 
-    def process(self, layer, log_callback=None, **kwargs):
+    def process(self, layer, log_callback=None, force_urban_esa=False, **kwargs):
         """
         Main execution flow for v8.
         1. Context-First: Cluster features into districts (urban + natural).
@@ -617,7 +617,10 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             dist_esa = max(set(luse_vals), key=luse_vals.count) if luse_vals else None
 
             # Determine class subset based on cluster type
-            if is_natural_cluster:
+            if force_urban_esa and dist_esa == 50:
+                # User preference: Force urban (1-10) + Paved (E) for ESA Built-up
+                subset_for_match = built_ids + ['E']
+            elif is_natural_cluster:
                 # Natural clusters: only natural classes
                 subset_for_match = natural_ids
             else:
@@ -752,20 +755,22 @@ class LCZClassificationProcessorV8(LCZBaseProcessor):
             ar_val = f_data.get('aspect_ratio', 0)
             is_urban_seed = bsf_val >= 10.0
             
+            # Use centroid key for ESA lookup
+            feat_centroid = feat.geometry().centroid().asPoint()
+            feat_esa_key = f"{round(feat_centroid.x(), 2)},{round(feat_centroid.y(), 2)}"
+            feat_esa = esa_lookup.get(feat_esa_key)
+            
             # --- EXPERT RULE: Urban Void Detection ---
             # If BSF >= 10 but aspect_ratio near 0, it's an "urban void" (piazza, parking)
             # Include E/D classes in the matching subset
-            if is_urban_seed and ar_val < 0.1:
+            if force_urban_esa and feat_esa == 50:
+                subset = built_ids + ['E']
+            elif is_urban_seed and ar_val < 0.1:
                 subset = built_ids + ['E', 'D']  # Urban void: built + paved/low-plant
             elif is_urban_seed:
                 subset = built_ids
             else:
                 subset = natural_ids
-            
-            # Use centroid key for ESA lookup
-            feat_centroid = feat.geometry().centroid().asPoint()
-            feat_esa_key = f"{round(feat_centroid.x(), 2)},{round(feat_centroid.y(), 2)}"
-            feat_esa = esa_lookup.get(feat_esa_key)
             lcz_id, score, ambiguity, _, _ = self.matcher.match(f_data, class_subset=subset, esa_class=feat_esa)
             
             esa_status = "Reinforced" if feat_esa and LCZMappings.ESA_TO_LCZ.get(feat_esa) == lcz_id else "-"

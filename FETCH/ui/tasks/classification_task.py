@@ -12,7 +12,7 @@ from ...core.exceptions import FetchError, FetchWarning, FetchCriticalError
 class ClassificationTask(QgsTask):
     """Task for running final LCZ classification in the background."""
     
-    def __init__(self, data_manager, grid_path, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score'):
+    def __init__(self, data_manager, grid_path, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score', force_urban_esa=False):
         super().__init__("Classificazione LCZ Finale", QgsTask.CanCancel)
         self.data_manager = data_manager
         self.grid_path = grid_path
@@ -22,6 +22,7 @@ class ClassificationTask(QgsTask):
         self.veto_count = veto_count
         self.adaptive_calibration = adaptive_calibration
         self.profile = profile
+        self.force_urban_esa = force_urban_esa
         self.success = False
         self.message = ""
         self.output_path = ""
@@ -39,7 +40,8 @@ class ClassificationTask(QgsTask):
                 is_training=self.is_training,
                 veto_count=self.veto_count,
                 adaptive_calibration=self.adaptive_calibration,
-                profile=self.profile
+                profile=self.profile,
+                force_urban_esa=self.force_urban_esa
             )
             return self.success
         except FetchWarning as w:

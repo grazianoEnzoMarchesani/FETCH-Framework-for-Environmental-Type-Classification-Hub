@@ -173,7 +173,7 @@ class DataManager:
         
         mapping = {
             FolderNames.TINITALY: {"pattern": "**/*_s10.tif", "output_name": FileNames.DTM, "merge": True, "recursive": True},
-            FolderNames.TUM: {"pattern": "*.json", "output_name": FileNames.BUILDINGS, "type": "vector"},
+            FolderNames.TUM: {"pattern": "*.*", "output_name": FileNames.BUILDINGS, "type": "vector"},
             FolderNames.ETH: {"pattern": "*.tif", "output_name": FileNames.CANOPY, "merge": True},
             FolderNames.ESA: {"pattern": "*.tif", "output_name": FileNames.LANDUSE, "merge": True},
             FolderNames.META: {"pattern": "meta_hrsl_aoi.tif", "output_name": FileNames.POPULATION, "merge": False},
@@ -189,13 +189,20 @@ class DataManager:
         for folder, config in mapping.items():
             f_path = os.path.join(data_dir, folder)
             if not os.path.exists(f_path): continue
+            
             out_path = os.path.join(unified_dir, config["output_name"])
             if os.path.exists(out_path):
+                # self.log(f"Skip {folder}: già unificato.")
                 output_paths.append(out_path); continue
             
+            if log_callback: log_callback(f"Elaborazione dataset: {folder}...")
+            
             proc = self.vector_proc if config.get("type") == "vector" else self.raster_proc
-            if proc.process_dataset(f_path, config, out_path, target_crs_auth, t_extent):
-                output_paths.append(out_path)
+            try:
+                if proc.process_dataset(f_path, config, out_path, target_crs_auth, t_extent):
+                    output_paths.append(out_path)
+            except Exception as e:
+                if log_callback: log_callback(f"ERRORE durante l'elaborazione di {folder}: {str(e)}", Qgis.Critical)
                 
         return (True, f"Processati {len(output_paths)} dataset", output_paths) if output_paths else (False, "Nessun dato", [])
 
@@ -341,9 +348,9 @@ class DataManager:
     def calculate_lcz_parameters(self, grid_path=None, parameter_id=None, log_callback=None):
         return self.lcz_calc.calculate_parameters(grid_path, parameter_id, log_callback)
 
-    def run_lcz_classification(self, grid_path, log_callback=None, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score'):
+    def run_lcz_classification(self, grid_path, log_callback=None, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score', force_urban_esa=False):
         """Classifies grid cells into LCZ classes based on calculated parameters."""
-        return self.lcz_calc.classify_lcz(grid_path, log_callback, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count, adaptive_calibration=adaptive_calibration, profile=profile)
+        return self.lcz_calc.classify_lcz(grid_path, log_callback, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count, adaptive_calibration=adaptive_calibration, profile=profile, force_urban_esa=force_urban_esa)
 
     def _download_file_generic(self, url, local_path, auth=None):
         return download_file_generic(url, local_path, auth)

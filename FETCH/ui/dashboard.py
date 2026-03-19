@@ -511,7 +511,7 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         QgsApplication.taskManager().addTask(task)
 
-    def run_classification(self, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score'):
+    def run_classification(self, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score', force_urban_esa=False):
         """Run final LCZ classification."""
         project_path = QgsProject.instance().fileName()
         if not project_path:
@@ -550,7 +550,7 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
         self.progress_section.set_status(status_msg)
         self.progress_section.set_indeterminate(True)
         
-        task = ClassificationTask(self.data_manager, grid_path, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count, adaptive_calibration=adaptive_calibration, profile=profile)
+        task = ClassificationTask(self.data_manager, grid_path, method=method, apply_smoothing=apply_smoothing, is_training=is_training, veto_count=veto_count, adaptive_calibration=adaptive_calibration, profile=profile, force_urban_esa=force_urban_esa)
         
         def on_finished(success):
             self.set_dashboard_enabled(True)

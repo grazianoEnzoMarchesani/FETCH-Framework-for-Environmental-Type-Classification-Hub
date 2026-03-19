@@ -22,7 +22,7 @@ class LCZClassificationProcessor:
     def log(self, msg, level=Qgis.Info):
         QgsMessageLog.logMessage(msg, "FETCH", level)
     
-    def process(self, layer, log_callback=None, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score'):
+    def process(self, layer, log_callback=None, method='stable', apply_smoothing=True, is_training=False, veto_count=1, adaptive_calibration=False, profile='z-score', force_urban_esa=False):
         """
         Dispatches processing to the selected method.
         """
@@ -32,7 +32,7 @@ class LCZClassificationProcessor:
         if adaptive_calibration:
             if log_callback: log_callback("🔄 [PASSAGGIO 1] Avvio classificazione per calibrazione locale...")
             # Disable training and smoothing for Pass 1 to get "pure" data faster
-            self._execute_process(layer, None, method, apply_smoothing=False, is_training=False, veto_count=veto_count, profile=profile)
+            self._execute_process(layer, None, method, apply_smoothing=False, is_training=False, veto_count=veto_count, profile=profile, force_urban_esa=force_urban_esa)
             
             if log_callback: log_callback("🔍 Analisi campioni ad alta confidenza per calibrazione...")
             from .calibration_manager import CalibrationManager
@@ -50,9 +50,9 @@ class LCZClassificationProcessor:
                 if log_callback: log_callback("⚠ Calibrazione non riuscita (pochi campioni validi). Procedo con parametri standard.")
 
         # Final Pass (or only pass)
-        return self._execute_process(layer, log_callback, method, apply_smoothing, is_training, veto_count, calibration_overrides, profile)
+        return self._execute_process(layer, log_callback, method, apply_smoothing, is_training, veto_count, calibration_overrides, profile, force_urban_esa)
 
-    def _execute_process(self, layer, log_callback, method, apply_smoothing, is_training, veto_count, calibration_overrides=None, profile='z-score'):
+    def _execute_process(self, layer, log_callback, method, apply_smoothing, is_training, veto_count, calibration_overrides=None, profile='z-score', force_urban_esa=False):
         if method == 'stable' or method == 'standard':
             from .classification_standard import LCZClassificationProcessorStandard
             if not self.standard_proc:
@@ -111,7 +111,7 @@ class LCZClassificationProcessor:
             from .classification_v8_semantic import LCZClassificationProcessorV8
             if not hasattr(self, 'v8_proc') or not self.v8_proc:
                 self.v8_proc = LCZClassificationProcessorV8(self.dm)
-            return self.v8_proc.process(layer, log_callback, apply_smoothing=apply_smoothing, is_training=is_training, calibration_overrides=calibration_overrides)
+            return self.v8_proc.process(layer, log_callback, apply_smoothing=apply_smoothing, is_training=is_training, calibration_overrides=calibration_overrides, force_urban_esa=force_urban_esa)
             
         else:
             return self._execute_process(layer, log_callback, method='stable', apply_smoothing=apply_smoothing, is_training=False, veto_count=1)

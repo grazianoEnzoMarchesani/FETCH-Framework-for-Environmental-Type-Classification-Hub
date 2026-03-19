@@ -23,7 +23,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
     # Signals
     parameter_requested = pyqtSignal(str)  # parameter_id
     visualization_requested = pyqtSignal(str)  # field_name
-    classify_requested = pyqtSignal(str, bool, bool, object, bool, str) # method, smoothing, training, veto, adaptive, profile
+    classify_requested = pyqtSignal(str, bool, bool, object, bool, str, bool) # method, smoothing, training, veto, adaptive, profile, force_urban_esa
     stats_requested = pyqtSignal()
     crystallize_requested = pyqtSignal()  # export styled vector layers
     training_mode_requested = pyqtSignal(bool) # enabled
@@ -210,6 +210,14 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         self.chk_adaptive.setStyleSheet("font-size: 11px; color: #8e44ad; font-weight: bold; padding: 5px;")
         actions_layout.addWidget(self.chk_adaptive)
         
+        # ESA v8 Force Urban Toggle
+        self.chk_force_urban_esa = QCheckBox("Forza LCZ 1-10 se ESA = 50 (Urbano)")
+        self.chk_force_urban_esa.setChecked(True)
+        self.chk_force_urban_esa.setToolTip("Se attivato, i distretti semantici con ESA WorldCover = 50 (Built-up) verranno forzati a cercare corrispondenze solo nelle classi urbane (1-10).")
+        self.chk_force_urban_esa.setStyleSheet("font-size: 11px; color: #d35400; font-weight: bold; padding: 5px;")
+        self.chk_force_urban_esa.setVisible(False)
+        actions_layout.addWidget(self.chk_force_urban_esa)
+        
         # Recommendation Label (Hidden by default)
         self.lbl_smoothing_rec = QLabel("💡 Consigliato disattivare lo smoothing con v1.1/v2.1")
         self.lbl_smoothing_rec.setStyleSheet("color: #e67e22; font-size: 10px; font-weight: bold; margin-left: 20px;")
@@ -346,6 +354,7 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
             self.chk_smoothing.setChecked(False) # v7 is object-based, doesn't need pixel smoothing
 
         # v8.0 (index 9)
+        self.chk_force_urban_esa.setVisible(index == 9)
         if index == 9:
             self.chk_smoothing.setChecked(False) # v8 is also object-based
             self.chk_adaptive.setChecked(False) # v8 uses rigid archetypes, 2-pass not needed
@@ -408,7 +417,9 @@ class ParametersSection(QgsCollapsibleGroupBox, HelpMixin):
         profile = profile_map.get(self.profile_combo.currentIndex(), 'z-score') if idx == 7 else 'z-score'
             
         adaptive_calibration = self.chk_adaptive.isChecked()
-        self.classify_requested.emit(method, apply_smoothing, is_training, veto_count, adaptive_calibration, profile)
+        force_urban_esa = self.chk_force_urban_esa.isChecked() if idx == 9 else False
+        
+        self.classify_requested.emit(method, apply_smoothing, is_training, veto_count, adaptive_calibration, profile, force_urban_esa)
 
 
     def set_indicator_enabled(self, field_name, enabled):
