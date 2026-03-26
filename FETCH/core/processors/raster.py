@@ -33,13 +33,29 @@ class RasterProcessor:
         self.log(f"Trovati {len(input_files)} file raster da processare...")
         
         if len(input_files) > 1 and config.get("merge", False):
-            temp_merged = output_path.replace(".tif", "_merged_temp.tif")
+            temp_merged = output_path.replace(".tif", "_merged_temp.vrt")
             merge_params = {
                 'INPUT': input_files,
-                'PCT': False, 'SEPARATE': False, 'DATA_TYPE': 5, 'OUTPUT': temp_merged
+                'RESOLUTION': 0, # Highest
+                'SEPARATE': False,
+                'PROJ_DIFFERENCE': False,
+                'ADD_ALPHA': False,
+                'OUTPUT': temp_merged
             }
-            processing.run("gdal:merge", merge_params)
-            input_for_warp = temp_merged
+            try:
+                processing.run("gdal:buildvirtualraster", merge_params)
+                input_for_warp = temp_merged
+            except Exception as e:
+                self.log(f"Errore VRT: {e}. Fallback su gdal:merge con compressione...")
+                temp_merged = output_path.replace(".tif", "_merged_temp.tif")
+                merge_params = {
+                    'INPUT': input_files,
+                    'PCT': False, 'SEPARATE': False, 'DATA_TYPE': 5, 
+                    'OPTIONS': 'COMPRESS=DEFLATE|PREDICTOR=2|ZLEVEL=6',
+                    'OUTPUT': temp_merged
+                }
+                processing.run("gdal:merge", merge_params)
+                input_for_warp = temp_merged
         else:
             input_for_warp = input_files[0]
         

@@ -11,9 +11,9 @@ class SurfaceAdmittanceProcessor(LCZBaseProcessor):
         Uses Oke (1987) coefficients and ESA WorldCover classes.
         Formula: μ = Σ(Fraction_i * Admittance_i) / 100
         """
-        def log_local(msg):
+        def log_local(msg, level=Qgis.Info):
             if log_callback: log_callback(msg)
-            self.log(msg)
+            self.log(msg, level)
 
         # 1. Ensure building_frac exists (BSF)
         idx_bld = layer.fields().indexFromName('building_frac')

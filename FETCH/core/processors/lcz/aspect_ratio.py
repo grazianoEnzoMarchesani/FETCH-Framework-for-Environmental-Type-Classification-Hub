@@ -76,8 +76,9 @@ class AspectRatioProcessor(LCZBaseProcessor):
             # Forziamo tutto nel CRS della griglia (che è UTM/Metrico per il progetto FETCH)
             target_crs = layer.crs()
             if target_crs.isGeographic():
-                target_crs = QgsCoordinateReferenceSystem("EPSG:32632") # Fallback safe
-
+                from ...utils import get_target_crs_for_extent
+                target_crs_auth = get_target_crs_for_extent(layer.extent(), target_crs.authid())
+                target_crs = QgsCoordinateReferenceSystem(target_crs_auth)
             bld_to_grid = QgsCoordinateTransform(bld_layer.crs(), target_crs, QgsProject.instance())
             grid_to_bld = QgsCoordinateTransform(layer.crs(), bld_layer.crs(), QgsProject.instance())
 

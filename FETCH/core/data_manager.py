@@ -24,7 +24,7 @@ from .processors.raster import RasterProcessor
 from .processors.vector import VectorProcessor
 from .processors.lcz_calculator import LCZCalculator
 from .processors.sentinel2 import Sentinel2Processor
-from .utils import get_utm_zone_for_extent, download_file_generic
+from .utils import get_target_crs_for_extent, download_file_generic
 
 class DataManager:
     """
@@ -180,8 +180,8 @@ class DataManager:
         
         return False, "Errore durante la creazione del mosaico finale."
 
-    def get_utm_zone_for_extent(self, extent, crs_auth_id):
-        return get_utm_zone_for_extent(extent, crs_auth_id)
+    def get_target_crs_for_extent(self, extent, crs_auth_id):
+        return get_target_crs_for_extent(extent, crs_auth_id)
 
     def unify_and_clip_data(self, extent, crs_auth_id, log_callback=None):
         """Orchestrates the unification of all downloaded datasets."""
@@ -192,7 +192,7 @@ class DataManager:
         unified_dir = os.path.join(data_dir, "unified")
         if not os.path.exists(unified_dir): os.makedirs(unified_dir)
         
-        target_crs_auth = self.get_utm_zone_for_extent(extent, crs_auth_id)
+        target_crs_auth = self.get_target_crs_for_extent(extent, crs_auth_id)
         if log_callback:
             log_callback(f"Definizione CRS Target: {target_crs_auth}")
             
@@ -258,7 +258,7 @@ class DataManager:
             FileNames.CORINE: LayerNames.CORINE,
         }
 
-        # Determine optimal UTM projection from a reference layer (e.g. Buildings)
+        # Determine optimal target projection from a reference layer (e.g. Buildings)
         # to ensure project consistency
         ref_path = os.path.join(unified_dir, FileNames.BUILDINGS)
         target_crs_forced = None
@@ -291,7 +291,7 @@ class DataManager:
         
         # PRO-ACTIVE VISIBILITY FIXES
         if target_crs_forced:
-            # Set the entire Project to the UTM Zone
+            # Set the entire Project to the target CRS
             QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(target_crs_forced))
         
         # Load TCD layer from copernicus_hrl (not unified, downloaded directly)

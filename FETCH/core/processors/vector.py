@@ -202,8 +202,8 @@ class VectorProcessor:
              metric_crs = source_crs
              metric_extent = extent
         else:
-             from ..utils import get_utm_zone_for_extent
-             metric_crs_auth = get_utm_zone_for_extent(extent, crs_auth_id)
+             from ..utils import get_target_crs_for_extent
+             metric_crs_auth = get_target_crs_for_extent(extent, crs_auth_id)
              metric_crs = QgsCoordinateReferenceSystem(metric_crs_auth)
              transform = QgsCoordinateTransform(source_crs, metric_crs, QgsProject.instance())
              metric_extent = transform.transformBoundingBox(extent)
@@ -274,8 +274,8 @@ class VectorProcessor:
         
         log_local(f"Usando layer esistente: {layer.name()}")
         
-        from ..utils import get_utm_zone_for_extent
-        target_crs_auth = get_utm_zone_for_extent(extent, crs_auth_id)
+        from ..utils import get_target_crs_for_extent
+        target_crs_auth = get_target_crs_for_extent(extent, crs_auth_id)
         target_crs = QgsCoordinateReferenceSystem(target_crs_auth)
         
         source_crs = QgsCoordinateReferenceSystem(crs_auth_id)

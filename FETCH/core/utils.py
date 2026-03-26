@@ -106,10 +106,10 @@ def is_within_italy(extent, crs_auth_id):
     # Check if the AOI intersects the Italian territory
     return italy_geom.intersects(extent_geom)
 
-def get_utm_zone_for_extent(extent, crs_auth_id):
+def get_target_crs_for_extent(extent, crs_auth_id):
     """
-    Determina la zona UTM corretta basata sul centroide dell'extent.
-    Restituisce l'EPSG della zona UTM appropriata per l'Italia.
+    Determina il CRS Gauss-Boaga (Monte Mario) corretto basato sul centroide dell'extent.
+    Restituisce EPSG:3003 (Fuso Ovest) o EPSG:3004 (Fuso Est) separati dal meridiano 12°E.
     """
     try:
         source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
@@ -122,16 +122,16 @@ def get_utm_zone_for_extent(extent, crs_auth_id):
         
         center_lon = w84_center.x()
         
-        # Clip to Italy's approximate longitude range (6E to 19E)
-        if center_lon < 6: center_lon = 6
-        if center_lon > 19: center_lon = 19
-        
-        zone = int((center_lon + 180) / 6) + 1
-        return f"EPSG:326{zone:02d}"
+        # Monte Mario Fuso Ovest (Zone 1) is ~6E to 12.0E
+        # Monte Mario Fuso Est (Zone 2) is ~12.0E to 19E
+        if center_lon < 12.0:
+            return "EPSG:3003"
+        else:
+            return "EPSG:3004"
     except Exception as e:
-        QgsMessageLog.logMessage(f"Fallback UTM Zone detection (e: {e})", "FETCH", Qgis.Warning)
-        # Default for Italy (Zone 32N covers Milan, Turin, Bologna, Florence, Rome)
-        return "EPSG:32632"
+        QgsMessageLog.logMessage(f"Fallback Target CRS detection (e: {e})", "FETCH", Qgis.Warning)
+        # Default for Italy (Zone 1)
+        return "EPSG:3003"
 
 def download_file_generic(url, local_path, auth=None):
     """Generic file downloader used by various modules with robust SSL error handling."""
