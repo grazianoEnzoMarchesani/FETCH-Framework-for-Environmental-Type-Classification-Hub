@@ -13,7 +13,7 @@ def apply_plugin_fixes():
     2. Sets multiprocessing start method to 'spawn'
     3. Configures PROJ_LIB/PROJ_DATA environment variables
     
-    Should be called at plugin startup (main.py) and in standalone scripts (sentinel2_albedo.py).
+    Should be called at plugin startup (main.py) and in specialized modules (e.g. downloaders).
     """
     if sys.platform != 'darwin':
         return  # Only needed on macOS

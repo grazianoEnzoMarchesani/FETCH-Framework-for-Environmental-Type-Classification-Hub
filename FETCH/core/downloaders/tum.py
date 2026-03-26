@@ -133,7 +133,11 @@ class TUMDownloader(BaseDownloader):
                 out_layer_path = res['OUTPUT']
                 
                 # Verifichiamo che il ritaglio non sia vuoto (nessun edificio intersecato)
-                test_layer = QgsVectorLayer(out_layer_path, "test", "ogr")
+                if isinstance(out_layer_path, QgsVectorLayer):
+                    test_layer = out_layer_path
+                else:
+                    test_layer = QgsVectorLayer(out_layer_path, "test", "ogr")
+                    
                 if test_layer.isValid() and test_layer.featureCount() > 0:
                     clipped_layers.append(out_layer_path)
                     

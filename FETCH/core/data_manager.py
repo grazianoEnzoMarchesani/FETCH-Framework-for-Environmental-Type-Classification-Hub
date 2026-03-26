@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+from pathlib import Path
 from qgis.core import QgsProject, QgsMessageLog, Qgis, QgsCoordinateReferenceSystem
 
 # Centralized constants
@@ -18,9 +19,11 @@ from .downloaders.hrl import HRLDownloader
 from .downloaders.tcd import TCDDownloader
 from .downloaders.industry import IndustryDownloader
 from .downloaders.corine import CorineDownloader
+from .downloaders.sentinel2 import Sentinel2Downloader
 from .processors.raster import RasterProcessor
 from .processors.vector import VectorProcessor
 from .processors.lcz_calculator import LCZCalculator
+from .processors.sentinel2 import Sentinel2Processor
 from .utils import get_utm_zone_for_extent, download_file_generic
 
 class DataManager:
@@ -43,10 +46,12 @@ class DataManager:
         self.tcd = TCDDownloader(self)
         self.industry = IndustryDownloader(self)
         self.corine = CorineDownloader(self)
+        self.sentinel2 = Sentinel2Downloader(self)
         
         self.raster_proc = RasterProcessor(self)
         self.vector_proc = VectorProcessor(self)
         self.lcz_calc = LCZCalculator(self)
+        self.sentinel2_proc = Sentinel2Processor(self)
 
         # UI Compatibility Attributes
         self.tum_categories = ["LoD1"]
@@ -122,8 +127,7 @@ class DataManager:
         return self.tcd.fetch_tree_cover_density(extent, crs_auth_id, log_callback=log_callback)
 
     def fetch_sentinel2_albedo(self, extent, crs_auth_id, username=None, password=None):
-        # Keep original logic for albedo as it's already in its own file
-        from .sentinel2_albedo import fetch_albedo_for_aoi
+        """Fetches and processes Sentinel-2 albedo for the given area."""
         output_dir = self.get_download_dir("sentinel2_albedo")
         if not output_dir: return False, "Project not saved"
         
@@ -131,7 +135,7 @@ class DataManager:
         existing = [f for f in os.listdir(output_dir) if f.endswith('_albedo_10m.tif')]
         if existing: return True, f"Albedo già presente: {existing[0]}"
         
-        # WGS84 Extent
+        # WGS84 Extent for search
         from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform
         source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
         target_crs = QgsCoordinateReferenceSystem("EPSG:4326")
@@ -139,15 +143,42 @@ class DataManager:
         w84 = transform.transformBoundingBox(extent)
         bbox = (w84.xMinimum(), w84.yMinimum(), w84.xMaximum(), w84.yMaximum())
         
-        # Call with keyword arguments to avoid positional errors
-        success, msg, path = fetch_albedo_for_aoi(
-            bbox=bbox, 
-            output_dir=output_dir, 
-            username=username, 
-            password=password, 
-            log_callback=lambda m: QgsMessageLog.logMessage(m, "FETCH")
-        )
-        return success, msg
+        # 1. Search for products
+        self.sentinel2.username = username or self.sentinel2.username
+        self.sentinel2.password = password or self.sentinel2.password
+        
+        from datetime import datetime, timedelta
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        
+        products = self.sentinel2.search_products(bbox, start_date, end_date)
+        if not products:
+            return False, "Nessun prodotto Sentinel-2 trovato per l'area selezionata."
+            
+        optimal_products = self.sentinel2.get_optimal_products(products, bbox)
+        
+        # 2. Download products
+        download_dir = self.get_download_dir("downloads/sentinel2")
+        individual_outputs = []
+        
+        for i, product in enumerate(optimal_products):
+            safe_path = self.sentinel2.download_product(product, download_dir)
+            if not safe_path: continue
+            
+            # 3. Process albedo
+            output_path = os.path.join(output_dir, f"{safe_path.stem}_albedo_10m.tif")
+            if self.sentinel2_proc.process_albedo(safe_path, bbox, Path(output_path)):
+                individual_outputs.append(Path(output_path))
+        
+        if not individual_outputs:
+            return False, "Errore durante il download o l'elaborazione dei prodotti Sentinel-2."
+            
+        # 4. Mosaic if needed
+        final_output = os.path.join(output_dir, "sentinel2_albedo_10m.tif")
+        if self.sentinel2_proc.mosaic_tiles(individual_outputs, Path(final_output)):
+            return True, f"Albedo calcolato con successo: {os.path.basename(final_output)}"
+        
+        return False, "Errore durante la creazione del mosaico finale."
 
     def get_utm_zone_for_extent(self, extent, crs_auth_id):
         return get_utm_zone_for_extent(extent, crs_auth_id)
