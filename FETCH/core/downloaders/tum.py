@@ -28,6 +28,23 @@ class TUMDownloader(BaseDownloader):
         del Global Building Atlas, senza bisogno di scaricare alcun file indice.
         """
         extent = aoi_geometry.boundingBox()
+        
+        # SAFETY CHECK: If coordinates are clearly NOT geographic (decimal degrees), 
+        # force a transformation to WGS84. This handles cases where the incoming geometry
+        # is still in a local metric CRS (e.g. Monte Mario 3003/3004 or UTM).
+        if extent.xMinimum() > 180 or extent.xMinimum() < -180:
+            from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+            self.log("AOI in metri rilevata: conversione interna in WGS84 per la griglia TUM Building Atlas.")
+            
+            # Use the project CRS as the likely source for the incoming geometry
+            source_crs = QgsProject.instance().crs()
+            target_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+            transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance().transformContext())
+            
+            # transform() modifies the geometry in place
+            aoi_geometry.transform(transform)
+            extent = aoi_geometry.boundingBox()
+
         lon_min_aoi = extent.xMinimum()
         lat_min_aoi = extent.yMinimum()
         lon_max_aoi = extent.xMaximum()

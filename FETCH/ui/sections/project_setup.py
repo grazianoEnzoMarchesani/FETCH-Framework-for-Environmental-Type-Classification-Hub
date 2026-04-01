@@ -23,7 +23,7 @@ from qgis.PyQt.QtCore import QVariant, QMetaType
 from qgis.PyQt.QtGui import QColor
 from qgis.gui import QgsMapLayerComboBox, QgsCollapsibleGroupBox
 
-from ...core.utils import is_within_italy
+from ...core.utils import is_within_italy, get_target_crs_for_extent
 from ..mixins.help_mixin import HelpMixin
 from ..help_content import HELP_PROJECT_SETUP
 
@@ -206,21 +206,30 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
             
             boundary_path = os.path.join(data_dir, "boundary.gpkg")
             
-            # Create polygon geometry from extent
-            polygon = QgsGeometry.fromRect(extent)
-            
             # Set up fields
             fields = QgsFields()
             fields.append(QgsField("name", QMetaType.QString))
             fields.append(QgsField("source", QMetaType.QString))
             
-            # Create CRS
-            crs = QgsCoordinateReferenceSystem(crs_authid)
+            # Create CRS - Standardized to 3003/3004 if in Italy
+            target_crs_auth = get_target_crs_for_extent(extent, crs_authid)
+            crs = QgsCoordinateReferenceSystem(target_crs_auth)
+            
+            # Transform extent to target CRS for layer creation
+            source_crs = QgsCoordinateReferenceSystem(crs_authid)
+            if source_crs != crs:
+                from qgis.core import QgsCoordinateTransform
+                transform = QgsCoordinateTransform(source_crs, crs, QgsProject.instance())
+                extent_target = transform.transformBoundingBox(extent)
+                polygon = QgsGeometry.fromRect(extent_target)
+            else:
+                polygon = QgsGeometry.fromRect(extent)
             
             # Set up writer options
             save_options = QgsVectorFileWriter.SaveVectorOptions()
             save_options.driverName = "GPKG"
             save_options.fileEncoding = "UTF-8"
+            save_options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
             
             # Create the writer
             writer = QgsVectorFileWriter.create(

@@ -56,7 +56,12 @@ class DataAcquisitionSection(QgsCollapsibleGroupBox, HelpMixin):
             
             cb = QCheckBox(src)
             cb.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
-            cb.setChecked(True)
+            
+            # Set default checked state - CORINE is unchecked by default as requested
+            if src == "CORINE Land Cover (EEA)":
+                cb.setChecked(False)
+            else:
+                cb.setChecked(True)
             row_layout.addWidget(cb)
             
             # Map source name to help key

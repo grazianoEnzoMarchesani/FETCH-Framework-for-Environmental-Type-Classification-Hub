@@ -72,44 +72,36 @@ from qgis.core import QgsRectangle, QgsCoordinateReferenceSystem, QgsCoordinateT
 
 def is_within_italy(extent, crs_auth_id):
     """
-    Checks if a QgsRectangle is within the Italian territory using a simplified polygon.
-    Italy approximate polygon in WGS84 to exclude Balkans and neighboring areas.
+    Verifica se un extent si trova nell'area di competenza dei sistemi Monte Mario (Italia).
+    Utilizza un bounding box generoso (Lon 6-19, Lat 35-48) per evitare falsi negativi 
+    nelle zone costiere o di confine.
     """
     if extent.isEmpty():
         return False
         
-    # Simplified WKT for Italy (Mainland + major islands)
-    italy_wkt = (
-        "POLYGON(("
-        "6.6 47.1, 11.1 47.1, 13.9 46.8, 14.0 45.4, 15.5 42.0, 18.6 40.5, "
-        "18.6 39.7, 17.5 39.0, 15.8 36.5, 14.5 36.5, 11.5 35.3, 11.0 38.0, "
-        "8.0 38.0, 7.5 41.0, 6.6 44.0, 6.6 47.1"
-        "))"
-    )
-    italy_geom = QgsGeometry.fromWkt(italy_wkt)
-    
     target_crs = QgsCoordinateReferenceSystem("EPSG:4326")
     source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
     
-    # Transform extent to WGS84
+    # Transform centroid to WGS84
     transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
     try:
-        # Create a geometry from the extent
-        extent_geom = QgsGeometry.fromRect(extent)
-        # In QGIS 3, transform() modifies the geometry in-place and returns a status code
-        res = extent_geom.transform(transform)
-        if res != 0: # 0 means Success
-            return False
-    except:
-        return False
+        center = extent.center()
+        w84_center = transform.transform(center)
+        lon, lat = w84_center.x(), w84_center.y()
         
-    # Check if the AOI intersects the Italian territory
-    return italy_geom.intersects(extent_geom)
+        # Generous bounds for Italy (Mainland + Islands + Territorial Waters)
+        # Longitude: 6.0E to 19.0E
+        # Latitude: 35.0N to 48.0N
+        return (6.0 <= lon <= 19.0) and (35.0 <= lat <= 48.0)
+        
+    except Exception:
+        return False
 
 def get_target_crs_for_extent(extent, crs_auth_id):
     """
-    Determina il CRS Gauss-Boaga (Monte Mario) corretto basato sul centroide dell'extent.
-    Restituisce EPSG:3003 (Fuso Ovest) o EPSG:3004 (Fuso Est) separati dal meridiano 12°E.
+    Determina il CRS ottimale per l'elaborazione metrica.
+    Se in Italia: restituisce Gauss-Boaga (EPSG:3003/3004) basato sul meridiano 12°E.
+    Se fuori Italia: restituisce la zona UTM appropriata (EPSG:326xx per Nord, 327xx per Sud).
     """
     try:
         source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
@@ -121,16 +113,27 @@ def get_target_crs_for_extent(extent, crs_auth_id):
         w84_center = transform.transform(center)
         
         center_lon = w84_center.x()
+        center_lat = w84_center.y()
+
+        # Step 1: Check if inside Italy to apply Monte Mario Gauss-Boaga fix
+        if is_within_italy(extent, crs_auth_id):
+            # Monte Mario Fuso Ovest (Zone 1) is ~6E to 12.0E
+            # Monte Mario Fuso Est (Zone 2) is ~12.0E to 19E
+            if center_lon < 12.0:
+                return "EPSG:3003"
+            else:
+                return "EPSG:3004"
         
-        # Monte Mario Fuso Ovest (Zone 1) is ~6E to 12.0E
-        # Monte Mario Fuso Est (Zone 2) is ~12.0E to 19E
-        if center_lon < 12.0:
-            return "EPSG:3003"
-        else:
-            return "EPSG:3004"
+        # Step 2: Global fallback to UTM Zone
+        import math
+        utm_zone = int((center_lon + 180) / 6) + 1
+        # EPSG:32601-32660 for North hemisphere, 32701-32760 for South
+        epsg_base = 32600 if center_lat >= 0 else 32700
+        return f"EPSG:{epsg_base + utm_zone}"
+
     except Exception as e:
         QgsMessageLog.logMessage(f"Fallback Target CRS detection (e: {e})", "FETCH", Qgis.Warning)
-        # Default for Italy (Zone 1)
+        # Default for Italy (Zone 1) if all fails
         return "EPSG:3003"
 
 def download_file_generic(url, local_path, auth=None):

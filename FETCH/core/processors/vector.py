@@ -146,14 +146,43 @@ class VectorProcessor:
             self.log(f"Errore Step 3 (Fix): {str(e)}", Qgis.Critical)
             return False
         
-        # Step 4/4: Final Save to output_path and Spatial Index
-        self.log(f"Step 4/4: Salvataggio finale e indicizzazione...")
+        # Step 4/5: Final Precision Clip to resolve 'tilted' edges from reprojection
+        self.log(f"Step 4/5: Ritaglio finale di precisione...")
+        mask_layer = None
+        # Try to find the Boundary AOI in the project for a perfect geometrical match
+        boundary_layers = QgsProject.instance().mapLayersByName("Boundary AOI (auto)")
+        if boundary_layers and boundary_layers[0].isValid():
+            mask_layer = boundary_layers[0]
+            
+        try:
+            if mask_layer:
+                self.log(f" -> Uso maschera geometrica: {mask_layer.name()}")
+                res_final = processing.run("native:clip", {
+                    'INPUT': fixed_layer,
+                    'OVERLAY': mask_layer,
+                    'OUTPUT': 'TEMPORARY_OUTPUT'
+                }, context=context)
+            else:
+                self.log(" -> Nessun bordo trovato: uso ritaglio per estensione metrica (axis-aligned).")
+                res_final = processing.run("native:extractbyextent", {
+                    'INPUT': fixed_layer,
+                    'EXTENT': target_extent,
+                    'CLIP': True,
+                    'OUTPUT': 'TEMPORARY_OUTPUT'
+                }, context=context)
+            final_clipped_layer = res_final['OUTPUT']
+        except Exception as e:
+            self.log(f"Errore Step 4 (Final Clip): {str(e)}. Procedo con layer non ritagliato.", Qgis.Warning)
+            final_clipped_layer = fixed_layer
+            
+        # Step 5/5: Final Save to output_path and Spatial Index
+        self.log(f"Step 5/5: Salvataggio finale e indicizzazione...")
         try:
             # Ensure the output directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
             processing.run("native:savefeatures", {
-                'INPUT': fixed_layer,
+                'INPUT': final_clipped_layer,
                 'OUTPUT': output_path
             }, context=context)
             
@@ -196,17 +225,18 @@ class VectorProcessor:
 
         log_local(f"Creazione griglia LCZ {cell_size}x{cell_size}m...")
         
-        # Ensure extent is in a metric CRS for grid creation
+        # Standardize CRS: Always determine the optimal metric target (e.g., 3003/3004 for Italy)
+        # instead of relying on whether the source/project CRS is already metric (e.g. 3857).
+        from ..utils import get_target_crs_for_extent
+        metric_crs_auth = get_target_crs_for_extent(extent, crs_auth_id)
+        metric_crs = QgsCoordinateReferenceSystem(metric_crs_auth)
         source_crs = QgsCoordinateReferenceSystem(crs_auth_id)
-        if not source_crs.isGeographic():
-             metric_crs = source_crs
-             metric_extent = extent
+
+        if source_crs == metric_crs:
+            metric_extent = extent
         else:
-             from ..utils import get_target_crs_for_extent
-             metric_crs_auth = get_target_crs_for_extent(extent, crs_auth_id)
-             metric_crs = QgsCoordinateReferenceSystem(metric_crs_auth)
-             transform = QgsCoordinateTransform(source_crs, metric_crs, QgsProject.instance())
-             metric_extent = transform.transformBoundingBox(extent)
+            transform = QgsCoordinateTransform(source_crs, metric_crs, QgsProject.instance())
+            metric_extent = transform.transformBoundingBox(extent)
 
         # Create grid
         grid_res = processing.run("native:creategrid", {

@@ -88,9 +88,16 @@ class DownloadTask(QgsTask):
                 
                 source_crs = QgsCoordinateReferenceSystem(self.crs)
                 wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
-                transform = QgsCoordinateTransform(source_crs, wgs84_crs, QgsProject.instance())
+                
+                # Use project context for transformation (required for background tasks in QGIS 3)
+                transform = QgsCoordinateTransform(source_crs, wgs84_crs, QgsProject.instance().transformContext())
+                
                 aoi_geom = QgsGeometry.fromRect(self.extent)
-                aoi_geom.transform(transform)
+                # transform() returns 0 on success, error code otherwise
+                res = aoi_geom.transform(transform)
+                if res != 0:
+                    task_log(f"✗ Fallimento trasformazione AOI Geometria (Codice: {res})", Qgis.Critical)
+                    # We continue but TUM might fail later
 
                 for category in self.data_manager.tum_categories:
                     if self.isCanceled(): return False

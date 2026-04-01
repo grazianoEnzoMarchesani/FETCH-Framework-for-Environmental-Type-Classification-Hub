@@ -203,28 +203,45 @@ class DataManager:
         t_extent = transform.transformBoundingBox(extent)
         
         mapping = {
-            FolderNames.TINITALY: {"pattern": "**/*_s10.tif", "output_name": FileNames.DTM, "merge": True, "recursive": True},
-            FolderNames.TUM: {"pattern": "*.*", "output_name": FileNames.BUILDINGS, "type": "vector"},
-            FolderNames.ETH: {"pattern": "*.tif", "output_name": FileNames.CANOPY, "merge": True},
-            FolderNames.ESA: {"pattern": "*.tif", "output_name": FileNames.LANDUSE, "merge": True},
-            FolderNames.META: {"pattern": "meta_hrsl_aoi.tif", "output_name": FileNames.POPULATION, "merge": False},
-            FolderNames.SENTINEL: {"pattern": "*_albedo_10m.tif", "output_name": FileNames.ALBEDO, "merge": False},
-            FolderNames.OSM: {"pattern": "roads.geojson", "output_name": FileNames.ROADS, "type": "vector"},
-            FolderNames.ANAS: {"pattern": "traffic_points.json", "output_name": FileNames.TRAFFIC, "type": "vector"},
-            FolderNames.HRL: {"pattern": "imperviousness_10m.tif", "output_name": FileNames.IMPERVIOUSNESS, "merge": False},
-            FolderNames.INDUSTRY: {"pattern": "industrial_sites.json", "output_name": FileNames.INDUSTRY, "type": "vector"},
-            FolderNames.CORINE: {"pattern": "corine_clc2018.json", "output_name": FileNames.CORINE, "type": "vector"},
+            "tinitaly": {"folder": FolderNames.TINITALY, "pattern": "**/*_s10.tif", "output_name": FileNames.DTM, "merge": True, "recursive": True},
+            "tum": {"folder": FolderNames.TUM, "pattern": "*.*", "output_name": FileNames.BUILDINGS, "type": "vector"},
+            "eth": {"folder": FolderNames.ETH, "pattern": "*.tif", "output_name": FileNames.CANOPY, "merge": True},
+            "esa": {"folder": FolderNames.ESA, "pattern": "*.tif", "output_name": FileNames.LANDUSE, "merge": True},
+            "meta": {"folder": FolderNames.META, "pattern": "meta_hrsl_aoi.tif", "output_name": FileNames.POPULATION, "merge": False},
+            "sentinel": {"folder": FolderNames.SENTINEL, "pattern": "*_albedo_10m.tif", "output_name": FileNames.ALBEDO, "merge": False},
+            "osm": {"folder": FolderNames.OSM, "pattern": "roads.geojson", "output_name": FileNames.ROADS, "type": "vector"},
+            "anas": {"folder": FolderNames.ANAS, "pattern": "traffic_points.json", "output_name": FileNames.TRAFFIC, "type": "vector"},
+            "hrl_imp": {"folder": FolderNames.HRL, "pattern": "imperviousness_10m.tif", "output_name": FileNames.IMPERVIOUSNESS, "merge": False},
+            "hrl_tcd": {"folder": FolderNames.HRL, "pattern": "tcd_10m.tif", "output_name": FileNames.TCD, "merge": False},
+            "industry": {"folder": FolderNames.INDUSTRY, "pattern": "industrial_sites.json", "output_name": FileNames.INDUSTRY, "type": "vector"},
+            "corine": {"folder": FolderNames.CORINE, "pattern": "corine_clc2018.json", "output_name": FileNames.CORINE, "type": "vector"},
         }
         
         output_paths = []
-        for folder, config in mapping.items():
+        for key, config in mapping.items():
+            folder = config.get("folder", key)
             f_path = os.path.join(data_dir, folder)
             if not os.path.exists(f_path): continue
             
             out_path = os.path.join(unified_dir, config["output_name"])
+            is_vector = config.get("type") == "vector"
+            
             if os.path.exists(out_path):
-                # self.log(f"Skip {folder}: già unificato.")
-                output_paths.append(out_path); continue
+                # Robust check: if the file exists, ensure it has the correct CRS
+                from qgis.core import QgsRasterLayer, QgsVectorLayer
+                lyr_check = QgsRasterLayer(out_path, "check") if not is_vector else QgsVectorLayer(out_path, "check", "ogr")
+                
+                # FORCE OVERWRITE FOR VECTORS: Always re-process to apply the latest alignment fix
+                # (Vectors are usually fast to process, so this is safe)
+                if is_vector:
+                    if log_callback: log_callback(f"Rielaborazione vettoriale per allineamento: {config['output_name']}...")
+                    if os.path.exists(out_path): os.remove(out_path)
+                elif lyr_check.isValid() and lyr_check.crs().authid() == target_crs_auth:
+                    # For rasters, we still skip if CRS is correct to save time
+                    output_paths.append(out_path); continue
+                else:
+                    if log_callback: log_callback(f"Rilevata discrepanza CRS in {config['output_name']}: rigenerazione...")
+                    if os.path.exists(out_path): os.remove(out_path)
             
             if log_callback: log_callback(f"Elaborazione dataset: {folder}...")
             
@@ -237,7 +254,7 @@ class DataManager:
                 
         return (True, f"Processati {len(output_paths)} dataset", output_paths) if output_paths else (False, "Nessun dato", [])
 
-    def load_unified_layers(self, log_callback=None):
+    def load_unified_layers(self, extent=None, crs_auth_id=None, log_callback=None):
         base_dir = self.get_project_dir()
         if not base_dir: return []
         unified_dir = os.path.join(base_dir, self.get_data_dir_name(), "unified")
@@ -254,6 +271,7 @@ class DataManager:
             FileNames.ROADS: LayerNames.ROADS,
             FileNames.TRAFFIC: LayerNames.TRAFFIC,
             FileNames.IMPERVIOUSNESS: LayerNames.IMPERVIOUSNESS,
+            FileNames.TCD: LayerNames.TCD,
             FileNames.INDUSTRY: LayerNames.INDUSTRY,
             FileNames.CORINE: LayerNames.CORINE,
         }
@@ -267,7 +285,17 @@ class DataManager:
             if l_ref.isValid():
                 target_crs_forced = l_ref.crs().authid()
         
-        # Fallback to current project CRS if layer ref fails
+        # Fallback 1: Calculate target CRS explicitly if extent/crs provided (most accurate)
+        if not target_crs_forced and extent and crs_auth_id:
+            target_crs_forced = self.get_target_crs_for_extent(extent, crs_auth_id)
+            
+        # Fallback 2: Check if Boundary AOI layer exists (should be in target CRS already)
+        if not target_crs_forced:
+            aoi_layers = QgsProject.instance().mapLayersByName("Boundary AOI (auto)")
+            if aoi_layers and aoi_layers[0].isValid():
+                target_crs_forced = aoi_layers[0].crs().authid()
+        
+        # Fallback 3: Project CRS (less ideal if in 3857, but last resort)
         if not target_crs_forced:
             target_crs_forced = QgsProject.instance().crs().authid()
 
@@ -294,19 +322,7 @@ class DataManager:
             # Set the entire Project to the target CRS
             QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(target_crs_forced))
         
-        # Load TCD layer from copernicus_hrl (not unified, downloaded directly)
-        tcd_path = os.path.join(base_dir, self.get_data_dir_name(), "copernicus_hrl", FileNames.TCD)
-        if os.path.exists(tcd_path):
-            existing_tcd = QgsProject.instance().mapLayersByName(LayerNames.TCD)
-            for lyr_old in existing_tcd:
-                QgsProject.instance().removeMapLayer(lyr_old.id())
-            tcd_layer = QgsRasterLayer(tcd_path, LayerNames.TCD)
-            if tcd_layer.isValid():
-                # Don't force CRS - let QGIS auto-reproject for display
-                QgsProject.instance().addMapLayer(tcd_layer)
-                layers.append(tcd_layer)
-                if log_callback:
-                    log_callback(f"✓ Caricato: {LayerNames.TCD}")
+        # TCD is now handled by the unified mapping above for CRS consistency
         
         if self.iface:
             # Zoom to the buildings layer (the most relevant one)

@@ -316,7 +316,7 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
                 self.progress_section.set_status("✓ Unificazione completata.")
                 self.iface.messageBar().pushMessage("FETCH", "Dati unificati con successo!", level=3)
                 # Load all unified layers
-                self.data_manager.load_unified_layers()
+                self.data_manager.load_unified_layers(extent, crs)
             else:
                 self.progress_section.set_status(f"✗ Unificazione fallita: {task.message}", is_error=True)
         
