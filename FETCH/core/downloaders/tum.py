@@ -36,14 +36,24 @@ class TUMDownloader(BaseDownloader):
             from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
             self.log("AOI in metri rilevata: conversione interna in WGS84 per la griglia TUM Building Atlas.")
             
-            # Use the project CRS as the likely source for the incoming geometry
+            # Use the project CRS as the source
             source_crs = QgsProject.instance().crs()
             target_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+            
+            # Using transformContext is required for reliable results in QGIS 3 background threads
             transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance().transformContext())
             
             # transform() modifies the geometry in place
-            aoi_geometry.transform(transform)
+            res = aoi_geometry.transform(transform)
+            if res != 0:
+                self.log(f"⚠ Fallimento trasformazione interna TUM (Codice: {res}).", Qgis.Warning)
+                
             extent = aoi_geometry.boundingBox()
+
+        # FINAL VALIDATION: Avoid infinite loops if coordinates are still metric
+        if extent.xMinimum() > 180 or extent.xMinimum() < -180:
+            self.log("✗ ERRORE CRITICO: AOI non convertibile in gradi geografici. Verifica il CRS del progetto.", Qgis.Critical)
+            return []
 
         lon_min_aoi = extent.xMinimum()
         lat_min_aoi = extent.yMinimum()
@@ -55,8 +65,17 @@ class TUMDownloader(BaseDownloader):
         end_lon = int(math.floor(lon_max_aoi / 5.0) * 5)
         start_lat = int(math.floor(lat_min_aoi / 5.0) * 5)
         end_lat = int(math.floor(lat_max_aoi / 5.0) * 5)
+        
+        # SAFETY CAP: Max 40 tiles allowed to prevent infinite download loops on CRS errors
+        num_lon_tiles = (end_lon - start_lon) // 5 + 1
+        num_lat_tiles = (end_lat - start_lat) // 5 + 1
+        total_tiles = num_lon_tiles * num_lat_tiles
+        
+        if total_tiles > 40:
+            self.log(f"✗ Richiesta di troppi tasselli ({total_tiles} > 40). Probabile errore di proiezione. Interruzione di sicurezza.", Qgis.Critical)
+            return []
 
-        urls =[]
+        urls = []
         # Itera su tutti i quadrati 5x5 intersecati
         for lon in range(start_lon, end_lon + 5, 5):
             for lat in range(start_lat, end_lat + 5, 5):
