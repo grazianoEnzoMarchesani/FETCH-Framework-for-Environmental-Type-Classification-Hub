@@ -1,156 +1,117 @@
 # FETCH: Framework for Environmental Type Classification Hub
+### National-Scale Local Climate Zone Mapping Suite
 
-**FETCH** is an advanced geospatial framework designed to automate the classification and analysis of **Local Climate Zones (LCZ)**. Originally developed as a collection of processing scripts, FETCH has evolved into a modular **QGIS Plugin** that streamlines the entire workflow: from multi-source data acquisition to the calculation of complex urban climate parameters.
+[![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Version](https://img.shields.io/badge/version-2.0.0--alpha-orange.svg)](https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub)
+[![QGIS](https://img.shields.io/badge/QGIS-3.40%2B-green.svg)](https://qgis.org/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](#)
 
-![FETCH Logo](assets/fetch_logo.png)
+<p align="center">
+  <img src="assets/fetch_logo.png" alt="FETCH Logo" width="400">
+</p>
 
-## Technical Vision: From Scripts to Framework
-
-The project is currently transitioning from a series of standalone scripts to a fully integrated QGIS Plugin environment. This evolution improves:
-- **Modularity**: Specialized "Downloaders" and "Processors".
-- **Reproducibility**: Standardized workflows for LCZ mapping based on Stewart & Oke (2012).
-- **Usability**: A modern Dashboard UI to manage the entire pipeline asynchronously.
-
----
-
-## Data Methodology
-
-### 1. Data Acquisition
-FETCH integrates specialized downloaders for high-resolution global and regional datasets:
-- **ESA WorldCover (10m)**: Authoritative land cover classification.
-- **ETH Global Canopy Height (10m)**: Vegetation height data for $z_h$ and SVF transparency.
-- **Meta HRSL**: High-resolution population density for Anthropogenic Heat estimation.
-- **TINitaly**: 10m precision DEM for the Italian territory.
-- **TUM Building Height**: Building morphological data (LoD1 footprints).
-- **Sentinel-2 Albedo**: Automated calculation of surface albedo using Copernicus raw data.
-- **Copernicus HRL**: Imperviousness and Tree Cover Density (TCD) for refined surface fractions.
-- **OSM & ANAS**: Road network and traffic volume points for vehicular heat.
-
-### 2. Transformation & Unification
-The framework handles the heavy lifting of spatial alignment:
-- **Auto-UTM Projection**: All datasets are automatically re-projected to the appropriate UTM zone based on the Area of Interest (AOI).
-- **Clipping & Merging**: Disparate tiles are merged and clipped exactly to the AOI extent.
-- **Synthetic DSM**: Integration of DTM, Buildings, and Canopy layers into a unified high-resolution Synthetic DSM.
+**FETCH** is a cutting-edge geospatial framework designed to automate the classification and analysis of **Local Climate Zones (LCZ)**. Engineered for scalability, FETCH transitions from experimental scripts to a modular **QGIS Plugin**, providing a rigorous pipeline for urban climate research, sustainable planning, and environmental modeling.
 
 ---
 
-## LCZ Parameter "Decathlon"
+## 🚀 Key Features
 
-FETCH calculates the 10 core physical properties defined in the LCZ standard:
-
-| Parameter | Logic & Implementation | Specific Use |
-| :--- | :--- | :--- |
-| **Sky View Factor (SVF)** | Measured from ground-level POV; includes tree canopy transparency (0.7 opacity). | Radiation balance and sky accessibility. |
-| **Aspect Ratio (H/W)** | Measured via direct geometry: $\text{Mean Height} / \text{Median Distance to Neighbors}$. | Flow blockage and urban canyon geometry. |
-| **Building Surface Fraction (BSF)** | Exact intersection of building footprints within the grid cell. | Building density and urbanization level. |
-| **Impervious Surface Fraction (ISF)** | Derived from Copernicus HRL or ESA WorldCover minus BSF. | Surface sealing and runoff/heat storage. |
-| **Pervious Surface Fraction (PSF)** | Area covered by vegetation or bare soil (100% - BSF - ISF). | Evapotranspirative cooling potential. |
-| **Roughness Elements Height ($z_h$)** | Area-weighted mean height of buildings and tree canopies. | Drag and momentum exchange in the ABL. |
-| **Terrain Roughness ($z_0$)** | Mapped from LCZ-specific roughness classes (Davenport-Wieringa). | Wind profile and surface friction. |
-| **Surface Admittance** | Estimated based on the dominant surface materials (concrete vs soil). | Thermal inertia and diurnal temperature range. |
-| **Surface Albedo** | Calculated via Sentinel-2 BOA reflectance (automated pipeline). | Solar radiation reflection/absorption. |
-| **Anthro. Heat Flux (AHF)** | Combined model of population density, traffic volume, and industrial points. | Direct heat release from human activity. |
+- 🛰️ **Automated Data Acquisition**: Integrated downloaders for ESA WorldCover, ETH Canopy Height, Sentinel-2 (Albedo), and TUM Buildings.
+- 📐 **Synthetic DSM Strategy**: Advanced fusion of DTM, Building Footprints (LoD1), and Vegetation Height for high-fidelity urban morphology.
+- 🧠 **Multi-Engine Classification**: From standard RMSEP matching to **v8.0 Semantic Expert (XAI)** engines.
+- 📊 **Asynchronous Pipeline**: Modern Dashboard UI designed to handle heavy spatial computations without freezing the GIS environment.
+- 🇮🇹 **Italian Territory Optimization**: Specialized integration with national datasets like **TINitaly** and Mediterranean morphology presets.
 
 ---
 
-## Classification Philosophies
+## 📐 The "Synthetic DSM" Methodology
 
-FETCH offers a wide array of engines to accommodate different research needs, from standard-compliant statistical matching to advanced AI-driven contextual analysis.
+FETCH doesn't just overlay data; it reconstructs the urban fabric. By integrating three distinct layers, it creates a **Synthetic Digital Surface Model (S-DSM)**:
+1.  **Terrain**: 10m precision DTM (e.g., TINitaly).
+2.  **Buildings**: LoD1 footprints with architectural height attributes.
+3.  **Canopy**: ETH Global Canopy Height (10m) with customized transparency (0.7) for SVF calculation.
 
-### Standard & Experimental Engines
-- **Standard (Stable)**: Pure RMSEP (Root Mean Square Error of Prediction) matching based on Stewart & Oke (2012) nominal ranges. It is the baseline for LCZ classification ([DOI: 10.2495/SC250031](https://doi.org/10.2495/SC250031)).
-- **Experimental (v2.0)**: Uses a **Balanced Score** logic. It weights statistical proximity against a **Match Bonus** (15% error reduction for every parameter that falls perfectly within its archetype range), improving tie-breaking between similar classes.
-
-### Contextual Smoothing (v1.1 & v2.1)
-- **v1.1 & v2.1 (Weighted Contextual)**: These versions apply a 3x3 spatial kernel (Center=2, Neighbors=1) to the raw parameters *before* classification. This acts as a "physical smoothing" that reduces "salt-and-pepper" noise by considering the immediate morphological neighborhood.
-
-### Advanced Distance Engines (v3.0 & v6.0)
-### 1. v3.0 Advanced (RMSEP)
-- **Philosophy**: Statistical distance matching.
-- **How it works**: Calculates the Root Mean Square Error of Prediction (RMSEP) between the cell's parameters and the 10 ideal archetype ranges.
-- **Pros**: Perfectly compliant with the statistical standard; stable and predictable.
-- **Limits**: Can be sensitive to outliers in a single parameter (e.g., one very tall building).
-
-### 2. v6.0 WZD-V (Weighted Z-Distance with Veto)
-- **Philosophy**: Hierarchical statistical leadership.
-- **How it works**: Uses Z-scores weights ($Z^2$) to prioritize parameters that are most distinctive for a specific class (e.g., BSF for LCZ 3). Includes a **Veto** mechanism: if a dominant parameter (like SVF for LCZ A) is way out of range, the class is rejected regardless of others.
-- **Pros**: More robust than simple RMSEP; handles "tie-breaks" better.
-- **Limits**: Requires fine-tuning of weights for specific regional topographies.
-
-### Adaptive & Machine Learning Engines (v4.0 - v7.0)
-- **v4.0 FAD (Fuzzy Archetype Distance)**: Uses **Gaussian and Sigmoid membership** functions instead of binary ranges. This allows for a probabilistic fit that is highly resilient to Italian and Mediterranean morphological anomalies.
-- **v5.0 Mahalanobis Adaptive**: Implements a data-driven distance that considers parameter correlations (covariance). It uses a persistent **Knowledge Base** to blend theoretical ranges (60%) with local empirical data (40%).
-- **v7.0 RF (District-Based Random Forest)**: Clusters buildings into morphological districts (HDBSCAN) and classifies the coherent groups using a **Random Forest** model trained on the global Knowledge Base. It captures complex non-linear relationships between parameters.
-
-### Current State-of-the-Art
-### 3. v8.0 Semantic Expert Engine (The "Perito")
-- **Philosophy**: Contextual district logic and Explainable AI (XAI).
-- **How it works**: Clusters cells into "Districts" before classifying. It translates numbers into **Fuzzy Tags** (e.g., "High-rise", "Dense mix", "Mostly paved") and matches them against a rule-based expert system.
-- **Pros**: Absorbs salt-and-pepper noise locally; provides textual justification for every choice (XAI).
-- **Limits**: Higher computational cost due to spatial clustering; requires building height data for optimal results.
+This unified model ensures that parameters like **Sky View Factor (SVF)** and **Roughness ($z_h$)** are calculated with unprecedented geometric consistency.
 
 ---
 
-## Installation (Developer/Early Alpha)
+## 📊 The LCZ Parameter "Decathlon"
 
-> [!CAUTION]
-> The plugin is currently in active development. Features may change rapidly.
+The framework calculates the 10 core physical properties defined by Stewart & Oke (2012):
 
-1.  **Clone the Repository**:
-    ```bash
-    git clone https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub.git
-    ```
-2.  **Plugin Setup**:
-    - Link the `FETCH` folder to your QGIS plugins directory.
-    - Restart QGIS and enable the **FETCH** plugin in the Plugin Manager.
-3.  **Dependencies**:
-    - QGIS 3.34+ (LTS recommended)
-    - Python libraries: `numpy`, `eodag`, `rasterio`, `requests`, `pyproj`.
-
----
-
-## Project Roadmap
-
-### Phase 1: Foundation (Completed)
-- [x] Modular architecture refactoring.
-- [x] Basic Data Manager and Downloader structure.
-- [x] Implementation of core geometry processors (Vector/Raster).
-
-### Phase 2: Core Parameters & Albedo (Completed)
-- [x] Sentinel-2 Albedo integration.
-- [x] Optimization of Sky View Factor with transparency.
-- [x] Refactor of building height calculation logic (Synthetic DSM).
-- [x] Full 10-parameter calculation pipeline.
-
-### Phase 3: Advanced Analytics & UX (In Progress)
-- [x] **Semantic v8 Engine**: Clustering and XAI.
-- [x] **Map Crystallization**: Automated styling and export of parameter maps.
-- [ ] **Automated Validation**: Compare LCZ results with ground truth.
-- [ ] **Morphological Reports**: Generate PDF/Markdown summaries for each AOI.
+| Parameter | Symbol | Source / Logic | Impact |
+| :--- | :---: | :--- | :--- |
+| **Sky View Factor** | $SVF$ | Ray-casting on Synthetic DSM | Radiation balance |
+| **Aspect Ratio** | $H/W$ | Geometry-based (Height/Canyon Width) | Ventilation & heat trapping |
+| **Building Fraction** | $BSF$ | Footprint intersection within grid | Urbanization level |
+| **Impervious Fraction** | $ISF$ | Copernicus HRL / WorldCover | Runoff & heat storage |
+| **Pervious Fraction** | $PSF$ | Residual area (Veg/Soil) | Evapotranspirative cooling |
+| **Roughness Height** | $z_h$ | Area-weighted mean (Buildings + Trees) | Atmospheric Drag |
+| **Terrain Roughness** | $z_0$ | Davenport-Wieringa class mapping | Wind profile |
+| **Surface Admittance** | $\mu$ | Material thermal properties | Diurnal range |
+| **Surface Albedo** | $\alpha$ | Sentinel-2 BOA Reflectance | Solar radiation |
+| **Anthro. Heat Flux** | $Q_F$ | Population + Traffic + Industry | Direct heat release |
 
 ---
 
-## Known Issues & Current Limitations
+## 🧠 Classification Engines Portfolio
 
-> [!IMPORTANT]
-> **Regional Specification**: While FETCH utilizes global datasets (ESA, ETH, TUM, Sentinel-2), it is currently optimized for the **Italian territory**. This is due to the integration of high-precision national datasets like **TINitaly** and specific morphology tunings for Mediterranean urban contexts.
+FETCH offers a tiered approach to LCZ classification, allowing researchers to choose the engine that best fits their accuracy and explainability requirements.
 
-### Current Technical Challenges
-- **Albedo Download Latency**: The Albedo layer download currently requests an area significantly larger than the strict AOI to ensure full coverage. This can result in slow processing and high bandwidth usage (optimization in progress).
-- **Projection Rotation Artifacts**: In some instances, the captured boundary based on the visible map extent exhibits a slight rotation. This indicates a minor projection alignment error that requires further evaluation and refinement within Italian coordinate systems.
-- **Computation Cost**: Advanced engines like v8.0 Semantic and v7.0 RF require significant CPU/Memory resources due to district-based spatial clustering.
+### 🔹 Deterministic & Statistical (Baseline)
+- **Standard (v1.0)**: Pure RMSEP distance matching based on universal nominal ranges.
+- **Experimental (v2.0)**: Balanced score logic with match bonuses for perfect archetype fits.
+- **WZD-V (v6.0)**: Weighted Z-Distance with **Veto logic** for dominant parameters.
+
+### 🔸 AI-Driven & Semantic (SOTA)
+- **Fuzzy Archetype (v4.0)**: Gaussian membership functions for resilient Mediterranean mapping.
+- **Semantic Expert (v8.0)**: *The "Perito"*. Uses District-based clustering and Explainable AI (XAI) to provide textual justifications for every classification.
+- **Adaptive RF (v7.0)**: Random Forest model trained on a global knowledge base, optimal for capturing non-linear urban relationships.
 
 ---
 
-## License
+## 🛠️ Installation & Setup
+
+> [!WARNING]
+> **Experimental Version**: FETCH is currently in Early Alpha. Features and API are subject to rapid change.
+
+### 1. Plugin Installation
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub.git
+   ```
+2. Symlink or copy the `FETCH` directory to your QGIS plugins folder:
+   - **macOS**: `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/`
+   - **Windows**: `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\`
+3. Restart QGIS and enable **FETCH** in the Plugin Manager.
+
+### 2. Dependency Management
+FETCH requires several advanced Python libraries (`eodag`, `rasterio`, `hdbscan`, etc.). We provide an automated installer:
+1. Open the **QGIS Python Console**.
+2. Run the following command:
+   ```python
+   exec(open("path/to/FETCH/install_deps_qgis.py").read())
+   ```
+3. Restart QGIS.
+
+---
+
+## 🗺️ Project Roadmap
+
+- [x] **Phase 1**: Modular refactoring & Data Manager implementation.
+- [x] **Phase 2**: Albedo integration & Full 10-parameter pipeline.
+- [x] **Phase 3**: v8.0 Semantic Engine & XAI reporting.
+- [ ] **Phase 4**: Automated ground-truth validation & PDF Morphological Reports.
+- [ ] **Phase 5**: Multi-temporal LCZ analysis (Urban Evolution).
+
+---
+
+## 📜 License & Acknowledgements
 
 Distributed under the **GNU General Public License v3.0**. See `LICENSE` for details.
 
----
-
-## Acknowledgements
-
-- **Copernicus ecosystem** for Sentinel data.
-- **ESA, ETH, and TUM** for providing essential global datasets.
-- The **QGIS community** for the incredible open-source GIS engine.
-
+Special thanks to:
+- **Copernicus & ESA** for the Sentinel-2 and WorldCover datasets.
+- **ETH Zurich & TUM** for global height and morphological data.
+- **TINitaly Team** for high-resolution Italian elevation data.
+- The **QGIS Open Source Community**.
