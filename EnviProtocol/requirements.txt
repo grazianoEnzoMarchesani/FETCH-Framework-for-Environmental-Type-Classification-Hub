@@ -1,5 +1,0 @@
-# EnviProtocol Plugin Dependencies (Data Acquisition Core)
-eodag
-shapely
-requests
-urllib3
