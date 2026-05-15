@@ -49,7 +49,11 @@ class OSMDownloader:
 
         # 3. Request data
         try:
-            response = requests.post(self.overpass_url, data={'data': query}, timeout=30)
+            headers = {
+                'User-Agent': 'FETCH-Plugin/1.0 (QGIS)',
+                'Accept': 'application/json'
+            }
+            response = requests.post(self.overpass_url, data={'data': query}, headers=headers, timeout=30)
             response.raise_for_status()
             osm_data = response.json()
             

@@ -143,8 +143,12 @@ def download_file_generic(url, local_path, auth=None):
 
     try:
         # Try with SSL verification first
-        response = requests.get(url, stream=True, auth=auth, timeout=30)
-        response.raise_for_status()
+        with requests.get(url, stream=True, auth=auth, timeout=30) as response:
+            response.raise_for_status()
+            with open(local_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk: f.write(chunk)
+            return True, "Success"
     except Exception as e:
         error_msg = str(e)
         # Be very inclusive for SSL/Connection errors on macOS
@@ -155,20 +159,16 @@ def download_file_generic(url, local_path, auth=None):
             try:
                 import urllib3
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                response = requests.get(url, stream=True, auth=auth, timeout=60, verify=False)
-                response.raise_for_status()
+                with requests.get(url, stream=True, auth=auth, timeout=60, verify=False) as response:
+                    response.raise_for_status()
+                    with open(local_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk: f.write(chunk)
+                    return True, "Success"
             except Exception as e2:
                 return False, f"Second-attempt failure: {str(e2)}"
         else:
             return False, error_msg
-
-    try:
-        with open(local_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk: f.write(chunk)
-        return True, "Success"
-    except Exception as e:
-        return False, str(e)
 
 
 # =============================================================================
