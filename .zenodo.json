@@ -1,0 +1,14 @@
+{
+  "title": "FETCH: Framework for Environmental Type Classification Hub",
+  "upload_type": "software",
+  "description": "QGIS plugin for national-scale Local Climate Zone (LCZ) mapping of Italy using a Synthetic DSM strategy and open data.",
+  "version": "2.1.0",
+  "license": "GPL-3.0-or-later",
+  "creators": [
+    {"name": "Marchesani, Graziano Enzo"}
+  ],
+  "keywords": ["Local Climate Zones", "QGIS", "urban climate", "Italy"],
+  "related_identifiers": [
+    {"relation": "isSupplementTo", "identifier": "https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub", "scheme": "url"}
+  ]
+}

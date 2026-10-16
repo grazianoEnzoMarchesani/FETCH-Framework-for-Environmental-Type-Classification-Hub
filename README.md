@@ -2,7 +2,7 @@
 ### National-Scale Local Climate Zone Mapping Suite
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-2.0.0--alpha-orange.svg)](https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub)
+[![Version](https://img.shields.io/badge/version-2.1.0-orange.svg)](https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub)
 [![QGIS](https://img.shields.io/badge/QGIS-3.40%2B-green.svg)](https://qgis.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](#)
 

@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "FETCH: Framework for Environmental Type Classification Hub"
+abstract: "QGIS plugin for national-scale Local Climate Zone (LCZ) mapping of Italy using a Synthetic DSM strategy and open data."
+type: software
+version: 2.1.0
+date-released: 2026-10-16
+license: GPL-3.0-or-later
+repository-code: "https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub"
+authors:
+  - family-names: Marchesani
+    given-names: Graziano Enzo
+    email: graziano.marchesani@unicam.it
+    # orcid: "https://orcid.org/XXXX-XXXX-XXXX-XXXX"
+    # affiliation: "..."
+keywords:
+  - Local Climate Zones
+  - QGIS
+  - urban climate
+  - Italy
