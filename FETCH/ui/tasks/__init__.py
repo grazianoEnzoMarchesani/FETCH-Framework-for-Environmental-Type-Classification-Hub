@@ -12,6 +12,7 @@ from .svf_task import SVFTask
 from .grid_task import GridTask
 from .parameter_task import LCZParameterTask
 from .classification_task import ClassificationTask
+from .istat_task import IstatTask
 
 __all__ = [
     'DownloadTask',
@@ -20,5 +21,6 @@ __all__ = [
     'SVFTask',
     'GridTask',
     'LCZParameterTask',
-    'ClassificationTask'
+    'ClassificationTask',
+    'IstatTask'
 ]

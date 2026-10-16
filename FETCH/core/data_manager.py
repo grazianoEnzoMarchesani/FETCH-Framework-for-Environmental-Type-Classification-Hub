@@ -56,6 +56,9 @@ class DataManager:
         # UI Compatibility Attributes
         self.tum_categories = ["LoD1"]
 
+        # Polygon layer (ISTAT municipalities) the LCZ grid is clipped to; None = plain bbox grid
+        self.aoi_clip_path = None
+
     def get_project_dir(self):
         project_path = QgsProject.instance().fileName()
         return os.path.dirname(project_path) if project_path else None
@@ -387,7 +390,7 @@ class DataManager:
         return self.lcz_calc.calculate_svf(log_callback, search_radius, num_sectors, canopy_opacity, method=method)
 
     def create_lcz_grid(self, extent, crs_auth_id, cell_size=100, log_callback=None):
-        return self.vector_proc.create_lcz_grid(extent, crs_auth_id, cell_size, log_callback)
+        return self.vector_proc.create_lcz_grid(extent, crs_auth_id, cell_size, log_callback, clip_path=self.aoi_clip_path)
 
     def use_existing_grid(self, layer, extent, crs_auth_id, log_callback=None):
         return self.vector_proc.use_existing_grid(layer, extent, crs_auth_id, log_callback)

@@ -10,7 +10,7 @@ import os
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QGridLayout, QHBoxLayout, QLabel, 
-    QPushButton, QRadioButton, QButtonGroup
+    QPushButton, QRadioButton, QButtonGroup, QLineEdit
 )
 from qgis.core import (
     QgsMapLayerProxyModel, QgsApplication, QgsProject,
@@ -24,6 +24,7 @@ from qgis.PyQt.QtGui import QColor
 from qgis.gui import QgsMapLayerComboBox, QgsCollapsibleGroupBox
 
 from ...core.utils import is_within_italy, get_target_crs_for_extent
+from ...core.istat import BOUNDARY_LAYER_NAME
 from ..mixins.help_mixin import HelpMixin
 from ..help_content import HELP_PROJECT_SETUP
 
@@ -31,9 +32,12 @@ from ..help_content import HELP_PROJECT_SETUP
 class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
     """Section 1: Project Setup - AOI selection and extent configuration."""
     
+    WARN_OUTSIDE_ITALY = "⚠ Area fuori dall'Italia. Alcuni dati potrebbero mancare."
+
     # Signals
     aoi_changed = pyqtSignal()  # Emitted when AOI selection changes
     extent_captured = pyqtSignal(object, str)  # extent, crs
+    city_requested = pyqtSignal(str)  # raw "Comune (SIGLA); ..." text
     
     def __init__(self, iface, parent=None):
         super().__init__("1. Configurazione Progetto", parent)
@@ -41,6 +45,8 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
         self.extent_val = None
         self.extent_crs = None
         self.boundary_layer_path = None  # Path to generated boundary layer
+        self.city_layer = None  # ISTAT municipalities layer (city mode)
+        self.city_info = ""
         self._setup_ui()
         self._connect_signals()
         
@@ -109,6 +115,36 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
         
         self.selection_layout.addWidget(self.row_extent)
         
+        # Row 3: Italian cities (ISTAT boundaries)
+        self.row_city = QWidget()
+        self.row_city.setObjectName("SourceRow")
+        layout_city = QVBoxLayout(self.row_city)
+        layout_city.setContentsMargins(10, 5, 10, 5)
+        layout_city.setSpacing(4)
+        
+        layout_city_top = QHBoxLayout()
+        self.aoi_city_radio = QRadioButton("Usa Città (confini ISTAT)")
+        self.aoi_city_radio.setStyleSheet("font-size: 11px; font-weight: 500; color: #2c3e50;")
+        self.aoi_group.addButton(self.aoi_city_radio)
+        layout_city_top.addWidget(self.aoi_city_radio)
+        layout_city_top.addStretch()
+        
+        self.btn_city = QPushButton("Carica")
+        self.btn_city.setObjectName("PrimaryButton")
+        self.btn_city.setFixedWidth(100)
+        self.btn_city.setIcon(QgsApplication.getThemeIcon("mActionAddPolygon.svg"))
+        self.btn_city.setEnabled(False)
+        layout_city_top.addWidget(self.btn_city)
+        layout_city.addLayout(layout_city_top)
+        
+        self.city_input = QLineEdit()
+        self.city_input.setPlaceholderText("Camerino (MC); Macerata (MC)")
+        self.city_input.setToolTip("Comune (SIGLA provincia), separati da ';'. La sigla serve a evitare gli omonimi.")
+        self.city_input.setEnabled(False)
+        layout_city.addWidget(self.city_input)
+        
+        self.selection_layout.addWidget(self.row_city)
+        
         self.main_layout.addWidget(self.selection_container)
         
         # Area Details Card
@@ -128,7 +164,7 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
         self.details_layout.addWidget(self.extent_label)
         
         # Warning (inside card)
-        self.warning_label = QLabel("⚠ Area fuori dall'Italia. Alcuni dati potrebbero mancare.")
+        self.warning_label = QLabel(self.WARN_OUTSIDE_ITALY)
         self.warning_label.setObjectName("WarningLabel")
         self.warning_label.setWordWrap(True)
         self.warning_label.hide()
@@ -143,19 +179,88 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
         
     def _connect_signals(self):
         """Connect internal signals."""
-        self.aoi_layer_radio.toggled.connect(self._toggle_aoi_mode)
+        self.aoi_layer_radio.toggled.connect(self._update_mode)
+        self.aoi_extent_radio.toggled.connect(self._update_mode)
+        self.aoi_city_radio.toggled.connect(self._update_mode)
         self.btn_current_extent.clicked.connect(self._capture_extent)
+        self.btn_city.clicked.connect(self._request_city)
+        self.city_input.returnPressed.connect(self._request_city)
         self.aoi_combo.layerChanged.connect(self._validate_aoi_layer)
         
-    def _toggle_aoi_mode(self, use_layer):
-        """Toggle between layer and extent mode."""
-        self.aoi_combo.setEnabled(use_layer)
-        self.btn_current_extent.setEnabled(not use_layer)
-        if use_layer:
+    def _update_mode(self, *_):
+        """Enable the controls of the active AOI mode (layer / map extent / city)."""
+        layer_mode = self.aoi_layer_radio.isChecked()
+        extent_mode = self.aoi_extent_radio.isChecked()
+        city_mode = self.aoi_city_radio.isChecked()
+        self.warning_label.setText(self.WARN_OUTSIDE_ITALY)
+        self.aoi_combo.setEnabled(layer_mode)
+        self.btn_current_extent.setEnabled(extent_mode)
+        self.city_input.setEnabled(city_mode)
+        self.btn_city.setEnabled(city_mode)
+        if layer_mode:
             self._validate_aoi_layer()
+            return
+        self.warning_label.hide()
+        if city_mode:
+            self.extent_label.setText(self.city_info or "Nessuna città caricata")
+        elif self.extent_val is not None:
+            self.extent_label.setText(f"Catturata: {self.extent_val.toString(2)} ({self.extent_crs})")
         else:
-            self.warning_label.hide()
+            self.extent_label.setText("Nessun dato catturato")
         self.aoi_changed.emit()
+
+    def _request_city(self):
+        text = self.city_input.text().strip()
+        if text:
+            self.city_requested.emit(text)
+
+    def set_city_result(self, path, crs_authid, names, warning=""):
+        """Load the ISTAT boundary layer produced by IstatTask and make it the AOI."""
+        for old in QgsProject.instance().mapLayersByName(BOUNDARY_LAYER_NAME):
+            QgsProject.instance().removeMapLayer(old.id())
+        layer = QgsVectorLayer(path, BOUNDARY_LAYER_NAME, "ogr")
+        if not layer.isValid():
+            self.set_city_error("Layer dei confini non valido.")
+            return
+        QgsProject.instance().addMapLayer(layer)
+        self._apply_boundary_styling(layer)
+        self.city_layer = layer
+        ext = layer.extent()
+        self.city_info = (
+            f"{', '.join(names)}\n"
+            f"Rettangolo di download: {ext.width() / 1000:.1f} x {ext.height() / 1000:.1f} km ({crs_authid})"
+        )
+        self.extent_label.setText(self.city_info)
+        self.warning_label.setText(warning or "")
+        self.warning_label.setVisible(bool(warning))
+        self.aoi_changed.emit()
+
+    def set_city_error(self, message):
+        self.city_layer = None
+        self.city_info = ""
+        self.extent_label.setText("Nessuna città caricata")
+        self.warning_label.setText(f"⚠ {message}")
+        self.warning_label.show()
+        self.aoi_changed.emit()
+
+    def set_city_busy(self, busy):
+        self.btn_city.setEnabled(not busy and self.aoi_city_radio.isChecked())
+
+    def is_city_mode(self):
+        return self.aoi_city_radio.isChecked()
+
+    def get_clip_layer_path(self):
+        """Polygon file the grid must be clipped to (city mode only), else None."""
+        if self.is_city_mode() and self.city_layer is not None and self.city_layer.isValid():
+            return self.city_layer.source().split("|")[0]
+        return None
+
+    def missing_aoi_message(self):
+        if self.is_layer_mode():
+            return "Nessun layer AOI selezionato."
+        if self.is_city_mode():
+            return "Carica prima i confini della città."
+        return "Cattura l'estensione della mappa prima di procedere."
             
     def _validate_aoi_layer(self):
         """Validate the selected AOI layer."""
@@ -314,6 +419,10 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
             layer = self.aoi_combo.currentLayer()
             if layer:
                 return layer.extent(), layer.crs().authid()
+            return None, None
+        elif self.aoi_city_radio.isChecked():
+            if self.city_layer is not None and self.city_layer.isValid():
+                return self.city_layer.extent(), self.city_layer.crs().authid()
             return None, None
         else:
             return self.extent_val, self.extent_crs

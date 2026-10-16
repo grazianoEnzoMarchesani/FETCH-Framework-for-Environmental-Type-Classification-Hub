@@ -160,13 +160,14 @@ class GridDefinitionSection(QgsCollapsibleGroupBox, HelpMixin):
         super().setEnabled(enabled)
         self.btn_grid.setEnabled(enabled)
 
-    def update_grid_info(self, extent, crs_authid):
+    def update_grid_info(self, extent, crs_authid, clipped=False):
         """
         Calculate and display estimated number of cells.
         
         Args:
             extent: QgsRectangle of the AOI
             crs_authid: CRS of the AOI
+            clipped: True when the grid will be clipped to city boundaries
         """
         if not extent or extent.isEmpty():
             self.grid_info_label.setText("(Seleziona area per calcolare celle)")
@@ -194,6 +195,7 @@ class GridDefinitionSection(QgsCollapsibleGroupBox, HelpMixin):
             self.grid_info_label.setText(
                 f"Griglia stimata: ~{total:,} celle\n"
                 f"Dimensioni: {cols} x {rows} (Cella {size}m)"
+                + ("\nStima sul rettangolo: le celle fuori dai confini comunali verranno scartate." if clipped else "")
             )
         else:
             self.grid_info_label.setText("(Area troppo piccola per questa dimensione)")

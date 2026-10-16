@@ -208,8 +208,27 @@ class VectorProcessor:
 
 
 
-    def create_lcz_grid(self, extent, crs_auth_id, cell_size=100, log_callback=None):
-        """Crea una griglia regolare per la classificazione LCZ."""
+    @staticmethod
+    def _clip_signature(clip_path):
+        """Hash identifying the clip polygons (municipality codes), '' when no clip is used."""
+        if not clip_path:
+            return ""
+        from qgis.core import QgsVectorLayer
+        from ..istat import codes_hash
+        lyr = QgsVectorLayer(clip_path, "clip", "ogr")
+        if not lyr.isValid():
+            return ""
+        return codes_hash(f["pro_com"] for f in lyr.getFeatures())
+
+    def create_lcz_grid(self, extent, crs_auth_id, cell_size=100, log_callback=None, clip_path=None):
+        """
+        Crea una griglia regolare per la classificazione LCZ.
+
+        Se clip_path è indicato (poligoni dei comuni), vengono mantenute solo le celle
+        che intersecano i poligoni; le celle restano quadrate (nessun taglio sul bordo).
+        Il nome del file contiene l'hash dei comuni, così un'altra selezione non
+        sovrascrive mai una griglia già caricata nel progetto.
+        """
         def log_local(msg):
             if log_callback: log_callback(msg)
             self.log(msg)
@@ -218,7 +237,10 @@ class VectorProcessor:
         if not base_dir: return False, "Progetto non salvato", None
         
         unified_dir = os.path.join(base_dir, self.dm.get_data_dir_name(), "unified")
-        output_path = os.path.join(unified_dir, f"lcz_grid_{cell_size}m.gpkg")
+        os.makedirs(unified_dir, exist_ok=True)
+        signature = self._clip_signature(clip_path)
+        suffix = f"_{signature}" if signature else ""
+        output_path = os.path.join(unified_dir, f"lcz_grid_{cell_size}m{suffix}.gpkg")
         
         if os.path.exists(output_path):
             return True, f"Griglia {cell_size}m già presente", output_path
@@ -246,7 +268,23 @@ class VectorProcessor:
             'CRS': metric_crs, 'OUTPUT': 'TEMPORARY_OUTPUT'
         })
         grid_layer = grid_res['OUTPUT']
-        
+
+        if clip_path:
+            from qgis.core import QgsVectorLayer
+            clip_layer = QgsVectorLayer(clip_path, "clip", "ogr")
+            if clip_layer.isValid():
+                if clip_layer.crs() != metric_crs:
+                    clip_layer = processing.run("native:reprojectlayer", {
+                        'INPUT': clip_layer, 'TARGET_CRS': metric_crs, 'OUTPUT': 'TEMPORARY_OUTPUT'
+                    })['OUTPUT']
+                before = grid_layer.featureCount()
+                grid_layer = processing.run("native:extractbylocation", {
+                    'INPUT': grid_layer, 'PREDICATE': [0], 'INTERSECT': clip_layer, 'OUTPUT': 'TEMPORARY_OUTPUT'
+                })['OUTPUT']
+                log_local(f"Ritaglio sui confini comunali: {grid_layer.featureCount():,} celle su {before:,}.")
+            else:
+                return False, "Layer dei confini non leggibile: griglia non creata.", None
+
         # Add required LCZ fields
         from qgis.core import QgsField
         from qgis.PyQt.QtCore import QVariant, QMetaType
@@ -281,7 +319,7 @@ class VectorProcessor:
         processing.run("native:savefeatures", {
             'INPUT': grid_layer, 'OUTPUT': output_path
         })
-        
+
         return True, "Griglia creata con successo", output_path
 
     def use_existing_grid(self, layer, extent, crs_auth_id, log_callback=None):

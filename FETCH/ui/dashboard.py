@@ -11,7 +11,7 @@ from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QScrollArea, QPushButton
 )
-from qgis.core import QgsProject, QgsMessageLog, Qgis, QgsApplication
+from qgis.core import QgsProject, QgsMessageLog, Qgis, QgsApplication, QgsCoordinateTransform
 
 # Local modular imports
 from ..core.data_manager import DataManager
@@ -20,7 +20,7 @@ from .styles import STYLESHEET
 from .constants import PARAM_VISUALIZATION
 from .tasks import (
     DownloadTask, UnifyTask, DSMTask, SVFTask, 
-    GridTask, LCZParameterTask, ClassificationTask
+    GridTask, LCZParameterTask, ClassificationTask, IstatTask
 )
 from .sections import (
     ProjectSetupSection, DataAcquisitionSection, ProcessingSection,
@@ -117,6 +117,8 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         # Connect Setup signals to Grid Info refresh
         self.setup_section.aoi_changed.connect(self.refresh_grid_info)
+        self.setup_section.aoi_changed.connect(self._sync_aoi_clip)
+        self.setup_section.city_requested.connect(self.run_city_lookup)
         self.setup_section.extent_captured.connect(self.refresh_grid_info)
         
         # Parameters
@@ -165,7 +167,50 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
     def refresh_grid_info(self, *args):
         """Update the grid information label based on current AOI and settings."""
         extent, crs = self.setup_section.get_extent_and_crs()
-        self.grid_section.update_grid_info(extent, crs)
+        self.grid_section.update_grid_info(extent, crs, clipped=self.setup_section.get_clip_layer_path() is not None)
+
+    def _sync_aoi_clip(self, *args):
+        """Tell the DataManager which polygons (if any) the LCZ grid must be clipped to."""
+        self.data_manager.aoi_clip_path = self.setup_section.get_clip_layer_path()
+
+    def run_city_lookup(self, text):
+        """Resolve the typed cities against ISTAT boundaries (downloads them on first use)."""
+        if not QgsProject.instance().fileName():
+            self.iface.messageBar().pushMessage("Errore", "Salva il progetto QGIS prima di procedere.", level=2, duration=5)
+            self.setup_section.set_project_path_status(False)
+            return
+
+        data_dir = self.data_manager.get_data_dir_path()
+        task = IstatTask(text, data_dir)
+        self.setup_section.set_city_busy(True)
+        self.progress_section.set_status("Ricerca confini ISTAT (la prima volta scarica ~100 MB)...", is_busy=True)
+        self.progress_section.set_indeterminate(True)
+
+        def on_finished(success):
+            self.setup_section.set_city_busy(False)
+            self.progress_section.set_indeterminate(False)
+            if not success:
+                self.progress_section.set_status(f"✗ {task.message}", is_error=True)
+                self.setup_section.set_city_error(task.message)
+                return
+            res = task.aoi_result
+            ext = res["extent"]
+            warning = ""
+            if max(ext.width(), ext.height()) > 80000:
+                warning = (f"⚠ Le città sono distanti: il rettangolo di download è {ext.width() / 1000:.0f} x "
+                           f"{ext.height() / 1000:.0f} km e i download saranno molto pesanti.")
+            self.setup_section.set_city_result(res["path"], res["crs"], res["names"], warning)
+            self.progress_section.set_status(f"✓ Confini caricati: {', '.join(res['names'])}")
+            canvas = self.iface.mapCanvas()
+            to_canvas = QgsCoordinateTransform(
+                self.setup_section.city_layer.crs(), canvas.mapSettings().destinationCrs(), QgsProject.instance()
+            )
+            canvas.setExtent(to_canvas.transformBoundingBox(ext.buffered(max(ext.width(), ext.height()) * 0.1)))
+            canvas.refresh()
+
+        task.taskCompleted.connect(lambda: on_finished(True))
+        task.taskTerminated.connect(lambda: on_finished(False))
+        QgsApplication.taskManager().addTask(task)
 
     def check_layers_and_update_ui(self, *args):
         """Enable or disable Sections 4, 5 and Classification based on layer presence."""
@@ -247,10 +292,7 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
             
         extent, crs = self.setup_section.get_extent_and_crs()
         if extent is None:
-            if self.setup_section.is_layer_mode():
-                self.iface.messageBar().pushMessage("Errore", "Nessun layer AOI selezionato.", level=2)
-            else:
-                self.iface.messageBar().pushMessage("Errore", "Cattura l'estensione della mappa prima di procedere.", level=2)
+            self.iface.messageBar().pushMessage("Errore", self.setup_section.missing_aoi_message(), level=2)
             return
 
         selected_checks = self.data_section.get_selected_sources()
@@ -295,10 +337,7 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         extent, crs = self.setup_section.get_extent_and_crs()
         if extent is None:
-            if self.setup_section.is_layer_mode():
-                self.iface.messageBar().pushMessage("Errore", "Nessun layer AOI selezionato.", level=2)
-            else:
-                self.iface.messageBar().pushMessage("Errore", "Cattura l'estensione della mappa prima di procedere.", level=2)
+            self.iface.messageBar().pushMessage("Errore", self.setup_section.missing_aoi_message(), level=2)
             return
         
         self.set_dashboard_enabled(False)
@@ -412,10 +451,7 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
         
         extent, crs = self.setup_section.get_extent_and_crs()
         if extent is None:
-            if self.setup_section.is_layer_mode():
-                self.iface.messageBar().pushMessage("Errore", "Nessun layer AOI selezionato.", level=2)
-            else:
-                self.iface.messageBar().pushMessage("Errore", "Cattura l'estensione della mappa prima di procedere.", level=2)
+            self.iface.messageBar().pushMessage("Errore", self.setup_section.missing_aoi_message(), level=2)
             return
         
         self.set_dashboard_enabled(False)
@@ -447,6 +483,7 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
                     if self.grid_section.is_auto_mode():
                         cell_size = self.grid_section.get_cell_size()
                         layer_name = LayerNames.grid_name(cell_size)
+                        self._remove_stale_grid_layers(cell_size, task.output_path)
                     else:
                         layer_name = LayerNames.GRID_CUSTOM
                     self.data_manager.load_grid_layer(task.output_path, layer_name)
@@ -457,6 +494,20 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
         task.taskTerminated.connect(lambda: on_finished(False))
         
         QgsApplication.taskManager().addTask(task)
+
+    def _remove_stale_grid_layers(self, cell_size, new_grid_path):
+        """
+        Drop grid layers of this cell size that belong to another area (e.g. a previously
+        selected city), so they are not picked up instead of the new grid.
+        """
+        keep = os.path.splitext(os.path.normpath(new_grid_path))[0]
+        keep_stems = (keep, keep + "_lcz_params")
+        prefix = os.path.join(self.data_manager.get_data_dir_path() or "", "unified", f"lcz_grid_{cell_size}m")
+        for name in (LayerNames.grid_name(cell_size), LayerNames.grid_params_name(cell_size)):
+            for lyr in QgsProject.instance().mapLayersByName(name):
+                stem = os.path.splitext(os.path.normpath(lyr.source().split("|")[0]))[0]
+                if stem.startswith(os.path.normpath(prefix)) and stem not in keep_stems:
+                    QgsProject.instance().removeMapLayer(lyr.id())
 
     def run_specific_lcz_param(self, parameter_id):
         """Calculate a specific LCZ parameter."""
