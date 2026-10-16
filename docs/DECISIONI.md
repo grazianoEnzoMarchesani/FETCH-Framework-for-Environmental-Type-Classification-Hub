@@ -14,13 +14,14 @@ Stato: `attiva` · `rimandata` · `superata` (indica da quale voce).
 - Più città: area unita, un solo layer (`boundary_city_<hash>.gpkg` nella cartella FETCH+progetto), con una feature per comune.
 - I download restano sul rettangolo (bbox) dei comuni; il **ritaglio avviene alla griglia**: restano le celle che intersecano i comuni, intere e quadrate (nessun taglio sul bordo).
 - Il nome del file di griglia e del layer confini contiene un hash dei codici comune, così un'altra selezione non sovrascrive file già caricati in QGIS.
+- Il ritaglio della griglia vale anche in modalità "Layer vettoriale" se l'AOI è un layer poligonale su disco (non un semplice rettangolo): l'estensione serve per i download, la forma per la griglia. Il nome del file griglia porta l'hash della geometria.
+- La città caricata (layer + testo) è salvata nel progetto QGIS e ripristinata alla riapertura.
 
 **Perché:** evitare di disegnare/catturare a mano un rettangolo e lavorare solo sulle città volute; ISTAT è la fonte ufficiale e riproducibile.
 
 **Limiti noti:**
 - I downloader saltano i file già presenti ("già presenti"): cambiando città nello stesso progetto si riusano i dati scaricati per la città precedente. Preesistente, ma più probabile con le città.
-- La città scelta non viene ripristinata alla riapertura del progetto.
-- La modalità "Usa layer esistente" della griglia non viene ritagliata.
+- La modalità "Usa layer esistente" della griglia (sezione 4) non viene ritagliata.
 - Città molto distanti → bbox enorme (la UI avvisa oltre 80 km).
 
 ---

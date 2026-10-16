@@ -15,6 +15,27 @@ HELP_PROJECT_SETUP = {
         "title": "Cattura Estensione Mappa",
         "content": "Definisce l'area di studio acquisendo le coordinate correnti della mappa (Canvas Extent). Il sistema genera contestualmente un layer vettoriale ausiliario ('boundary.gpkg') necessario per l'interrogazione dei servizi WFS/API esterni.",
         "source": "QGIS Canvas Extent"
+    },
+    "city": {
+        "title": "Città (confini ISTAT)",
+        "content": (
+            "Scrivi i comuni italiani nel formato <b>Nome (SIGLA)</b>, dove SIGLA è la provincia di due lettere. "
+            "Per più città scrivile una dopo l'altra <b>separandole con un punto e virgola ( ; )</b>.<br><br>"
+            "<b>Una città:</b><br><code>Camerino (MC)</code><br><br>"
+            "<b>Più città:</b><br><code>Camerino (MC); Macerata (MC); Tolentino (MC)</code><br><br>"
+            "<b>Province diverse:</b><br><code>Bologna (BO); Reggio nell'Emilia (RE)</code><br><br>"
+            "Poi premi <b>Carica</b> (o Invio). I confini vengono scaricati da ISTAT; la prima volta sono circa 100 MB, poi restano in cache.<br><br>"
+            "<b>Consigli</b><ul>"
+            "<li>Maiuscole, accenti, apostrofi e spazi (in più o mancanti) non contano: <code>l'aquila (aq)</code>, "
+            "<code>Castel di Lama(AP);Colli del Tronto (AP)</code> e <code>casteldilama (ap)</code> funzionano.</li>"
+            "<li>Come separatore vanno bene anche la virgola dopo la parentesi o l'andare a capo.</li>"
+            "<li>La sigla serve a distinguere i comuni omonimi (es. esistono Castro (BG) e Castro (LE)). Se è ambigua o sbagliata, il plugin ti propone le alternative.</li>"
+            "<li>Per i comuni bilingui basta uno dei due nomi: <code>Bolzano (BZ)</code>.</li>"
+            "<li>Con più città i dati vengono scaricati sul rettangolo che le contiene tutte, quindi conviene sceglierle vicine; "
+            "la griglia LCZ invece tiene solo le celle dentro i comuni scelti.</li></ul>"
+        ),
+        "source": "ISTAT - Confini delle unità amministrative a fini statistici (CC BY 4.0)",
+        "url": "https://www.istat.it/notizia/confini-delle-unita-amministrative-a-fini-statistici/"
     }
 }
 

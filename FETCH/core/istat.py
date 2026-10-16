@@ -53,7 +53,8 @@ def parse_city_input(text):
     The province code is optional here; ambiguity is reported at lookup time.
     """
     items = []
-    for chunk in re.split(r"[;\n]|(?<=\))\s*,", text or ""):
+    # Separators: ';', newline, a comma after ')', or just whitespace after ')'
+    for chunk in re.split(r"[;\n]|(?<=\))\s*,|(?<=\))\s+(?=[^\s,;])", text or ""):
         chunk = chunk.strip()
         if not chunk:
             continue
@@ -77,8 +78,9 @@ def codes_hash(codes):
 def _norm(s):
     s = unicodedata.normalize("NFKD", s or "")
     s = "".join(c for c in s if not unicodedata.combining(c))
-    s = s.replace("’", "'").replace("‘", "'").replace("-", " ")
-    return re.sub(r"\s+", " ", s).strip().casefold()
+    # Spaces, apostrophes and hyphens are ignored, so "Castel di Lama", "Castel  di  Lama"
+    # and "Casteldilama" all match.
+    return re.sub(r"[\s'’‘`\-]+", "", s).casefold()
 
 
 def _name_keys(*names):

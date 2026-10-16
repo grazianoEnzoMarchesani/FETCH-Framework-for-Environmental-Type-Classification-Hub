@@ -68,6 +68,8 @@ class DownloadTask(QgsTask):
                 if self.isCanceled(): return False
                 self.emit_progress("Tinitaly (DTM 10m)", current_step, total_steps)
                 
+                if not self.tiles:
+                    task_log("⚠ Tinitaly: nessun quadrante DTM disponibile per l'area (solo mare o fuori Italia).", Qgis.Warning)
                 for i, tile in enumerate(self.tiles):
                     if self.isCanceled(): return False
                     task_log(f"Download Tinitaly {i+1}/{len(self.tiles)}: {tile}")

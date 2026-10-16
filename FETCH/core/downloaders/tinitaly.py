@@ -8,6 +8,7 @@ from qgis.core import (
     QgsCoordinateTransform, Qgis
 )
 from .base import BaseDownloader
+from ..tinitaly_tiles import AVAILABLE_TILES, tile_name
 
 class TinitalyDownloader(BaseDownloader):
     def __init__(self, data_manager):
@@ -25,7 +26,7 @@ class TinitalyDownloader(BaseDownloader):
             self.log(f"Error transforming extent: {e}", Qgis.Critical)
             return []
 
-        tiles = []
+        tiles, skipped = [], []
         x_min = math.floor(utm_extent.xMinimum() / 50000) * 50000
         x_max = math.ceil(utm_extent.xMaximum() / 50000) * 50000
         y_min = math.floor(utm_extent.yMinimum() / 50000) * 50000
@@ -33,10 +34,16 @@ class TinitalyDownloader(BaseDownloader):
 
         for x in range(int(x_min), int(x_max), 50000):
             for y in range(int(y_min), int(y_max), 50000):
-                nnn = int(y / 10000)
-                ee = int(x / 10000)
-                tile_name = f"w{str(nnn).zfill(3)}{str(ee).zfill(2)}"
-                tiles.append(tile_name)
+                name = tile_name(x, y)
+                # Only tiles that really exist on the server (sea-only squares do not)
+                if name in AVAILABLE_TILES:
+                    tiles.append(name)
+                else:
+                    skipped.append(name or f"x={x}/y={y}")
+        if skipped:
+            self.log(f"Tinitaly: quadranti senza dati (mare o fuori Italia), non scaricati: {', '.join(skipped)}")
+        if not tiles:
+            self.log("Tinitaly: nessun quadrante DTM disponibile per l'area selezionata.", Qgis.Warning)
         return tiles
 
     def download_tile(self, tile_name):

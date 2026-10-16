@@ -17,7 +17,7 @@ from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsField,
     QgsVectorFileWriter, QgsFields, QgsWkbTypes,
     QgsCoordinateReferenceSystem, QgsSimpleFillSymbolLayer,
-    QgsSymbol, QgsSingleSymbolRenderer
+    QgsSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest
 )
 from qgis.PyQt.QtCore import QVariant, QMetaType
 from qgis.PyQt.QtGui import QColor
@@ -45,10 +45,12 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
         self.extent_val = None
         self.extent_crs = None
         self.boundary_layer_path = None  # Path to generated boundary layer
-        self.city_layer = None  # ISTAT municipalities layer (city mode)
+        self.city_layer_id = None  # ISTAT municipalities layer in the project (city mode)
         self.city_info = ""
         self._setup_ui()
         self._connect_signals()
+        QgsProject.instance().readProject.connect(self._restore_city_state)
+        self._restore_city_state()
         
     def _setup_ui(self):
         """Initialize the UI components."""
@@ -129,6 +131,9 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
         layout_city_top.addWidget(self.aoi_city_radio)
         layout_city_top.addStretch()
         
+        help_city = self.create_help_button("city", HELP_PROJECT_SETUP)
+        layout_city_top.addWidget(help_city)
+        
         self.btn_city = QPushButton("Carica")
         self.btn_city.setObjectName("PrimaryButton")
         self.btn_city.setFixedWidth(100)
@@ -142,6 +147,10 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
         self.city_input.setToolTip("Comune (SIGLA provincia), separati da ';'. La sigla serve a evitare gli omonimi.")
         self.city_input.setEnabled(False)
         layout_city.addWidget(self.city_input)
+        
+        lbl_city_hint = QLabel("Formato: Nome (SIGLA). Più città separate da  ;")
+        lbl_city_hint.setStyleSheet("font-size: 10px; color: #7f8c8d;")
+        layout_city.addWidget(lbl_city_hint)
         
         self.selection_layout.addWidget(self.row_city)
         
@@ -187,6 +196,18 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
         self.city_input.returnPressed.connect(self._request_city)
         self.aoi_combo.layerChanged.connect(self._validate_aoi_layer)
         
+    @property
+    def city_layer(self):
+        """The city boundary layer if it is still in the project, else None.
+
+        Only the layer id is stored: a reference to the Python wrapper breaks
+        ("wrapped C/C++ object ... has been deleted") when the layer is removed.
+        """
+        if not self.city_layer_id:
+            return None
+        layer = QgsProject.instance().mapLayer(self.city_layer_id)
+        return layer if layer is not None and layer.isValid() else None
+
     def _update_mode(self, *_):
         """Enable the controls of the active AOI mode (layer / map extent / city)."""
         layer_mode = self.aoi_layer_radio.isChecked()
@@ -216,6 +237,7 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
 
     def set_city_result(self, path, crs_authid, names, warning=""):
         """Load the ISTAT boundary layer produced by IstatTask and make it the AOI."""
+        self.city_layer_id = None  # before removing: removal triggers signals that read the AOI
         for old in QgsProject.instance().mapLayersByName(BOUNDARY_LAYER_NAME):
             QgsProject.instance().removeMapLayer(old.id())
         layer = QgsVectorLayer(path, BOUNDARY_LAYER_NAME, "ogr")
@@ -224,19 +246,41 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
             return
         QgsProject.instance().addMapLayer(layer)
         self._apply_boundary_styling(layer)
-        self.city_layer = layer
-        ext = layer.extent()
-        self.city_info = (
-            f"{', '.join(names)}\n"
-            f"Rettangolo di download: {ext.width() / 1000:.1f} x {ext.height() / 1000:.1f} km ({crs_authid})"
-        )
+        self.city_layer_id = layer.id()
+        self.city_info = self._city_info(names, layer.extent(), crs_authid)
+        QgsProject.instance().writeEntry("FETCH", "city_layer_id", layer.id())
+        QgsProject.instance().writeEntry("FETCH", "city_text", self.city_input.text().strip())
         self.extent_label.setText(self.city_info)
         self.warning_label.setText(warning or "")
         self.warning_label.setVisible(bool(warning))
         self.aoi_changed.emit()
 
+    @staticmethod
+    def _city_info(names, ext, crs_authid):
+        return (
+            f"{', '.join(names)}\n"
+            f"Rettangolo di download: {ext.width() / 1000:.1f} x {ext.height() / 1000:.1f} km ({crs_authid})"
+        )
+
+    def _restore_city_state(self, *_):
+        """After opening a project, re-select the city AOI that was loaded when it was saved."""
+        project = QgsProject.instance()
+        layer_id, ok = project.readEntry("FETCH", "city_layer_id", "")
+        layer = project.mapLayer(layer_id) if ok and layer_id else None
+        if layer is None or not layer.isValid():
+            return
+        text, _ok = project.readEntry("FETCH", "city_text", "")
+        self.city_layer_id = layer_id
+        self.city_input.setText(text)
+        names = [f"{f['name']} ({f['sigla']})" for f in layer.getFeatures()]
+        self.city_info = self._city_info(names, layer.extent(), layer.crs().authid())
+        if self.aoi_city_radio.isChecked():
+            self._update_mode()
+        else:
+            self.aoi_city_radio.setChecked(True)  # triggers _update_mode
+
     def set_city_error(self, message):
-        self.city_layer = None
+        self.city_layer_id = None
         self.city_info = ""
         self.extent_label.setText("Nessuna città caricata")
         self.warning_label.setText(f"⚠ {message}")
@@ -250,10 +294,38 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
         return self.aoi_city_radio.isChecked()
 
     def get_clip_layer_path(self):
-        """Polygon file the grid must be clipped to (city mode only), else None."""
-        if self.is_city_mode() and self.city_layer is not None and self.city_layer.isValid():
-            return self.city_layer.source().split("|")[0]
-        return None
+        """
+        Polygons the LCZ grid is clipped to, as a layer source string; None = plain rectangle.
+
+        City mode: the ISTAT municipalities. Layer mode: the chosen AOI layer if it is a
+        polygon layer saved on disk and not just a rectangle (like the auto boundary).
+        """
+        if self.is_city_mode():
+            layer = self.city_layer
+        elif self.is_layer_mode():
+            layer = self.aoi_combo.currentLayer()
+            if layer is None or not self._is_clipping_polygon_layer(layer):
+                return None
+        else:
+            return None
+        if layer is None:
+            return None
+        source = layer.source()
+        return source if os.path.exists(source.split("|")[0]) else None
+
+    @staticmethod
+    def _is_clipping_polygon_layer(layer):
+        """True for a vector polygon layer that is more than a single plain rectangle."""
+        if not isinstance(layer, QgsVectorLayer) or layer.geometryType() != QgsWkbTypes.PolygonGeometry:
+            return False
+        feats = list(layer.getFeatures(QgsFeatureRequest().setLimit(2)))
+        if len(feats) != 1:
+            return len(feats) > 1
+        geom = feats[0].geometry()
+        if geom.isNull():
+            return False
+        bbox_area = geom.boundingBox().area()
+        return bbox_area <= 0 or abs(geom.area() - bbox_area) > 1e-6 * bbox_area
 
     def missing_aoi_message(self):
         if self.is_layer_mode():
@@ -421,8 +493,9 @@ class ProjectSetupSection(QgsCollapsibleGroupBox, HelpMixin):
                 return layer.extent(), layer.crs().authid()
             return None, None
         elif self.aoi_city_radio.isChecked():
-            if self.city_layer is not None and self.city_layer.isValid():
-                return self.city_layer.extent(), self.city_layer.crs().authid()
+            layer = self.city_layer
+            if layer:
+                return layer.extent(), layer.crs().authid()
             return None, None
         else:
             return self.extent_val, self.extent_crs

@@ -144,6 +144,7 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
         # Initial state
         self.check_layers_and_update_ui()
         self.refresh_grid_info()
+        self._sync_aoi_clip()
 
     # =========================================================================
     # UI State Management
@@ -201,12 +202,14 @@ class FETCHDashboard(LayerMixin, StyleMixin, QDockWidget):
                            f"{ext.height() / 1000:.0f} km e i download saranno molto pesanti.")
             self.setup_section.set_city_result(res["path"], res["crs"], res["names"], warning)
             self.progress_section.set_status(f"✓ Confini caricati: {', '.join(res['names'])}")
-            canvas = self.iface.mapCanvas()
-            to_canvas = QgsCoordinateTransform(
-                self.setup_section.city_layer.crs(), canvas.mapSettings().destinationCrs(), QgsProject.instance()
-            )
-            canvas.setExtent(to_canvas.transformBoundingBox(ext.buffered(max(ext.width(), ext.height()) * 0.1)))
-            canvas.refresh()
+            city_layer = self.setup_section.city_layer
+            if city_layer:
+                canvas = self.iface.mapCanvas()
+                to_canvas = QgsCoordinateTransform(
+                    city_layer.crs(), canvas.mapSettings().destinationCrs(), QgsProject.instance()
+                )
+                canvas.setExtent(to_canvas.transformBoundingBox(ext.buffered(max(ext.width(), ext.height()) * 0.1)))
+                canvas.refresh()
 
         task.taskCompleted.connect(lambda: on_finished(True))
         task.taskTerminated.connect(lambda: on_finished(False))

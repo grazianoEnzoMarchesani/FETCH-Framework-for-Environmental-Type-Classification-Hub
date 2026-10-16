@@ -210,15 +210,18 @@ class VectorProcessor:
 
     @staticmethod
     def _clip_signature(clip_path):
-        """Hash identifying the clip polygons (municipality codes), '' when no clip is used."""
+        """Hash of the clip polygons' geometry, '' when no clip is used."""
         if not clip_path:
             return ""
+        import hashlib
         from qgis.core import QgsVectorLayer
-        from ..istat import codes_hash
         lyr = QgsVectorLayer(clip_path, "clip", "ogr")
         if not lyr.isValid():
             return ""
-        return codes_hash(f["pro_com"] for f in lyr.getFeatures())
+        h = hashlib.sha1(lyr.crs().authid().encode())
+        for wkb in sorted(bytes(f.geometry().asWkb()) for f in lyr.getFeatures() if f.hasGeometry()):
+            h.update(wkb)
+        return h.hexdigest()[:8]
 
     def create_lcz_grid(self, extent, crs_auth_id, cell_size=100, log_callback=None, clip_path=None):
         """
