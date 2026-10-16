@@ -1,0 +1,11 @@
+[general]
+name=IT-LCZ 30m
+description=National-Scale Local Climate Zone Mapping Suite for Italy at 30m resolution.
+version=2.0.0
+qgisMinimumVersion=3.40
+author=Graziano Enzo Marchesani
+email=grazianoenzomarchesani@gmail.com
+about=This plugin classifies Local Climate Zones (LCZ) across Italy using a Synthetic DSM strategy and Open Data.
+repository=https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub
+category=Plugins
+experimental=True
