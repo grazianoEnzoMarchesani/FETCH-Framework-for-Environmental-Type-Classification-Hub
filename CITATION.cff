@@ -8,11 +8,22 @@ date-released: 2026-10-16
 license: GPL-3.0-or-later
 repository-code: "https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub"
 authors:
-  - family-names: Marchesani
-    given-names: Graziano Enzo
-    email: graziano.marchesani@unicam.it
-    # orcid: "https://orcid.org/XXXX-XXXX-XXXX-XXXX"
-    # affiliation: "..."
+  - family-names: "Marchesani"
+    given-names: "Graziano Enzo"
+    orcid: "https://orcid.org/0000-0002-4723-5099"
+    affiliation: "Università di Camerino"
+  - family-names: "Bernabei"
+    given-names: "Maria Simonetta"
+    orcid: "https://orcid.org/0000-0003-4542-1178"
+    affiliation: "Università di Camerino"
+  - family-names: "Cocci Grifoni"
+    given-names: "Roberta"
+    orcid: "https://orcid.org/0000-0002-7092-6293"
+    affiliation: "Università di Camerino"
+  - family-names: "Khodaparast"
+    given-names: "Mohammadjavad"
+    orcid: "https://orcid.org/0009-0005-9019-616X"
+    affiliation: "Università di Camerino"
 keywords:
   - Local Climate Zones
   - QGIS

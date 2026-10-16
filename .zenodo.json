@@ -5,10 +5,38 @@
   "version": "2.1.0",
   "license": "GPL-3.0-or-later",
   "creators": [
-    {"name": "Marchesani, Graziano Enzo"}
+    {
+      "name": "Marchesani, Graziano Enzo",
+      "affiliation": "Università di Camerino",
+      "orcid": "0000-0002-4723-5099"
+    },
+    {
+      "name": "Bernabei, Maria Simonetta",
+      "affiliation": "Università di Camerino",
+      "orcid": "0000-0003-4542-1178"
+    },
+    {
+      "name": "Cocci Grifoni, Roberta",
+      "affiliation": "Università di Camerino",
+      "orcid": "0000-0002-7092-6293"
+    },
+    {
+      "name": "Khodaparast, Mohammadjavad",
+      "affiliation": "Università di Camerino",
+      "orcid": "0009-0005-9019-616X"
+    }
   ],
-  "keywords": ["Local Climate Zones", "QGIS", "urban climate", "Italy"],
+  "keywords": [
+    "Local Climate Zones",
+    "QGIS",
+    "urban climate",
+    "Italy"
+  ],
   "related_identifiers": [
-    {"relation": "isSupplementTo", "identifier": "https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub", "scheme": "url"}
+    {
+      "relation": "isSupplementTo",
+      "identifier": "https://github.com/grazianoEnzoMarchesani/FETCH-Framework-for-Environmental-Type-Classification-Hub",
+      "scheme": "url"
+    }
   ]
 }
