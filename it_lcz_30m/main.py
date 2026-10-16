@@ -11,6 +11,10 @@ import os.path
 from .ui.dashboard import ITLCZDashboard
 
 class ITLCZ30m:
+    """
+    Main Plugin Entry Point for IT-LCZ 30m.
+    Following SoC, this class only handles the action registration and setup.
+    """
     def __init__(self, iface):
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
@@ -52,6 +56,7 @@ class ITLCZ30m:
         return action
 
     def initGui(self):
+        """Initializes the plugin GUI elements."""
         icon_path = os.path.join(self.plugin_dir, 'icon.png')
         self.add_action(
             icon_path,
@@ -61,6 +66,7 @@ class ITLCZ30m:
         )
 
     def unload(self):
+        """Removes the plugin menu and toolbar icons."""
         for action in self.actions:
             self.iface.removePluginMenu(self.menu, action)
             self.iface.removeToolBarIcon(action)
